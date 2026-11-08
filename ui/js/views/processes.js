@@ -889,9 +889,9 @@ function pushSection(items, id, label, rows, byName, filterActive) {
   let cpu = 0;
   let memory = 0;
   for (const r of rows) { cpu += r.cpu || 0; memory += r.memory || 0; }
-  items.push({ t: 'sec', key: `s:${id}`, id, label, n: rows.length, open, cpu, memory, depth: -1 });
-  if (!open) return;
   if (!byName) {
+    items.push({ t: 'sec', key: `s:${id}`, id, label, n: rows.length, open, cpu, memory, depth: -1 });
+    if (!open) return;
     rows.sort(cmpRows);
     for (const r of rows) items.push(procItem(r, 0));
     return;
@@ -903,6 +903,9 @@ function pushSection(items, id, label, rows, byName, filterActive) {
     if (!g) map.set(k, (g = []));
     g.push(r);
   }
+  // Like Task Manager, the header counts the entries shown (one per app name).
+  items.push({ t: 'sec', key: `s:${id}`, id, label, n: map.size, open, cpu, memory, depth: -1 });
+  if (!open) return;
   const entries = [];
   for (const [k, members] of map) {
     entries.push(members.length === 1 ? { single: members[0], v: members[0] } : makeGroup(k, members));

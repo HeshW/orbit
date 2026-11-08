@@ -680,9 +680,26 @@ const mock = (() => {
     if (Number.isFinite(t) && t > 0 && Math.abs(t - p.startTime) > 1) throw 'That process has exited.';
   }
 
-  function guard(p) {
+  // As in Rust (WINDOWS_CRITICAL, DESKTOP_CRITICAL): ending or suspending these takes Windows down.
+  const WINDOWS_NEEDS_IT = 'Windows needs this process. Ending it would crash the PC.';
+  const CRITICAL = new Set([
+    'system', 'registry', 'smss.exe', 'csrss.exe', 'wininit.exe', 'services.exe', 'lsass.exe',
+    'winlogon.exe', 'memory compression', 'secure system',
+  ]);
+  const DESKTOP = new Set([
+    'dwm.exe', 'winlogon.exe', 'csrss.exe', 'wininit.exe', 'smss.exe', 'services.exe', 'lsass.exe', 'fontdrvhost.exe',
+  ]);
+
+  // verb: 'end' (End task, End tree) or 'suspend'; other actions pass none.
+  function guard(p, verb) {
+    if (verb && p.pid === 0) throw `The System Idle Process only counts unused CPU time, so it can't be ${verb}ed.`;
+    if (verb && p.pid === 4) throw WINDOWS_NEEDS_IT;
     if (p.pid === state.ownPid) throw "Orbit can't do that to itself.";
-    if (PROTECTED.has(p.name.toLowerCase())) throw PROTECTED_MSG;
+    const n = p.name.toLowerCase();
+    if (verb === 'end' && CRITICAL.has(n)) throw WINDOWS_NEEDS_IT;
+    if (verb === 'suspend' && DESKTOP.has(n)) throw `${p.name} is needed to draw or run the desktop; suspending it would freeze Windows with no way to resume it.`;
+    if (verb === 'suspend' && CRITICAL.has(n)) throw `${p.name} is a critical Windows process; suspending it would freeze Windows with no way to resume it.`;
+    if (PROTECTED.has(n)) throw PROTECTED_MSG;
     if (!state.isAdmin && p.user !== 'Hesh') throw DENIED;
   }
 
@@ -747,7 +764,7 @@ const mock = (() => {
     end_task({ pid, startTime }) {
       const p = findProc(pid);
       checkStart(p, startTime);
-      guard(p);
+      guard(p, 'end');
       removeProc(p.pid);
       return null;
     },
@@ -755,7 +772,7 @@ const mock = (() => {
     end_tree({ pid, startTime }) {
       const p = findProc(pid);
       checkStart(p, startTime);
-      guard(p);
+      guard(p, 'end');
       const all = [p, ...descendants(p.pid)];
       let n = 0;
       for (const q of all) {
@@ -769,7 +786,7 @@ const mock = (() => {
     suspend_process({ pid, startTime }) {
       const p = findProc(pid);
       checkStart(p, startTime);
-      guard(p);
+      guard(p, 'suspend');
       p.suspended = true;
       return null;
     },

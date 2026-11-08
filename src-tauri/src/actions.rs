@@ -177,10 +177,17 @@ fn is_protected(pid: u32) -> bool {
 /// for Orbit's helpers, so one that got suspended somehow can be woken.
 fn guard_pid(pid: u32, verb: &str) -> Result<(), String> {
     if pid == 0 {
-        return Err(format!("The System Idle Process can't be {verb}."));
+        return Err(format!(
+            "The System Idle Process only counts unused CPU time, so it can't be {verb}."
+        ));
     }
     if pid == 4 {
-        return Err(format!("The System process can't be {verb}."));
+        // The Windows kernel: ending or suspending it gets the same answer as
+        // csrss.exe and the other processes in `WINDOWS_CRITICAL`.
+        return Err(match verb {
+            "ended" | "suspended" => WINDOWS_NEEDS_IT.to_string(),
+            _ => format!("The System process can't be {verb}."),
+        });
     }
     if pid == std::process::id() {
         return Err(format!("Orbit can't be {verb} from inside itself."));
@@ -2036,6 +2043,17 @@ mod tests {
         assert!(!m("explorer.exe", Some(r"C:\Windows\explorer.exe")));
         assert!(!m("svchost.exe", Some(r"C:\Windows\System32\svchost.exe")));
         assert!(!m("csrss", None));
+    }
+
+    #[test]
+    fn refuses_system_and_idle() {
+        // pid 4 (System) gets the same answer as csrss.exe.
+        assert_eq!(guard_pid(4, "ended"), Err(WINDOWS_NEEDS_IT.to_string()));
+        assert_eq!(guard_pid(4, "suspended"), Err(WINDOWS_NEEDS_IT.to_string()));
+        assert_eq!(end_tree_blocking(4, None), (Vec::new(), Err(WINDOWS_NEEDS_IT.to_string())));
+        assert_eq!(guard_pid(4, "resumed"), Err("The System process can't be resumed.".to_string()));
+        assert!(guard_pid(0, "ended").unwrap_err().starts_with("The System Idle Process"));
+        assert!(guard_pid(0, "suspended").unwrap_err().ends_with("can't be suspended."));
     }
 
     #[test]

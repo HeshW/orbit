@@ -810,21 +810,24 @@
 
 @container perf-view (max-width: 860px) {
   .perf-body { grid-template-columns: minmax(0, 1fr); }
+  /* One row of compact tiles above the detail panel: every tile stays in
+     sight, no horizontal scrolling. The detail panel below has the graph. */
   .perf-tiles {
     position: static;
-    flex-direction: row;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--line-strong) transparent;
-    padding: 4px 4px 8px;
-    margin: -4px -4px 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
   .perf .perf-tile {
-    flex: 0 0 216px;
-    grid-template-columns: 26px minmax(0, 1fr) 64px;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px 10px 8px 8px;
   }
-  .perf-tile__spark { width: 64px; height: 30px; }
-  .perf-tile__icon { width: 26px; height: 26px; }
+  .perf .perf-tile::before { top: 8px; bottom: 8px; }
+  .perf-tile__spark { display: none; }
+  .perf-tile__icon { width: 24px; height: 24px; }
+  .perf-tile__icon .icon { width: 16px; height: 16px; }
+  .perf-tile__name { letter-spacing: 0.16em; }
+  .perf-tile__value { font-size: 15px; }
 }
 
 /* ---------------------------------------------------------------- reduced motion */

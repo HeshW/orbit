@@ -188,6 +188,13 @@ export function initDetails() {
     if (pid == null || pid === '') close();
     else if (Number.isFinite(Number(pid))) openFor(Number(pid));
   });
+  // Switching section closes the drawer. Views that open it for a process
+  // (Services "Go to process", palette "Details") navigate first, then select.
+  on('view', () => {
+    if (!d.open) return;
+    close(false);
+    selectProcess(null);
+  });
   on('snapshot', onSnapshot);
   // Minimised: skip the drawer's live patching; catch up when the window shows again.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) onSnapshot(); });
@@ -249,9 +256,10 @@ function openFor(pid) {
   if (!wasOpen) requestAnimationFrame(() => { if (d.open) d.r.close.focus({ preventScroll: true }); });
 }
 
-function close() {
+function close(restoreFocus = true) {
   if (!d.el || !d.open) return;
   const hadFocus = d.el.contains(document.activeElement);
+  if (!restoreFocus && hadFocus) document.activeElement.blur();
   d.open = false;
   d.token++;
   clearInterval(d.timer);
@@ -259,7 +267,7 @@ function close() {
   d.el.classList.remove('is-open');
   d.el.setAttribute('aria-hidden', 'true');
   d.el.inert = true;
-  if (hadFocus || document.activeElement === document.body) {
+  if (restoreFocus && (hadFocus || document.activeElement === document.body)) {
     const back = d.opener && d.opener.isConnected ? d.opener : document.querySelector('#view-processes .proc-scroll');
     if (back) back.focus({ preventScroll: true });
   }

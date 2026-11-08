@@ -243,12 +243,12 @@ function template() {
       <section class="panel lv-panel lv-about" aria-labelledby="set-about-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-about-h">About</h2>
-          <span class="micro">Version / 0.2.0</span>
+          <span class="micro">Version / 0.2.1</span>
         </div>
         <div class="lv-about-id">
           ${markSvg()}
           <div class="lv-about-text">
-            <p class="lv-about-name">Orbit 0.2.0</p>
+            <p class="lv-about-name">Orbit 0.2.1</p>
             <p class="lv-about-by">Made by Legacy<span class="brand-accent">Tech</span></p>
           </div>
         </div>
