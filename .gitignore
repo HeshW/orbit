@@ -1,0 +1,13 @@
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.vercel
+
+# Local screenshots of the real machine (personal window titles); public ones live in site/img
+docs/screenshots/

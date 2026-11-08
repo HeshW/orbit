@@ -1,0 +1,276 @@
+/* Orbit / tokens
+   LegacyTech design-system tokens as CSS custom properties.
+   Night is the design system as-is. Void, Signal and Daylight reuse the same names,
+   so every view works in all four themes through variables only.
+   Theme blocks match any element with data-theme (not only :root), so a preview card
+   that carries its own data-theme gets that theme's tokens for itself and its children. */
+
+@font-face {
+  font-family: "Oxanium";
+  src: url("../assets/fonts/Oxanium.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Manrope";
+  src: url("../assets/fonts/Manrope.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------ fixed tokens */
+:root {
+  --font-display: "Oxanium", "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+  --radius-btn: 4px 18px 4px 18px;
+  --radius-pass: 22px 6px 22px 6px;
+  --radius-tile: 12px 4px 12px 4px;
+  --radius-tile-sm: 10px 3px 10px 3px;
+
+  --ease: cubic-bezier(0.2, 0.75, 0.18, 1);
+  --dur-1: 0.25s;
+  --dur-2: 0.45s;
+  --dur-3: 0.9s;
+
+  /* layout */
+  --titlebar-h: 48px;
+  --sidebar-w: 208px;
+  --drawer-w: 420px;
+  --row-h: 32px;
+
+  /* layers */
+  --z-drawer: 40;
+  --z-titlebar: 50;
+  --z-menu: 150;
+  --z-palette: 170;
+  --z-dialog: 180;
+  --z-toast: 200;
+}
+
+/* ------------------------------------------------------------ Night (default) */
+:root,
+[data-theme="night"] {
+  color-scheme: dark;
+
+  --bg: #050b18;
+  --bg-raised: #0a1428;
+  --panel-solid: #0b1529;
+  --navy: #0a0f1f;
+  --panel: linear-gradient(180deg, rgba(14, 26, 52, 0.78), rgba(8, 16, 34, 0.55));
+
+  --ink: #f2f5ff;
+  --ink-2: #c3cee6;
+  --muted: #8b9cbd;
+  --muted-2: #6f84a8;
+
+  --blue: #4f8cff;
+  --cyan: #38d5f0;
+  --cyan-ink: #38d5f0;
+  --blue-soft: #8db4ff;
+  --edge: #d6e6ff;
+
+  --line: rgba(141, 180, 255, 0.12);
+  --line-soft: rgba(141, 180, 255, 0.07);
+  --line-strong: rgba(141, 180, 255, 0.26);
+
+  --accent-grad: linear-gradient(90deg, #9dc0ff, #8db4ff, #6fd6f4);
+  --primary-bg: linear-gradient(180deg, #336de3, #2552c0);
+  --on-primary: #ffffff;
+
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  --shadow-soft: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+  --glow: 0 0 40px rgba(79, 140, 255, 0.18);
+
+  --danger: #ff6b81;
+  --warn: #ffc46b;
+  --ok: #4fe3a8;
+
+  --heat-rgb: 79, 140, 255;
+
+  --chart-cpu: #38d5f0;
+  --chart-mem: #8db4ff;
+  --chart-disk: #5fe0b0;
+  --chart-net: #f0b45a;
+  --chart-gpu: #c3a6ff;
+  --chart-grid: rgba(141, 180, 255, 0.09);
+
+  /* atmosphere */
+  --grid-line: rgba(141, 180, 255, 0.04);
+  --atmo-a: rgba(79, 140, 255, 0.11);
+  --atmo-b: rgba(56, 213, 240, 0.06);
+  --vignette: rgba(0, 0, 0, 0.34);
+  --overlay: rgba(2, 6, 14, 0.62);
+}
+
+/* ------------------------------------------------------------ Void (OLED black) */
+[data-theme="void"] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --bg-raised: #060a12;
+  --panel-solid: #070c16;
+  --navy: #05080f;
+  --panel: linear-gradient(180deg, rgba(10, 17, 32, 0.88), rgba(4, 8, 16, 0.82));
+
+  --ink: #f2f5ff;
+  --ink-2: #c3cee6;
+  --muted: #8b9cbd;
+  --muted-2: #7488ab;
+
+  --blue: #4f8cff;
+  --cyan: #38d5f0;
+  --cyan-ink: #38d5f0;
+  --blue-soft: #8db4ff;
+  --edge: #d6e6ff;
+
+  --line: rgba(141, 180, 255, 0.11);
+  --line-soft: rgba(141, 180, 255, 0.06);
+  --line-strong: rgba(141, 180, 255, 0.24);
+
+  --accent-grad: linear-gradient(90deg, #9dc0ff, #8db4ff, #6fd6f4);
+  --primary-bg: linear-gradient(180deg, #336de3, #2552c0);
+  --on-primary: #ffffff;
+
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.8);
+  --shadow-soft: 0 24px 60px -28px rgba(0, 0, 0, 0.9);
+  --glow: 0 0 32px rgba(79, 140, 255, 0.14);
+
+  --danger: #ff6b81;
+  --warn: #ffc46b;
+  --ok: #4fe3a8;
+
+  --heat-rgb: 79, 140, 255;
+
+  --chart-cpu: #38d5f0;
+  --chart-mem: #8db4ff;
+  --chart-disk: #5fe0b0;
+  --chart-net: #f0b45a;
+  --chart-gpu: #c3a6ff;
+  --chart-grid: rgba(141, 180, 255, 0.08);
+
+  --grid-line: rgba(141, 180, 255, 0.035);
+  --atmo-a: transparent;
+  --atmo-b: transparent;
+  --vignette: transparent;
+  --overlay: rgba(0, 0, 0, 0.72);
+}
+
+/* ------------------------------------------------------------ Signal (high contrast) */
+[data-theme="signal"] {
+  color-scheme: dark;
+
+  --bg: #02060f;
+  --bg-raised: #08111f;
+  --panel-solid: #0a1426;
+  --navy: #050a16;
+  --panel: linear-gradient(180deg, #0b1629, #070f1e);
+
+  --ink: #ffffff;
+  --ink-2: #e8eeff;
+  --muted: #c9d4ec;
+  --muted-2: #b1bfdb;
+
+  --blue: #6ea2ff;
+  --cyan: #52e8ff;
+  --cyan-ink: #52e8ff;
+  --blue-soft: #adc9ff;
+  --edge: #ffffff;
+
+  --line: rgba(190, 215, 255, 0.42);
+  --line-soft: rgba(190, 215, 255, 0.26);
+  --line-strong: rgba(214, 230, 255, 0.72);
+
+  --accent-grad: linear-gradient(90deg, #c4d9ff, #adc9ff, #8fe6ff);
+  --primary-bg: linear-gradient(180deg, #1f5ad0, #1a4cb2);
+  --on-primary: #ffffff;
+
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+  --shadow-soft: 0 18px 40px -24px rgba(0, 0, 0, 0.9);
+  --glow: 0 0 0 1px rgba(214, 230, 255, 0.5);
+
+  --danger: #ff8a9b;
+  --warn: #ffd28a;
+  --ok: #6ff0bd;
+
+  --heat-rgb: 96, 170, 255;
+
+  --chart-cpu: #52e8ff;
+  --chart-mem: #adc9ff;
+  --chart-disk: #7cf2c4;
+  --chart-net: #ffc46b;
+  --chart-gpu: #d6c0ff;
+  --chart-grid: rgba(190, 215, 255, 0.2);
+
+  --grid-line: rgba(190, 215, 255, 0.045);
+  --atmo-a: rgba(79, 140, 255, 0.07);
+  --atmo-b: transparent;
+  --vignette: transparent;
+  --overlay: rgba(0, 0, 0, 0.78);
+}
+
+/* ------------------------------------------------------------ Daylight (light) */
+[data-theme="daylight"] {
+  color-scheme: light;
+
+  --bg: #f4f6fb;
+  --bg-raised: #e9eef7;
+  --panel-solid: #ffffff;
+  --navy: #0a0f1f;
+  --panel: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.76));
+
+  --ink: #0a0f1f;
+  --ink-2: #26324d;
+  --muted: #4a5878;
+  --muted-2: #56637f;
+
+  --blue: #2f6feb;
+  --cyan: #0b8db8;
+  --cyan-ink: #08739a;
+  --blue-soft: #2a5fd0;
+  --edge: #ffffff;
+
+  --line: rgba(10, 15, 31, 0.11);
+  --line-soft: rgba(10, 15, 31, 0.065);
+  --line-strong: rgba(10, 15, 31, 0.24);
+
+  --accent-grad: linear-gradient(90deg, #2f6feb, #2a5fd0, #08739a);
+  --primary-bg: linear-gradient(180deg, #2f6feb, #2556c4);
+  --on-primary: #ffffff;
+
+  --shadow: 0 30px 80px rgba(20, 32, 64, 0.18);
+  --shadow-soft: 0 24px 60px -28px rgba(20, 32, 64, 0.3);
+  --glow: 0 0 36px rgba(47, 111, 235, 0.14);
+
+  --danger: #a8233c;
+  --warn: #7a4800;
+  --ok: #0d7a52;
+
+  --heat-rgb: 47, 111, 235;
+
+  --chart-cpu: #0b8db8;
+  --chart-mem: #2f6feb;
+  --chart-disk: #0d8a5e;
+  --chart-net: #b26a00;
+  --chart-gpu: #7a4fd6;
+  --chart-grid: rgba(10, 15, 31, 0.08);
+
+  --grid-line: rgba(10, 15, 31, 0.045);
+  --atmo-a: rgba(47, 111, 235, 0.08);
+  --atmo-b: rgba(11, 141, 184, 0.06);
+  --vignette: transparent;
+  --overlay: rgba(10, 15, 31, 0.32);
+}
+
+/* Compact rows */
+html.compact {
+  --row-h: 26px;
+}

@@ -1,0 +1,59 @@
+# Builds the Orbit installer on GitHub's Windows runners and publishes it as a GitHub Release.
+# Trigger: push a tag like v0.2.0 (git tag v0.2.0 && git push origin v0.2.0), or run it by hand.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Build installer and create release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: tauri
+          args: --bundles nsis
+          # tauri-action replaces __VERSION__ with the version in tauri.conf.json, so keep tags in sync with it.
+          tagName: v__VERSION__
+          releaseName: Orbit v__VERSION__
+          releaseBody: |
+            Windows 10 and 11 (64-bit). Download **Orbit-Setup.exe** below and run it.
+            Orbit is not code-signed yet, so Windows SmartScreen may warn you: click **More info**, then **Run anyway**.
+          releaseDraft: false
+          prerelease: false
+
+      # A copy with a fixed name, so https://github.com/HeshW/orbit/releases/latest/download/Orbit-Setup.exe always works.
+      - name: Attach Orbit-Setup.exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "No NSIS installer found" }
+          Copy-Item $setup.FullName Orbit-Setup.exe
+          $tag = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          gh release upload "v$tag" Orbit-Setup.exe --clobber

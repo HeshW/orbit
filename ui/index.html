@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Orbit</title>
+  <link rel="icon" type="image/svg+xml" href="assets/orbit-mark-dark.svg">
+  <script>
+    /* Apply saved theme and row density before first paint (no flash). */
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('orbit.settings') || '{}') || {};
+        var themes = ['night', 'void', 'signal', 'daylight'];
+        var d = document.documentElement;
+        d.setAttribute('data-theme', themes.indexOf(s.theme) >= 0 ? s.theme : 'night');
+        if (s.compact === true) d.classList.add('compact');
+        if (s.reducedMotion === true) d.classList.add('reduce-motion');
+      } catch (e) { /* storage blocked: defaults apply */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/views/processes.css">
+  <link rel="stylesheet" href="css/views/performance.css">
+  <link rel="stylesheet" href="css/views/lists.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>
+      </symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/><rect x="9.75" y="9.75" width="4.5" height="4.5" rx="0.6"/>
+        <path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/>
+      </symbol>
+      <symbol id="i-memory" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="6.5" width="18" height="10" rx="1.5"/><path d="M7 9.5v4M11 9.5v4M15 9.5v4M6 16.5V20M10 16.5V20M14 16.5V20M18 16.5V20"/>
+      </symbol>
+      <symbol id="i-disk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M5.2 13L7.8 5.5a1 1 0 0 1 .95-.7h6.5a1 1 0 0 1 .95.7L18.8 13"/><path d="M13.5 16.5h4M6.75 16.5h.01"/>
+      </symbol>
+      <symbol id="i-network" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 19.5V4.5M8 4.5L4.5 8M8 4.5L11.5 8"/><path d="M16 4.5v15M16 19.5L12.5 16M16 19.5l3.5-3.5"/>
+      </symbol>
+      <symbol id="i-gpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.5" y="6" width="19" height="11" rx="1.5"/><circle cx="9" cy="11.5" r="2.8"/><path d="M15 9.5h3.5M15 13.5h3.5M5.5 17v2.5M9.5 17v2.5"/>
+      </symbol>
+      <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 6h10.5M9.5 12h10.5M9.5 18h10.5"/><path d="M4.75 6h.01M4.75 12h.01M4.75 18h.01" stroke-width="2.6"/>
+      </symbol>
+      <symbol id="i-tree" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3.5" y="2.5" width="6" height="4.5" rx="1"/><path d="M6.5 7v10.5a1.5 1.5 0 0 0 1.5 1.5h3M6.5 10.5h4.5"/>
+        <rect x="11" y="8.25" width="9.5" height="4.5" rx="1"/><rect x="11" y="16.75" width="9.5" height="4.5" rx="1"/>
+      </symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/>
+        <rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/>
+      </symbol>
+      <symbol id="i-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2.8c2.9 2.1 4.4 5.2 4.4 9v4.2H7.6v-4.2c0-3.8 1.5-6.9 4.4-9z"/><circle cx="12" cy="9.5" r="1.6"/>
+        <path d="M7.6 12.6L5 15.2v3.3h2.6M16.4 12.6l2.6 2.6v3.3h-2.6"/><path d="M10.4 19l1.6 2.2 1.6-2.2"/>
+      </symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18.46 9.57L20.82 10.21L20.82 13.79L18.46 14.43L18.29 14.85L19.5 16.97L16.97 19.5L14.85 18.29L14.43 18.46L13.79 20.82L10.21 20.82L9.57 18.46L9.15 18.29L7.03 19.5L4.5 16.97L5.71 14.85L5.54 14.43L3.18 13.79L3.18 10.21L5.54 9.57L5.71 9.15L4.5 7.03L7.03 4.5L9.15 5.71L9.57 5.54L10.21 3.18L13.79 3.18L14.43 5.54L14.85 5.71L16.97 4.5L19.5 7.03L18.29 9.15Z"/>
+        <circle cx="12" cy="12" r="2.9"/>
+      </symbol>
+      <symbol id="i-services" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3.5l8.5 4.4-8.5 4.4-8.5-4.4z"/><path d="M3.5 12l8.5 4.4 8.5-4.4"/><path d="M3.5 16.1l8.5 4.4 8.5-4.4"/>
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 12.5l5 5 10-11"/>
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/>
+      </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5"/><path d="M6 18L18 6"/>
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 5.5v13M15 5.5v13"/>
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7.5 5.2v13.6a.6.6 0 0 0 .9.5l10.6-6.8a.6.6 0 0 0 0-1L8.4 4.7a.6.6 0 0 0-.9.5z"/>
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2.5h8a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z"/>
+      </symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.3 2.4 3.5 5.3 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.3-3.5-8.5S9.7 5.9 12 3.5z"/>
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="8.5" y="8.5" width="11" height="11" rx="1.5"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>
+      </symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 4h6l-.9 5.2 3.4 3.4v1.6h-11v-1.6l3.4-3.4z"/><path d="M12 14.2v5.8"/>
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"/><path d="M9 12l2.1 2.1L15.2 10"/>
+      </symbol>
+      <symbol id="i-arrow-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19V5M6 11l6-6 6 6"/>
+      </symbol>
+      <symbol id="i-arrow-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14M6 13l6 6 6-6"/>
+      </symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14M13 6l6 6-6 6"/>
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 6l6 6-6 6"/>
+      </symbol>
+      <symbol id="i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="2.8"/>
+      </symbol>
+      <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 5.5h16l-6.2 7.4v5.3L10.2 20v-7.1z"/>
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4v11M7 10.5l5 5 5-5"/><path d="M4.5 19.5h15"/>
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>
+      </symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 3L5.5 13.5H12L11 21l7.5-10.5H12z"/>
+      </symbol>
+      <symbol id="i-minimize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 12h11"/>
+      </symbol>
+      <symbol id="i-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6.5" y="6.5" width="11" height="11" rx="1"/>
+      </symbol>
+      <symbol id="i-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="8.5" width="9.5" height="9.5" rx="1"/><path d="M9 8.5V6.5a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-.5.5h-2"/>
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>
+      </symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24">
+        <path fill="currentColor" stroke="none" d="M12 3c.7 4.6 3.4 7.3 8 8-4.6.7-7.3 3.4-8 8-.7-4.6-3.4-7.3-8-8 4.6-.7 7.3-3.4 8-8z"/>
+      </symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.5 19.5h17"/><path d="M5 15.5l4-5 3.5 3 6.5-8"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <header id="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <img class="brand-mark brand-mark--dark" src="assets/orbit-mark-dark.svg" alt="" width="20" height="20" draggable="false" data-tauri-drag-region>
+      <img class="brand-mark brand-mark--light" src="assets/orbit-mark-light.svg" alt="" width="20" height="20" draggable="false" data-tauri-drag-region>
+      <span class="brand-word" data-tauri-drag-region>Orbit</span>
+      <span class="brand-sep" aria-hidden="true" data-tauri-drag-region></span>
+      <span class="brand-product micro" data-tauri-drag-region>by Legacy<span class="brand-accent" data-tauri-drag-region>Tech</span></span>
+    </div>
+    <div class="titlebar-spacer" data-tauri-drag-region></div>
+    <div id="global-search" role="search">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="search" type="search" placeholder="Search processes, PIDs, paths, services" autocomplete="off" spellcheck="false" aria-label="Search processes, PIDs, paths, services">
+      <button type="button" id="search-clear" class="search-clear" aria-label="Clear search" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+      <kbd class="kbd" id="search-hint" aria-hidden="true">/</kbd>
+    </div>
+    <div class="titlebar-spacer" data-tauri-drag-region></div>
+    <div class="titlebar-status">
+      <button type="button" id="live-indicator" class="chip chip--live" title="Pause updates (Space)">
+        <span class="signal" aria-hidden="true"></span>
+        <span id="live-text">Live / 1.0 s</span>
+      </button>
+      <div id="admin-badge"></div>
+      <button type="button" id="win-pin" class="icon-btn titlebar-pin" aria-pressed="false" aria-label="Always on top" title="Always on top">
+        <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
+      </button>
+    </div>
+    <div class="win-controls">
+      <button type="button" id="win-min" class="win-btn" aria-label="Minimize" title="Minimize">
+        <svg class="icon" aria-hidden="true"><use href="#i-minimize"/></svg>
+      </button>
+      <button type="button" id="win-max" class="win-btn" aria-label="Maximize" title="Maximize">
+        <svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg>
+      </button>
+      <button type="button" id="win-close" class="win-btn win-btn--close" aria-label="Close" title="Close">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <nav id="sidebar" aria-label="Sections">
+    <div class="nav-list">
+      <button type="button" class="nav-item" data-view="processes" title="Processes (1)">
+        <svg class="icon" aria-hidden="true"><use href="#i-list"/></svg>
+        <span class="nav-label">Processes</span>
+        <span class="nav-index">01</span>
+      </button>
+      <button type="button" class="nav-item" data-view="performance" title="Performance (2)">
+        <svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>
+        <span class="nav-label">Performance</span>
+        <span class="nav-index">02</span>
+      </button>
+      <button type="button" class="nav-item" data-view="startup" title="Startup (3)">
+        <svg class="icon" aria-hidden="true"><use href="#i-rocket"/></svg>
+        <span class="nav-label">Startup</span>
+        <span class="nav-index">03</span>
+      </button>
+      <button type="button" class="nav-item" data-view="services" title="Services (4)">
+        <svg class="icon" aria-hidden="true"><use href="#i-services"/></svg>
+        <span class="nav-label">Services</span>
+        <span class="nav-index">04</span>
+      </button>
+      <button type="button" class="nav-item" data-view="settings" title="Settings (5)">
+        <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>
+        <span class="nav-label">Settings</span>
+        <span class="nav-index">05</span>
+      </button>
+    </div>
+
+    <button type="button" class="sidebar-foot" id="mini-readout" title="Open Performance">
+      <span class="micro">Live / System</span>
+      <span class="mini-meter">
+        <span class="mini-meter__head">
+          <span class="mini-meter__label">CPU</span>
+          <span class="mini-meter__value" id="mini-cpu">--</span>
+        </span>
+        <span class="mini-meter__bar"><span class="mini-meter__fill mini-meter__fill--cpu" id="mini-cpu-bar"></span></span>
+      </span>
+      <span class="mini-meter">
+        <span class="mini-meter__head">
+          <span class="mini-meter__label">Memory</span>
+          <span class="mini-meter__value" id="mini-mem">--</span>
+        </span>
+        <span class="mini-meter__bar"><span class="mini-meter__fill mini-meter__fill--mem" id="mini-mem-bar"></span></span>
+        <span class="mini-meter__sub" id="mini-mem-sub">&nbsp;</span>
+      </span>
+    </button>
+  </nav>
+
+  <main id="main" tabindex="-1">
+    <section id="view-processes" class="view" aria-label="Processes"></section>
+    <section id="view-performance" class="view" aria-label="Performance"></section>
+    <section id="view-startup" class="view" aria-label="Startup"></section>
+    <section id="view-services" class="view" aria-label="Services"></section>
+    <section id="view-settings" class="view" aria-label="Settings"></section>
+  </main>
+
+  <aside id="details" class="drawer" aria-label="Process details"></aside>
+  <div id="palette" class="palette"></div>
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  <div id="context-menu" class="context-menu" role="menu" hidden></div>
+  <div id="dialog" class="dialog-layer" hidden></div>
+</body>
+</html>

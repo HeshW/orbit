@@ -1,0 +1,1252 @@
+/* Orbit / lists.css
+   03 / Startup, 04 / Services, 05 / Settings.
+   Theme colours come only from token variables; nothing here is theme-specific. */
+
+/* ============================================================ shared list layout */
+
+/* Startup and Services mount into .view--fill sections (own scroller);
+   Settings flows in #main's scroll. */
+.lv {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.lv-head-text {
+  min-width: 0;
+}
+
+.lv > .view-head,
+.lv > .toolbar {
+  flex: none;
+  margin-bottom: 0;
+}
+
+.lv-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* stats in the head */
+.lv-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.lv-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 96px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 10%, transparent);
+}
+
+.lv-stat .micro {
+  margin: 0;
+}
+
+.lv-stat-value {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 22px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* toolbar */
+.lv-toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.lv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lv-chips .chip {
+  cursor: pointer;
+  gap: 8px;
+}
+
+.lv-chip-count {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-chip-count:empty {
+  display: none;
+}
+
+.lv-chips .chip--on .lv-chip-count {
+  color: var(--ink-2);
+}
+
+.lv-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.lv-count {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.lv-refresh.is-busy .icon {
+  animation: lv-spin 0.9s linear infinite;
+}
+
+@keyframes lv-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* table panel: the scroller fills the rest of the view */
+.lv-table-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 220px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.lv-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.lv-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.lv-table th,
+.lv-table td {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.lv-table tbody .row {
+  height: var(--row-h, 32px);
+}
+
+.lv-table.is-empty tbody {
+  display: none;
+}
+
+/* sortable header: a real button inside the th (the th keeps the sort arrow) */
+.lv-sort {
+  appearance: none;
+  display: inline-block;
+  max-width: calc(100% - 14px);
+  vertical-align: middle;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lv-sort:hover {
+  color: var(--ink-2);
+}
+
+.lv-sort:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 2px;
+}
+
+/* virtual-window spacers */
+.lv-table .lv-spacer,
+.lv-table .lv-spacer:hover {
+  background: none;
+}
+
+.lv-table .lv-spacer td {
+  height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+}
+
+/* pending rows */
+.lv-table .row.is-pending {
+  cursor: progress;
+}
+
+/* shared cells */
+.lv-namecell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lv-primary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.lv-secondary {
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lv-mono {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lv-desc {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lv-faint {
+  color: var(--muted);
+}
+
+.lv-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* small chips inside dense rows */
+.lv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: auto;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.lv-chip--muted {
+  color: var(--muted);
+  border-color: var(--line);
+  background: transparent;
+}
+
+/* text-styled button (PID link) */
+.lv-link {
+  appearance: none;
+  padding: 1px 4px;
+  margin: 0 -4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--blue-soft);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--blue-soft) 40%, transparent);
+  text-underline-offset: 3px;
+  transition: color var(--dur-1) var(--ease), text-decoration-color var(--dur-1) var(--ease);
+}
+
+.lv-link:hover {
+  color: var(--ink);
+  text-decoration-color: var(--cyan);
+}
+
+/* compact icon button inside rows and lists */
+.lv-more {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 0;
+  padding: 0;
+}
+
+.lv-more .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* In table rows the controls follow the row height (compact rows shrink them). */
+.lv-table .lv-more {
+  width: calc(var(--row-h, 32px) - 4px);
+  height: calc(var(--row-h, 32px) - 4px);
+  min-width: 0;
+}
+
+/* Cells clip overflow, so the row icon buttons draw their focus ring inside. */
+.lv-table .lv-more:focus-visible {
+  outline-offset: -2px;
+}
+
+/* A short numeric cell never needs an ellipsis: let the PID link's ring show. */
+.lv-table--services td.c-pid {
+  overflow: visible;
+}
+
+.lv-table .lv-chip {
+  min-height: 0;
+  max-height: calc(var(--row-h, 32px) - 6px);
+}
+
+.lv-table .switch {
+  vertical-align: middle;
+}
+
+/* empty / loading / error */
+.lv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 220px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.lv-empty[hidden] {
+  display: none;
+}
+
+.lv-empty > .icon {
+  width: 28px;
+  height: 28px;
+  color: var(--blue-soft);
+}
+
+.lv-empty-title {
+  max-width: 52ch;
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.lv-empty-body {
+  margin: 0 0 6px;
+  max-width: 52ch;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ============================================================ 03 / Startup */
+
+.lv-table--startup .c-toggle { width: 64px; }
+.lv-table--startup .c-name { width: 24%; }
+.lv-table--startup .c-cmd { width: auto; }
+.lv-table--startup .c-loc { width: 222px; }
+.lv-table--startup .c-impact { width: 128px; }
+.lv-table--startup .c-status { width: 88px; }
+.lv-table--startup .c-more { width: 48px; text-align: center; }
+
+.lv-impact-none {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lv-impact-when {
+  white-space: nowrap;
+}
+
+/* "Measure at next sign-in" is scheduled */
+.lv-note {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 32%, transparent);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--cyan) 7%, transparent);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.lv-note[hidden] {
+  display: none;
+}
+
+.lv-note-text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.lv-table--startup td.c-toggle {
+  overflow: visible;
+}
+
+.lv-table--startup .switch[aria-disabled="true"] {
+  cursor: progress;
+}
+
+.lv-ico {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.lv-ico--blank {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--blue-soft);
+}
+
+.lv-ico--blank .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.lv-loccell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lv-admin {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--warn);
+}
+
+.lv-admin .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.lv-status {
+  font-size: 13px;
+}
+
+.lv-status--on {
+  color: var(--ink-2);
+}
+
+.lv-status--off {
+  color: var(--muted);
+}
+
+/* ============================================================ 04 / Services */
+
+.lv-table--services .c-name { width: 28%; }
+.lv-table--services .c-status { width: 124px; }
+.lv-table--services .c-start { width: 156px; }
+.lv-table--services .c-pid { width: 72px; }
+.lv-table--services .c-desc { width: auto; }
+.lv-table--services .c-actions { width: 276px; }
+.lv-table--services .c-more { width: 48px; text-align: center; }
+
+.lv-table--services td.c-actions {
+  overflow: visible;
+}
+
+.lv-start {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.lv-start--off {
+  color: var(--muted);
+}
+
+.lv-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lv-actions .lv-act {
+  gap: 6px;
+  height: calc(var(--row-h, 32px) - 6px);
+  min-height: 0;
+  padding: 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+.lv-actions .lv-act .icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.lv-actions .lv-act:disabled {
+  cursor: not-allowed;
+}
+
+/* Narrower windows: icon-only controls, then drop descriptions. */
+@media (max-width: 1400px) {
+  .lv-table--services .c-actions { width: 116px; }
+  .lv-actions .lv-act { width: 32px; padding: 0; justify-content: center; }
+  .lv-btn-label { display: none; }
+}
+
+@media (max-width: 1180px) {
+  .lv-table--services .c-desc { display: none; }
+  .lv-table--services .c-name { width: auto; }
+  .lv-table--startup .c-name { width: 22%; }
+  .lv-table--startup .c-loc { width: 180px; }
+}
+
+/* ============================================================ 05 / Settings */
+
+.lv--settings {
+  padding-bottom: 8px;
+}
+
+.lv-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.lv-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 18px 20px;
+}
+
+.lv-panel--wide {
+  grid-column: 1 / -1;
+}
+
+.lv-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.lv-panel-head .micro {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.lv-panel-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.lv-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.lv-panel-head + .lv-field {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.lv-field-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lv-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.lv-help {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.lv-help .kbd {
+  margin: 0 2px;
+}
+
+.lv-select {
+  flex: none;
+  max-width: 260px;
+}
+
+.lv-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lv-live.is-paused .signal {
+  animation: none;
+  opacity: 0.4;
+}
+
+/* segmented control */
+.lv-seg {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-btn);
+  background: var(--bg-raised);
+}
+
+.lv-seg [role="radio"] {
+  appearance: none;
+  min-width: 52px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-tile-sm, 10px 3px 10px 3px);
+  background: transparent;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+
+.lv-seg [role="radio"]:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.lv-seg [role="radio"][aria-checked="true"] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--blue) 24%, transparent);
+  box-shadow: inset 0 -2px 0 var(--cyan);
+}
+
+/* theme cards: each card carries its own data-theme, so the tokens inside are that theme's */
+.lv-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+
+.lv-theme {
+  appearance: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pass);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+
+.lv-theme:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-soft), var(--glow);
+}
+
+.lv-theme[aria-checked="true"] {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px var(--cyan), var(--shadow-soft);
+}
+
+.lv-theme-preview {
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 16 / 9;
+  max-height: 150px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+.lv-theme-preview i {
+  display: block;
+}
+
+.tp-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 14%;
+  padding: 0 7%;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-solid);
+}
+
+.tp-mark {
+  display: flex;
+  gap: 1px;
+}
+
+.tp-mark i {
+  width: 4px;
+  height: 4px;
+}
+
+.tp-m1 { background: var(--ink); }
+.tp-m2 { background: var(--blue); }
+.tp-m3 { background: var(--cyan); }
+
+.tp-search {
+  flex: 0 1 40%;
+  height: 40%;
+  margin-left: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+}
+
+.tp-signal {
+  width: 4px;
+  height: 4px;
+  margin-left: auto;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+
+.tp-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.tp-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 5px;
+  width: 18%;
+  padding: 8% 3%;
+  border-right: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--panel-solid) 60%, transparent);
+}
+
+.tp-side i {
+  height: 3px;
+  border-radius: 1px;
+  background: var(--muted-2);
+  opacity: 0.7;
+}
+
+.tp-side i.is-on {
+  background: var(--ink);
+  opacity: 1;
+  box-shadow: -3px 0 0 var(--cyan);
+}
+
+.tp-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5%;
+  min-width: 0;
+  padding: 6% 7%;
+}
+
+.tp-micro {
+  width: 34%;
+  height: 3px;
+  background: var(--muted-2);
+}
+
+.tp-title {
+  display: flex;
+  gap: 4px;
+}
+
+.tp-title i {
+  width: 34%;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--ink);
+}
+
+.tp-title i.tp-em {
+  width: 30%;
+  background: var(--accent-grad);
+}
+
+.tp-panel {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-top-color: color-mix(in srgb, var(--edge) 30%, var(--line));
+  border-radius: var(--radius-tile-sm, 10px 3px 10px 3px);
+  background: var(--panel);
+}
+
+.tp-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tp-area {
+  fill: color-mix(in srgb, var(--chart-cpu) 22%, transparent);
+  stroke: none;
+}
+
+.tp-line {
+  fill: none;
+  stroke: var(--chart-cpu);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.tp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-row {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+
+.tp-name {
+  flex: 1 1 auto;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink-2) 55%, transparent);
+}
+
+.tp-heat {
+  flex: 0 0 18%;
+  border-radius: 1px;
+  background: rgba(var(--heat-rgb), calc(var(--h, 0) * 0.35 + 0.1));
+}
+
+.lv-theme-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.lv-theme-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lv-theme-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.lv-theme-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lv-theme-check {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  color: transparent;
+  transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+
+.lv-theme-check .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.lv-theme[aria-checked="true"] .lv-theme-check {
+  border-color: var(--cyan);
+  background: var(--cyan);
+  color: var(--bg);
+}
+
+/* watchlist */
+.lv-watch-note {
+  margin-bottom: 8px;
+}
+
+.lv-watch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lv-watch:focus {
+  outline: none;
+}
+
+.lv-watch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: var(--bg-raised);
+}
+
+.lv-watch-ico {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--blue-soft);
+}
+
+.lv-watch-ico .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.lv-watch-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lv-watch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lv-watch-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-watch-empty {
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-tile);
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* permissions */
+.lv-perm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.lv-perm-chip {
+  gap: 8px;
+}
+
+.lv-perm-chip .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* shortcuts */
+.lv-keys {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lv-keys th {
+  padding: 0 0 6px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--muted-2);
+}
+
+.lv-keys td {
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink-2);
+  vertical-align: middle;
+}
+
+.lv-keys-k {
+  width: 40%;
+  white-space: nowrap;
+}
+
+.lv-keys-sep {
+  margin: 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* about */
+.lv-about-id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.lv-mark {
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+
+.lv-mark-ink { fill: var(--ink); }
+.lv-mark-blue { fill: var(--blue); }
+.lv-mark-cyan { fill: var(--cyan); }
+
+.lv-about-text p {
+  margin: 0;
+}
+
+.lv-about-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.lv-about-by {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+
+.lv-about-by .brand-accent {
+  color: var(--cyan-ink, var(--cyan));
+}
+
+.lv-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0 0 12px;
+}
+
+.lv-fact {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.lv-fact dt {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.lv-fact dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-textlink {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  text-decoration: none;
+  background-image: linear-gradient(var(--cyan), var(--cyan));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0 1px;
+  transition: background-size var(--dur-2) var(--ease);
+}
+
+.lv-textlink .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--blue-soft);
+  transition: transform var(--dur-1) var(--ease);
+}
+
+.lv-textlink:hover {
+  background-size: 100% 1px;
+}
+
+.lv-textlink:hover .icon {
+  transform: translateX(3px);
+}
+
+@media (max-width: 1100px) {
+  .lv-settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ============================================================ reduced motion */
+
+html.reduce-motion .lv-refresh.is-busy .icon,
+html.reduce-motion .lv-theme,
+html.reduce-motion .lv-textlink,
+html.reduce-motion .lv-textlink .icon,
+html.reduce-motion .lv-link,
+html.reduce-motion .lv-seg [role="radio"],
+html.reduce-motion .lv-theme-check {
+  animation: none;
+  transition: none;
+}
+
+html.reduce-motion .lv-theme:hover,
+html.reduce-motion .lv-textlink:hover .icon {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lv-refresh.is-busy .icon,
+  .lv-theme,
+  .lv-textlink,
+  .lv-textlink .icon,
+  .lv-link,
+  .lv-seg [role="radio"],
+  .lv-theme-check {
+    animation: none;
+    transition: none;
+  }
+
+  .lv-theme:hover,
+  .lv-textlink:hover .icon {
+    transform: none;
+  }
+}

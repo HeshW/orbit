@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbit — a Windows task manager by LegacyTech</title>
+  <meta name="description" content="Orbit is a fast, good-looking task manager for Windows 10 and 11. Search every process, restart Explorer, tame startup apps and switch themes. Runs locally, sends nothing.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="img/orbit-icon-512.png">
+  <meta property="og:title" content="Orbit — Every process. In orbit.">
+  <meta property="og:description" content="A Windows task manager by LegacyTech. Free, local, fast.">
+  <meta property="og:image" content="https://orbit.legacytech.me/img/processes.jpg">
+  <meta property="og:url" content="https://orbit.legacytech.me/">
+  <meta name="theme-color" content="#050b18">
+  <link rel="stylesheet" href="styles.css?v=0.2.0">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.3-4-2-5.5-2.5M14.5 21v-3.4a3 3 0 0 0-.8-2.3c2.7-.3 5.5-1.3 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6.2 0C5.8 2.6 4.8 2.9 4.8 2.9a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 3.4 9.3c0 4.6 2.8 5.7 5.5 6a3 3 0 0 0-.8 2.3V21"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="m8 10 3 2-3 2M13 14h3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5M19 4v4h-4"/></symbol>
+    <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M12 15c-1.5-1-3-2.5-3-2.5S12 4 19 5c1 7-7.5 10-7.5 10ZM9 12.5 6 12l2.5-3H12M12 15l.5 3 3-2.5V12M5 19c.5-1.5 1.5-2.5 3-2.5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 8 4-8 4-8-4 8-4ZM4 12l8 4 8-4M4 16l8 4 8-4"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 0 0 16c1 0 1.5-.8 1.5-1.6 0-1.4 1-2.4 2.4-2.4H18a2 2 0 0 0 2-2A8 8 0 0 0 12 4Z"/><circle cx="8" cy="11" r="1"/><circle cx="12" cy="8" r="1"/><circle cx="16" cy="11" r="1"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3M4 10h3M4 14h3M17 10h3M17 14h3"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3-1-6ZM12 13v7"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 9 4-1 7-4.5 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></symbol>
+  </svg>
+
+  <div class="atmo" aria-hidden="true"></div>
+
+  <header class="top">
+    <div class="shell top-row">
+      <a class="brand" href="#">
+        <img src="img/orbit-mark.svg" alt="" width="22" height="22">
+        <span class="brand-word">Orbit</span>
+        <span class="brand-sep" aria-hidden="true"></span>
+        <span class="micro">by Legacy<span class="accent">Tech</span></span>
+      </a>
+      <nav class="top-nav" aria-label="Page">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/HeshW/orbit" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero shell">
+      <p class="micro micro--bright"><span class="signal" aria-hidden="true"></span>LegacyTech / Orbit 0.2.0</p>
+      <h1 class="display">Every process. <em>In orbit.</em></h1>
+      <p class="lede">A task manager for Windows that looks the part and finds things fast. Search every process, restart Explorer in one click, see which startup apps slow you down, and switch between four themes.</p>
+      <div class="cta">
+        <a class="btn btn--primary" href="https://github.com/HeshW/orbit/releases/latest/download/Orbit-Setup.exe">
+          <span>Download for Windows</span><svg class="icon"><use href="#i-download"/></svg>
+        </a>
+        <a class="btn btn--ghost" href="https://github.com/HeshW/orbit" target="_blank" rel="noopener noreferrer">
+          <span>View source</span><svg class="icon"><use href="#i-github"/></svg>
+        </a>
+      </div>
+      <p class="meta">Windows 10 and 11 · 64-bit · Free · 2.3 MB download</p>
+      <figure class="shot shot--hero">
+        <img src="img/processes.jpg" alt="Orbit's Processes view: apps grouped with live CPU, memory, I/O and GPU columns" width="1760" height="1120">
+      </figure>
+    </section>
+
+    <section class="section shell" id="features">
+      <p class="micro">01 / Features</p>
+      <h2 class="display display--sm">Faster than hunting. <em>Clearer than squinting.</em></h2>
+      <ul class="features">
+        <li class="card"><svg class="icon icon--lg"><use href="#i-search"/></svg><h3>Search everything</h3><p>One box matches names, PIDs, window titles, file paths, command lines, users and services.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-command"/></svg><h3>Command palette</h3><p>Press Ctrl+K and type "end chrome" or "restart explorer". Keyboard first, mouse optional.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-refresh"/></svg><h3>Restart, not just end</h3><p>Restart any app with the same settings, run new tasks, and bring Explorer back if the taskbar disappears.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-rocket"/></svg><h3>Startup impact</h3><p>Turn startup apps on or off and measure which ones actually slow your sign-in: High, Medium or Low.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-cpu"/></svg><h3>Live performance</h3><p>CPU per core, memory, disk, network and GPU with 60 seconds of history and the top consumers.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-layers"/></svg><h3>Services in one place</h3><p>Start, stop and restart services, filter by state, and jump straight to the process behind one.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-pin"/></svg><h3>Power tools</h3><p>CPU affinity, priority, suspend and resume, a watchlist with CPU alerts, always on top and CSV export.</p></li>
+        <li class="card"><svg class="icon icon--lg"><use href="#i-palette"/></svg><h3>Four themes</h3><p>Night, Void for OLED screens, high-contrast Signal and a light Daylight theme.</p></li>
+      </ul>
+    </section>
+
+    <section class="section shell gallery" aria-label="Screenshots">
+      <figure class="shot"><img src="img/performance.jpg" alt="Performance view with a 60-second CPU graph and a per-core grid" width="1760" height="1120" loading="lazy"><figcaption class="micro">Performance / every core</figcaption></figure>
+      <figure class="shot"><img src="img/startup.jpg" alt="Startup view with on and off switches and impact ratings" width="1760" height="1120" loading="lazy"><figcaption class="micro">Startup / impact</figcaption></figure>
+      <figure class="shot"><img src="img/processes-daylight.jpg" alt="Processes view in the light Daylight theme" width="1760" height="1120" loading="lazy"><figcaption class="micro">Daylight theme</figcaption></figure>
+      <figure class="shot"><img src="img/settings.jpg" alt="Settings view with the four theme previews" width="1760" height="1120" loading="lazy"><figcaption class="micro">Settings / themes</figcaption></figure>
+    </section>
+
+    <section class="section shell split">
+      <div class="pass">
+        <svg class="icon icon--lg"><use href="#i-shield"/></svg>
+        <p class="micro">02 / Privacy</p>
+        <h2 class="display display--sm">Runs locally. <em>Sends nothing.</em></h2>
+        <p>No account, no telemetry, no tracking. Orbit reads your PC's process list from Windows and keeps it on your PC. It only goes online when you ask it to, like "Search online" for a process name.</p>
+      </div>
+      <div class="pass" id="install">
+        <p class="micro">03 / Install</p>
+        <h2 class="display display--sm">Two minutes. <em>No admin needed.</em></h2>
+        <ol class="steps">
+          <li><a href="https://github.com/HeshW/orbit/releases/latest/download/Orbit-Setup.exe">Download Orbit-Setup.exe</a> and run it.</li>
+          <li>Orbit isn't code-signed yet, so Windows may show "Windows protected your PC". Click <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+          <li>Open Orbit from the Start menu. Use <strong>Run as admin</strong> inside Orbit when you need to manage system processes.</li>
+        </ol>
+        <p class="small">Needs Windows 10 or 11 (64-bit) and Microsoft Edge WebView2, which Windows 11 already has; the installer adds it on Windows 10 if missing. Uninstall any time from Settings &gt; Apps.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell foot">
+    <a class="brand" href="https://legacytech.me" target="_blank" rel="noopener noreferrer"><span class="brand-word">Legacy<span class="accent">Tech</span></span></a>
+    <p class="small">Orbit 0.2.0 · <a href="https://github.com/HeshW/orbit/releases" target="_blank" rel="noopener noreferrer">Releases</a> · <a href="https://github.com/HeshW/orbit" target="_blank" rel="noopener noreferrer">Source</a> · <a href="https://legacytech.me" target="_blank" rel="noopener noreferrer">legacytech.me</a></p>
+  </footer>
+</body>
+</html>

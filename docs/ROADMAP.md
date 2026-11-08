@@ -1,0 +1,310 @@
+# Orbit roadmap — future features
+
+Planning only. No code yet. This file describes six things the owner wants to add,
+how each would fit Orbit's real architecture (see `CONTRACT.md`), what admin rights
+each needs, the risks, and a rough size (S / M / L). A recommended order is at the end.
+
+Technical claims are checked against Microsoft's docs where noted. Anything I could
+not verify is marked **(unverified)**.
+
+Quick orientation on the current build, so the plan lands in the right place:
+
+- The backend is split into modules owned separately: **core** (`sampler.rs`, `pdh.rs`,
+  `winenum.rs`, `model.rs`, `lib.rs`), **actions** (`actions.rs`, `icons.rs`),
+  **system-lists** (`startup.rs`, `services.rs`). Every Tauri command is registered in
+  `lib.rs` `generate_handler![...]`.
+- One background thread in `sampler.rs` (`run_loop`) samples once per tick and emits
+  `orbit://snapshot`. That is the only live data pump; a new per-app counter that has to
+  update every second belongs here, not in a command.
+- The UI is plain HTML/CSS/JS. A new tab = a new `nav-item`, a `section#view-*` in
+  `index.html`, a `js/views/*.js` module with `mount()`, and a CSS file. Commands are
+  called through `api.js` `call(cmd, args)`.
+- Orbit already carries the pieces several of these features need: `isAdmin` in
+  `StaticInfo`, a working **Restart as administrator** (`actions::restart_as_admin`,
+  ShellExecute "runas"), the `Win32_System_RemoteDesktop` feature is already in
+  `Cargo.toml`, and the registry read/write plumbing lives in `startup.rs`.
+
+A general note the owner already knows: Orbit ships unelevated by default. Four of these
+six features need admin for at least part of what they do. The pattern to reuse is the
+one Startup and Services already use — show the data we can read unelevated, and put a
+clear "Try Restart as administrator" on the actions that need it, rather than demanding
+elevation up front.
+
+---
+
+## 1. App history (30-day per-app usage)
+
+**What it does for the user.** A tab like Task Manager's "App history": per app, totals
+over ~30 days for CPU time, network data, metered network, and tile updates. Good for
+"what's been eating my data cap this month".
+
+**Where Windows keeps this.** Task Manager reads **SRUM** (System Resource Usage
+Monitor), an ESE/"Jet Blue" database at `C:\Windows\System32\sru\SRUDB.dat`. Confirmed:
+the file path and ESE format, that Task Manager's App history and the battery-usage
+screens are generated from it, and that it holds separate tables for application resource
+usage and for per-app network bytes sent/received (verified via multiple forensic write-ups;
+the exact table GUIDs are documented but I'd confirm them against a live system — **(unverified)** at the GUID level).
+
+The catch: the file is **held open by the DPS service** (Diagnostic Policy Service) while
+Windows runs, and reading the ESE database needs the ESE API plus admin. Three ways in:
+
+1. **Read SRUM directly (ESE API).** Open the live DB read-only, or make a volume-shadow
+   copy / plain copy first and read that. This gives true 30-day history on first run
+   with no waiting. But: needs admin; needs an ESE reader (either the `windows`/ESENT
+   bindings or a crate); SRUM only flushes to disk periodically (roughly hourly
+   **(unverified)**), so recent activity may be missing; and the table schema is
+   undocumented and has shifted between Windows builds, so parsing is fragile. This is
+   also exactly the access pattern security tools watch for, so antivirus may look twice.
+2. **Orbit collects its own history.** The sampler already has per-process CPU and
+   per-interface network every tick. Roll those up per exe name into a small local
+   store (e.g. a JSON or SQLite file in Orbit's app-data folder), aggregated by day,
+   pruned at 30 days. No admin, no fragile parsing, no AV concern, and it matches what
+   Orbit actually measured. Downside: history only starts the day the user installs
+   Orbit and only covers time Orbit was running. CPU *time* and network bytes work well
+   this way; **metered network** and **tile updates** are not things Orbit samples today
+   and would need extra work (metered state via the WinRT/connection-cost APIs; tile
+   updates are not practically observable outside SRUM).
+3. **Hybrid.** Orbit collects its own from day one, and *optionally*, when run as admin,
+   back-fills the first view from SRUM so the user isn't staring at an empty table.
+
+**Recommended:** start with **option 2** (Orbit's own history). It is the honest,
+low-risk version and fits the sampler we already have. Treat SRUM back-fill as a later
+"nice to have" behind the admin badge, and don't promise metered/tile columns in the
+first cut — label the columns we can actually fill (CPU time, network, metered if we add
+the cost API).
+
+**Module / UI.** New `history.rs` in core (owns the rollup store + a `get_app_history`
+command), a hook in `sampler.rs::run_loop` to feed it each tick, a new `06 / History`
+tab (`views/history.js`). No new Cargo features for option 2; option 1/3 later would add
+ESENT.
+
+**Admin:** none for option 2; **admin required** for any SRUM reading.
+**Risks:** empty-until-populated expectation (set it in the UI copy); store growth (cap
+it); SRUM parsing fragility and AV attention if we go that route.
+**Effort:** **M** for option 2 (sampler rollup + store + tab). **L** if SRUM reading is included.
+
+---
+
+## 2. Users tab (sessions)
+
+**What it does for the user.** Lists the logged-in users / sessions on this PC with their
+session state (active, disconnected), and per-session CPU/memory totals. Actions:
+**Disconnect**, **Sign out** (log off), **Send message**. This is Task Manager's Users tab.
+
+**How it works.** The Remote Desktop Services (WTS) APIs, all in `wtsapi32`:
+
+- `WTSEnumerateSessions` — list sessions (id, station name, state).
+- `WTSQuerySessionInformation` — per session: user name, domain, client name, etc.
+- `WTSDisconnectSession` — disconnect.
+- `WTSLogoffSession` — sign out.
+- `WTSSendMessageW` — pop a message box on that session's desktop (title, body, style,
+  timeout; use `bWait = FALSE` for a fire-and-forget notice).
+
+Per-session CPU/memory isn't a WTS call — Orbit already has every process with a user and
+CPU/memory in the snapshot. Map each process to its session with
+`ProcessIdToSessionId` and sum per session. That reuses data we already sample.
+
+**Admin / permissions (verified against Microsoft docs).**
+
+- Enumerating and querying sessions: fine for the current user; reading *other* users'
+  details reliably wants elevation.
+- `WTSLogoffSession` on **another user's** session needs the **Reset** permission;
+  `WTSSendMessage` to another session needs the **Message** permission; disconnect needs
+  **Disconnect**. In practice, acting on another user means running as admin. A user
+  already has full rights over **their own** session (Microsoft: "After a user logs on to
+  a session, the user is granted all other Remote Desktop Services permissions for his or
+  her session").
+
+So: without admin, Orbit can show the list and let you act on your *own* session; the
+Disconnect/Sign-out/Message buttons on *other* users get the same "Try Restart as
+administrator" treatment the rest of Orbit uses.
+
+**Module / UI.** New `users.rs` (system-lists family) with `list_users`,
+`disconnect_session`, `logoff_session`, `send_session_message`. A `07 / Users` tab.
+`WTS_CURRENT_SERVER_HANDLE` means no need to open a server handle. `Win32_System_RemoteDesktop`
+is **already** enabled in `Cargo.toml`, so no Cargo change.
+
+**Risks:** destructive actions — sign-out/disconnect can lose the other user's unsaved
+work (Microsoft warns of this explicitly). Reuse Orbit's `confirmDialog({ danger: true })`.
+Don't offer to sign out session 0 / the current session in a way that locks the user out.
+**Effort:** **M**. The WTS calls are straightforward; the care is in the confirmations and
+the per-session rollup.
+
+---
+
+## 3. Per-app network usage (live, via ETW)
+
+**What it does for the user.** Fills the gap the proposal already admits: a real
+bytes/sec sent and received **per process**, not just the machine total. Would light up a
+"Network" column in Processes and a "Top network" tile in Performance.
+
+**How it works.** There is no cheap per-process network counter in Windows; you have to
+trace it. Options:
+
+- **ETW, `Microsoft-Windows-Kernel-Network` provider.** A real-time trace session that
+  emits a send/receive event per TCP/UDP datagram, each carrying the PID and the byte
+  size. Orbit aggregates those into per-PID rates between sampler ticks. This is how
+  per-process network is actually done on Windows. Verified: the provider's events carry
+  PID and size and are commonly used exactly this way (e.g. Velociraptor's KernelNetwork
+  artifact); the precise event-ID → direction mapping should be taken from the provider
+  manifest rather than memorised **(unverified at the event-ID level)**.
+- **`GetPerTcpConnectionEStats` / `SetPerTcpConnectionEStats`.** Per-TCP-connection byte
+  counters. Verified against Microsoft docs: enabling eStats **requires Administrators**
+  (`SetPerTcpConnectionEStats` returns `ERROR_ACCESS_DENIED` otherwise) and the app must
+  be manifested `requireAdministrator` or run elevated. It is TCP-only (no UDP), per
+  connection (you still map connection→PID via the TCP table), and extended stats are off
+  by default so you must enable them per connection. Workable but partial.
+- **Rust ETW crates.** `ferrisetw` (a Rust port of KrabsETW; latest 1.2.0, depends on
+  `windows` ^0.57) or the lower-level `krabsetw` route. `ferrisetw` on `windows` 0.57 vs
+  Orbit's 0.58 is a near-miss — would need checking for compatibility, else hand-roll the
+  consumer against the `windows` ETW bindings Orbit already pulls in.
+
+**Admin (verified).** Starting an ETW trace session needs **administrator, or membership
+of Performance Log Users, or a LocalSystem/LocalService/NetworkService service**
+(`StartTrace` returns `ERROR_ACCESS_DENIED` otherwise). So an ordinary user running Orbit
+normally needs **Restart as administrator** for this to work at all.
+
+**Cost.** A real-time kernel-network trace is a steady stream of events — one per packet-ish
+— which is real CPU and allocation overhead on a busy machine, and the opposite of the
+light once-a-second sampler Orbit runs today. It must run on its **own** thread/consumer,
+be **opt-in** (off by default), and stop cleanly. Microsoft is blunt that ETW sessions are
+a limited system resource (max ~64 on a system; ~8 system loggers) and that a session left
+running after the app exits **persists** — so Orbit must name its session descriptively and
+tear it down on exit (reuse the `RunEvent::Exit` hook that already resumes suspended
+processes).
+
+**Module / UI.** New `etwnet.rs` in core: owns the trace session + a `Mutex<HashMap<pid,
+counters>>` the sampler reads each tick to fill `netRxBps`/`netTxBps` on `ProcessRow` /
+`DynRow` (contract change — note it in the report). A setting "Per-app network (needs
+admin)" gates it. Cargo adds the ETW features (`Win32_System_Diagnostics_Etw`) and maybe
+a crate.
+
+**Risks:** admin requirement; measurable overhead; orphaned trace sessions if teardown is
+sloppy; AV/EDR sometimes flags processes that spin up kernel traces; event schema drift
+between Windows builds.
+**Effort:** **L**. This is the biggest and riskiest of the six.
+
+---
+
+## 4. Ctrl+Shift+Esc takeover (opt-out-able)
+
+**What it does for the user.** Makes Ctrl+Shift+Esc (and "Task Manager" from the taskbar)
+open **Orbit** instead of the built-in Task Manager — the trick Process Explorer's
+"Replace Task Manager" uses. One toggle in Settings, reversible.
+
+**How it works.** Windows has an **Image File Execution Options (IFEO)** "Debugger"
+hook: set a `Debugger` string value under
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe`
+pointing at Orbit's exe. Whenever something launches `taskmgr.exe`, Windows launches the
+"debugger" (Orbit) with the taskmgr path appended instead. To undo, delete that value /
+key. Verified: this is the documented mechanism Process Explorer uses, it lives under HKLM
+(so **admin required** to write), and Windows provides no *official* permanent setting —
+a feature update can reset it.
+
+**Safe toggle design.**
+- Settings toggle "Open Orbit with Ctrl+Shift+Esc". Off by default.
+- Turning on: needs admin (writing HKLM). If not elevated, prompt Restart as admin first.
+  Write the `Debugger` value = quoted full path to `orbit.exe`.
+- Orbit's startup must **ignore the appended `taskmgr.exe` argument** so it doesn't try to
+  treat it as a file — just launch normally. Without this the takeover breaks.
+- Turning off: delete the value. Also offer this on first run after an update if we detect
+  our value is gone, and never leave a dangling hook pointing at a moved/uninstalled exe.
+- An **uninstall / "remove takeover"** path is mandatory — a stale Debugger value pointing
+  at a deleted Orbit would break Task Manager entirely for the user.
+
+**Admin:** yes (HKLM write). Reuse `startup.rs` registry helpers + `restart_as_admin`.
+**Risks:** **antivirus / security tools flag IFEO Debugger hijacks** (it is a known malware
+persistence technique) — the single biggest reason to make this explicit, opt-in, and
+clearly labelled. Windows feature updates silently remove it. A broken/stale value can
+leave the user unable to open any task manager — so the toggle must be bullet-proof about
+cleanup and about tolerating the appended argument.
+**Effort:** **S–M**. The registry write is small; the safety (argument handling, cleanup,
+uninstall) is where the care goes.
+
+---
+
+## 5. Auto-start elevated without a UAC prompt
+
+**What it does for the user.** Orbit launches at logon **already elevated**, with no UAC
+prompt each time — so all the admin-only features above just work without "Restart as
+administrator".
+
+**How it works.** You cannot auto-elevate a normal Run-key entry without a prompt (that's
+the whole point of UAC). The supported trick is a **Scheduled Task** set to
+**"Run with highest privileges"**, triggered **At log on**. The task runs the exe elevated
+under the user's own admin token, and Task Scheduler launching it does **not** raise a UAC
+prompt. Create it via the Task Scheduler COM API (`ITaskService` / register a task with
+`Principal.RunLevel = TASK_RUNLEVEL_HIGHEST`, logon trigger) or via `schtasks /create /sc
+onlogon /rl HIGHEST`. Verified against Microsoft docs: `TASK_RUNLEVEL_HIGHEST` = "run with
+the highest privileges", and when the task's principal is the Administrators group you must
+set `RunLevel` to HIGHEST for it to run elevated; `schtasks` `/rl HIGHEST` is the CLI
+equivalent and `/sc ONLOGON` is the logon trigger.
+
+**Admin:** **creating** the task needs admin (only administrators can register tasks).
+Removing it (the "disable auto-start" toggle) likewise. After that, each logon launch is
+silent.
+
+**Security considerations (worth stating plainly to the owner).** This is a real privilege
+decision, not just a convenience:
+- It means Orbit runs with full admin rights every session — a bigger attack surface. The
+  exe path baked into the task must be fixed and in a location a standard user can't
+  overwrite (don't point it at a user-writable folder, or a non-admin could swap the
+  binary and get silent elevation — a classic privilege-escalation hole).
+- Keep it strictly opt-in, off by default, clearly described ("Start Orbit elevated at
+  logon"), and easy to remove.
+- Prefer the user's own account with highest privileges over `/ru SYSTEM`; running as
+  SYSTEM is more power than a task manager needs and changes how processes are owned.
+
+**Module / UI.** New `autostart.rs` (or extend `startup.rs`): `set_auto_elevate(enabled)`
+creating/deleting the task via Task Scheduler COM (`Win32_System_TaskScheduler` — new Cargo
+feature) or shelling `schtasks`. Settings toggle next to the admin badge.
+**Risks:** the writable-path escalation hole above; users forgetting it's on; interaction
+with feature #4 (if both on, the takeover should launch the already-elevated instance).
+**Effort:** **M** (COM task registration is fiddly; `schtasks` shelling is **S** but less tidy).
+
+---
+
+## 6. Known gaps left from v1 (from PROPOSAL.md "Limits")
+
+The owner already flagged these; listing so the roadmap is complete. None is a bug — they
+are honest limits of what v1 measures:
+
+- **Per-process network** is not in v1 (total network only). → This is feature **#3** above.
+- **Protected system processes** can't be ended or inspected even as admin; Orbit shows
+  "Access denied" rather than failing silently. (Windows limitation, not fixable.)
+- **Memory per process** is the *working set*; Task Manager shows *private* working set, so
+  numbers differ slightly. Could be tightened later if the owner wants parity, but it's a
+  cosmetic mismatch, not a gap.
+- **GPU** numbers come from Windows performance counters (same source as Task Manager) — fine.
+- **Per-process I/O** counts all reads/writes (files, pipes, network), not just physical
+  disk; hence labelled "I/O". The Disk tile is real disk. (Deliberate, documented.)
+- **Unelevated owner lookup**: Windows hides the owner of some SYSTEM processes without
+  admin, so their user shows blank. Restart-as-admin already fills these in.
+
+No action needed on these beyond #3, unless the owner specifically wants private-working-set
+parity (small) later.
+
+---
+
+## Recommended sequence
+
+Ordered by value-for-effort and risk, lightest and safest first:
+
+1. **Users tab (#2) — M.** High-value, verified API path, Cargo feature already present,
+   reuses the snapshot for per-session totals. Best first win.
+2. **App history, Orbit's own (#1, option 2) — M.** Builds straight on the existing
+   sampler, no admin, no fragile parsing. Ships a real "History" tab honestly.
+3. **Ctrl+Shift+Esc takeover (#4) — S–M.** Small registry change, big "feels like a real
+   task manager" payoff. Do it after #1/#2 so the thing it opens is worth opening. Invest
+   in the cleanup/uninstall safety.
+4. **Auto-start elevated (#5) — M.** Natural partner to #4 and a quality-of-life win once
+   people rely on Orbit. Needs the security care noted above.
+5. **Per-app network via ETW (#3) — L.** Most powerful, most work, most risk (admin,
+   overhead, AV, schema drift). Do it last, as an opt-in power feature, once the lighter
+   wins are in.
+6. **v1 gaps (#6)** — nothing to schedule beyond #3; revisit private-working-set parity
+   only if asked.
+
+A theme across all of them: keep the admin-only parts **opt-in and clearly labelled**, and
+reuse Orbit's existing "show what we can read, offer Restart as administrator for the rest"
+pattern rather than demanding elevation up front.

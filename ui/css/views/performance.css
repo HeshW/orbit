@@ -1,0 +1,846 @@
+/* 02 / Performance
+   View-specific styles only. Colours come from the theme variables in tokens.css,
+   so all four themes work without overrides here. */
+
+.perf {
+  container: perf-view / inline-size;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The view root is also .view: only show it while it is the active view. */
+.perf.is-active { display: flex; }
+
+.perf [hidden] { display: none !important; }
+
+/* ---------------------------------------------------------------- header */
+
+.perf-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+}
+
+.perf-head__text { min-width: 0; }
+
+.perf-head__text .micro {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+
+.perf-head .signal.is-paused {
+  opacity: 0.35;
+  animation: none;
+  box-shadow: none;
+}
+
+.perf-head .view-title { margin: 0; }
+
+.perf-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.perf-head__actions .chip {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* segmented control: update speed */
+.perf-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--bg-raised);
+}
+
+.perf-seg__btn {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 7px 11px;
+  min-height: 30px;
+  border-radius: 2px 12px 2px 12px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 11px/1 var(--font-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease);
+}
+
+.perf-seg__btn:hover { color: var(--ink); background: var(--line-soft); }
+
+.perf-seg__btn.is-on,
+.perf-seg__btn[aria-pressed="true"] {
+  color: var(--ink);
+  /* blue tint, not --line-strong: Signal's line-strong is near-white and hid the label */
+  background: color-mix(in srgb, var(--blue) 24%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 30%, transparent);
+}
+
+.perf-seg__btn.is-on::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 3px;
+  height: 3px;
+  background: var(--cyan);
+}
+
+.perf-seg__btn:focus-visible,
+.perf-tile:focus-visible,
+.perf-top__row:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 3px;
+}
+
+.perf-pause { white-space: nowrap; }
+
+/* ---------------------------------------------------------------- layout */
+
+.perf-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 264px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* ---------------------------------------------------------------- tiles */
+
+.perf-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  min-width: 0;
+}
+
+.perf .perf-tile {
+  --tile-accent: var(--blue);
+  appearance: none;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px 10px 10px;
+  text-align: left;
+  color: var(--ink);
+  font: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 10%, transparent);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease);
+}
+
+.perf .perf-tile--cpu { --tile-accent: var(--chart-cpu); }
+.perf .perf-tile--memory { --tile-accent: var(--chart-mem); }
+.perf .perf-tile--disk { --tile-accent: var(--chart-disk); }
+.perf .perf-tile--network { --tile-accent: var(--chart-net); }
+.perf .perf-tile--gpu { --tile-accent: var(--chart-gpu); }
+
+.perf .perf-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--tile-accent);
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+
+.perf .perf-tile:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--glow);
+}
+
+.perf .perf-tile.is-active {
+  border-color: var(--line-strong);
+  background: var(--bg-raised);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 22%, transparent), var(--glow);
+}
+
+.perf .perf-tile.is-active::before { opacity: 1; }
+
+.perf-tile__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px 3px 8px 3px;
+  color: var(--blue-soft);
+}
+
+.perf-tile.is-active .perf-tile__icon { color: var(--ink); border-color: var(--line-strong); }
+
+.perf-tile__icon .icon { width: 18px; height: 18px; }
+
+.perf-tile__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.perf-tile__name {
+  font: 500 11px/1.3 var(--font-display);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.perf-tile__value {
+  font: 500 17px/1.25 var(--font-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-tile__sub {
+  font: 400 11.5px/1.35 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-tile__spark {
+  display: block;
+  width: 84px;
+  height: 36px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* ---------------------------------------------------------------- detail panel */
+
+.perf .perf-detail {
+  container: perf-detail / inline-size;
+  min-width: 0;
+  padding: 18px 20px 20px;
+}
+
+.perf-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.perf-pane__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+}
+
+.perf-pane__id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.perf-pane__titles { min-width: 0; }
+.perf-pane__titles .micro { margin: 0 0 4px; }
+
+.perf-pane__title {
+  margin: 0;
+  font: 500 20px/1.2 var(--font-display);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+
+.perf-swatch--cpu { background: var(--chart-cpu); }
+.perf-swatch--memory { background: var(--chart-mem); }
+.perf-swatch--disk { background: var(--chart-disk); }
+.perf-swatch--network { background: var(--chart-net); }
+.perf-swatch--gpu { background: var(--chart-gpu); }
+
+.perf-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.perf-readout__value {
+  font: 500 32px/1 var(--font-display);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.perf-readout__sub {
+  font: 400 13px/1.4 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- charts */
+
+.perf-chart-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.perf-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+
+.perf-chart-head .micro { margin: 0; }
+
+.perf-chart {
+  position: relative;
+  height: 220px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.perf-chart--small { height: 140px; }
+
+.perf-chart__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.perf-chart__top {
+  position: absolute;
+  top: 7px;
+  left: 9px;
+  z-index: 1;
+  pointer-events: none;
+  font: 500 10.5px/1 var(--font-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.perf-chart__note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  font: 400 13px/1.5 var(--font-body);
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--bg-raised) 78%, transparent);
+}
+
+.perf-axis {
+  display: flex;
+  justify-content: space-between;
+  font: 500 10.5px/1 var(--font-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.perf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+}
+
+.perf-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 12.5px/1.3 var(--font-body);
+  color: var(--ink-2);
+}
+
+.perf-legend__val {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.perf-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+}
+
+.perf-dot--cpu { background: var(--chart-cpu); }
+.perf-dot--mem { background: var(--chart-mem); }
+.perf-dot--mem-cached { background: var(--chart-mem); opacity: 0.45; }
+.perf-dot--free { background: var(--line-strong); }
+.perf-dot--disk { background: var(--chart-disk); }
+.perf-dot--net { background: var(--chart-net); }
+.perf-dot--gpu { background: var(--chart-gpu); }
+.perf-dot--alt { background: var(--ink-2); }
+
+/* ---------------------------------------------------------------- blocks */
+
+.perf-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.perf-block--flush { padding-top: 12px; }
+
+.perf-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+
+.perf-block__head .micro { margin: 0; }
+
+.perf-block__hint {
+  font: 400 12px/1.3 var(--font-body);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.perf-note {
+  margin: 0;
+  font: 400 13px/1.55 var(--font-body);
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+.perf-lower {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px 28px;
+}
+
+@container perf-detail (min-width: 720px) {
+  .perf-lower { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* facts grid */
+.perf-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.perf-fact { min-width: 0; }
+.perf-fact--wide { grid-column: 1 / -1; }
+
+.perf-fact dt {
+  margin: 0 0 3px;
+  font: 500 11px/1.3 var(--font-display);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.perf-fact dd {
+  margin: 0;
+  font: 500 14px/1.35 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- per-core grid */
+
+.perf .perf-cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+}
+
+.perf-core {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px 5px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+}
+
+.perf-core__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.perf-core__name {
+  font: 500 10.5px/1.2 var(--font-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.perf-core__val {
+  font: 500 12.5px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.perf-core__spark {
+  display: block;
+  width: 100%;
+  height: 26px;
+}
+
+/* ---------------------------------------------------------------- memory composition */
+
+.perf-comp {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--line-soft);
+}
+
+.perf-comp__seg {
+  flex: 0 0 0;
+  min-width: 0;
+}
+
+.perf-comp__seg--used { background: var(--chart-mem); }
+.perf-comp__seg--cached { background: var(--chart-mem); opacity: 0.45; }
+.perf-comp__seg--free { background: var(--line-strong); }
+
+.perf-legend--comp { gap: 6px 20px; }
+
+/* ---------------------------------------------------------------- top consumers */
+
+.perf-top {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.perf-top__row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto minmax(64px, auto);
+  grid-template-rows: auto 2px;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 5px;
+  width: 100%;
+  margin: 0;
+  padding: 7px 8px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+
+.perf-top__row:hover {
+  background: var(--line-soft);
+  border-color: var(--line);
+}
+
+.perf-top__badge {
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 6px 2px 6px 2px;
+  overflow: hidden;
+}
+
+.perf-top__badge img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.perf-top__initial {
+  font: 500 11px/1 var(--font-display);
+  color: var(--blue-soft);
+}
+
+.perf-top__name {
+  font: 500 13.5px/1.3 var(--font-body);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-top__pid {
+  font: 400 12px/1.3 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.perf-top__value {
+  font: 500 13.5px/1.3 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.perf-top__bar {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: block;
+  height: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.perf-top__fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.perf-pane--cpu .perf-top__fill { background: var(--chart-cpu); }
+.perf-pane--memory .perf-top__fill { background: var(--chart-mem); }
+.perf-pane--disk .perf-top__fill { background: var(--chart-disk); }
+.perf-pane--gpu .perf-top__fill { background: var(--chart-gpu); }
+
+/* ---------------------------------------------------------------- volumes */
+
+.perf-disks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.perf-disk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: var(--bg-raised);
+}
+
+.perf-disk__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.perf-disk__mount {
+  font: 500 14px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.perf-disk__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 400 12.5px/1.3 var(--font-body);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf .perf-disk__chip { flex: none; }
+
+.perf-disk__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  font: 400 12px/1.35 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.perf-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+}
+
+.perf-bar__fill {
+  display: block;
+  height: 100%;
+  background: var(--chart-disk);
+  transform-origin: left center;
+}
+
+.perf-bar--warn .perf-bar__fill { background: var(--warn); }
+
+/* ---------------------------------------------------------------- interfaces */
+
+.perf-ifaces {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.perf-iface {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(76px, 0.8fr) minmax(76px, 0.8fr) minmax(120px, 1fr) 84px;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  font: 400 13px/1.3 var(--font-body);
+  color: var(--ink);
+}
+
+.perf-iface--head {
+  min-height: 28px;
+  border-bottom-color: var(--line);
+  font: 500 10.5px/1.2 var(--font-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.perf-iface__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.perf-iface__tot { color: var(--ink-2); }
+
+.perf-iface__trend {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.perf-iface__spark {
+  display: block;
+  width: 84px;
+  height: 22px;
+}
+
+@container perf-detail (max-width: 620px) {
+  .perf-iface { grid-template-columns: minmax(0, 1fr) minmax(70px, auto) minmax(70px, auto) 64px; }
+  .perf-iface__tot { display: none; }
+  .perf-iface--head > :nth-child(4) { display: none; }
+  .perf-iface__spark { width: 64px; }
+  .perf-readout__value { font-size: 26px; }
+}
+
+/* ---------------------------------------------------------------- narrow window */
+
+@container perf-view (max-width: 860px) {
+  .perf-body { grid-template-columns: minmax(0, 1fr); }
+  .perf-tiles {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+    padding: 4px 4px 8px;
+    margin: -4px -4px 0;
+  }
+  .perf .perf-tile {
+    flex: 0 0 216px;
+    grid-template-columns: 26px minmax(0, 1fr) 64px;
+  }
+  .perf-tile__spark { width: 64px; height: 30px; }
+  .perf-tile__icon { width: 26px; height: 26px; }
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+
+html.reduce-motion .perf *,
+html.reduce-motion .perf *::before,
+html.reduce-motion .perf *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perf *,
+  .perf *::before,
+  .perf *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
