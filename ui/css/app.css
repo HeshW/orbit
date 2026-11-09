@@ -1598,6 +1598,12 @@ a.chip:hover {
   overflow-wrap: anywhere;
 }
 
+.toast__action {
+  flex: none;
+  align-self: center;
+  margin: -3px 0 -3px 4px;
+}
+
 .toast--success {
   border-color: color-mix(in srgb, var(--ok) 42%, transparent);
 }

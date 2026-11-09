@@ -1177,6 +1177,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+.lv-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 2px 0 14px;
+}
+
+.lv-update-actions [hidden] {
+  display: none;
+}
+
 .lv-textlink {
   display: inline-flex;
   align-self: flex-start;

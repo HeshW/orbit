@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   reducedMotion: false,
   grouping: 'grouped',
   alwaysOnTop: false,
+  autoUpdate: true,
   watchlist: [],
   watchNames: [],
 });
@@ -37,6 +38,7 @@ function sanitize(raw) {
   if (typeof raw.reducedMotion === 'boolean') s.reducedMotion = raw.reducedMotion;
   if (GROUPINGS.includes(raw.grouping)) s.grouping = raw.grouping;
   if (typeof raw.alwaysOnTop === 'boolean') s.alwaysOnTop = raw.alwaysOnTop;
+  if (typeof raw.autoUpdate === 'boolean') s.autoUpdate = raw.autoUpdate;
   if (Array.isArray(raw.watchlist)) {
     // Each pid pin is bound to the process start time, so a pid Windows reuses later
     // is not pinned. Old bare-number entries cannot be checked and are dropped.

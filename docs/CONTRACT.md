@@ -208,6 +208,8 @@ otherwise `background`. `app` wins over `windows` (explorer.exe with a window is
 | `set_startup_enabled` | `id: String, enabled: bool` | `Result<(), String>` | startup |
 | `list_services` | – | `Result<Vec<ServiceEntry>, String>` | services |
 | `control_service` | `name: String, action: String` ("start"\|"stop"\|"restart") | `Result<(), String>` | services |
+| `check_update` | – | `Result<Option<UpdateInfo>, String>` (`{ version, currentVersion, notes, date }`, null when up to date) | updates |
+| `install_update` | – | `Result<(), String>` (downloads, resumes processes Orbit suspended, installs passively, restarts) | updates |
 | `restart_process` | `pid: u32, startTime?: u64` | `Result<u32, String>` new pid (see Additions) | actions |
 | `run_task` | `command: String, asAdmin: bool` | `Result<(), String>` (like the Windows Run box) | actions |
 | `get_affinity` | `pid: u32` | `Result<AffinityInfo, String>` | actions |

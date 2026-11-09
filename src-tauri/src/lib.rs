@@ -8,6 +8,7 @@ pub mod pdh;
 pub mod sampler;
 pub mod services;
 pub mod startup;
+pub mod updates;
 pub mod winenum;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +27,7 @@ pub fn run() {
         return;
     }
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .manage(model::SuspendedSet(Default::default()))
         .manage(icons::IconCache(Default::default()))
@@ -62,6 +64,9 @@ pub fn run() {
             // services
             services::list_services,
             services::control_service,
+            // updates
+            updates::check_update,
+            updates::install_update,
         ])
         .setup(|app| {
             sampler::start(app.handle().clone());

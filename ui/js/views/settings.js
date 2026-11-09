@@ -1,8 +1,8 @@
 // 05 / Settings: themes, update speed, display, watchlist, permissions, shortcuts, about.
-import { call } from '../api.js';
+import { call, appVersion } from '../api.js';
 import { store, on, setSettings, pinStartMatches } from '../store.js';
 import { bytes, escapeHtml } from '../format.js';
-import { toast, confirmDialog, restartAsAdmin as relaunchElevated } from '../app.js';
+import { toast, confirmDialog, restartAsAdmin as relaunchElevated, checkForUpdates, installUpdate } from '../app.js';
 
 const THEMES = [
   { id: 'night', name: 'Night', note: 'The design system as-is' },
@@ -243,14 +243,25 @@ function template() {
       <section class="panel lv-panel lv-about" aria-labelledby="set-about-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-about-h">About</h2>
-          <span class="micro">Version / 0.2.1</span>
+          <span class="micro">Version / <span data-version>…</span></span>
         </div>
         <div class="lv-about-id">
           ${markSvg()}
           <div class="lv-about-text">
-            <p class="lv-about-name">Orbit 0.2.1</p>
+            <p class="lv-about-name">Orbit <span data-version>…</span></p>
             <p class="lv-about-by">Made by Legacy<span class="brand-accent">Tech</span></p>
           </div>
+        </div>
+        <div class="lv-field">
+          <div class="lv-field-text">
+            <span class="lv-label" id="set-autoupdate-l">Check for updates automatically</span>
+            <span class="lv-help" data-update-status aria-live="polite">Orbit checks GitHub for a newer version when it starts.</span>
+          </div>
+          ${switchHtml('autoUpdate', 'set-autoupdate-l')}
+        </div>
+        <div class="lv-update-actions">
+          <button type="button" class="btn btn--sm" data-update-check>Check for updates</button>
+          <button type="button" class="btn btn--sm btn--primary" data-update-install hidden>Update now</button>
         </div>
         <dl class="lv-facts" data-facts></dl>
         <a class="lv-textlink" href="https://legacytech.me" data-site>legacytech.me${icon('i-arrow-right')}</a>
@@ -523,6 +534,18 @@ export function mount(rootEl) {
   els.admin.addEventListener('click', restartAsAdmin);
   root.querySelector('[data-site]').addEventListener('click', openSite);
 
+  // Updates: real version from the app, check button, and the status line.
+  els.updateStatus = root.querySelector('[data-update-status]');
+  els.updateCheck = root.querySelector('[data-update-check]');
+  els.updateInstall = root.querySelector('[data-update-install]');
+  appVersion().then((v) => {
+    for (const el of root.querySelectorAll('[data-version]')) el.textContent = v;
+  }).catch(() => {});
+  els.updateCheck.addEventListener('click', () => checkForUpdates({ manual: true }));
+  els.updateInstall.addEventListener('click', installUpdate);
+  on('update', renderUpdate);
+  if (store.update) renderUpdate(store.update);
+
   on('settings', () => {
     if (visible) {
       syncControls();
@@ -546,6 +569,23 @@ export function mount(rootEl) {
   document.addEventListener('visibilitychange', () => { if (visible && !document.hidden) renderWatch(); });
 
   renderAll();
+}
+
+const UPDATE_IDLE = 'Orbit checks GitHub for a newer version when it starts.';
+
+function renderUpdate(u) {
+  if (!els.updateStatus || !u) return;
+  const busy = u.state === 'checking' || u.state === 'installing';
+  els.updateCheck.disabled = busy;
+  els.updateInstall.hidden = u.state !== 'available';
+  els.updateInstall.disabled = busy;
+  els.updateStatus.textContent =
+    u.state === 'checking' ? 'Checking for updates…'
+    : u.state === 'installing' ? 'Downloading the update. Orbit will restart when it is installed.'
+    : u.state === 'available' ? `Version ${u.info.version} is available.`
+    : u.state === 'current' ? 'Orbit is up to date.'
+    : u.state === 'error' ? u.message || 'Couldn’t check for updates.'
+    : UPDATE_IDLE;
 }
 
 export function onShow() {

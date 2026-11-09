@@ -1,6 +1,6 @@
 [package]
 name = "orbit"
-version = "0.2.1"
+version = "0.3.0"
 description = "Orbit, a LegacyTech task manager for Windows"
 authors = ["LegacyTech"]
 edition = "2021"
@@ -19,6 +19,7 @@ serde_json = "1"
 sysinfo = "0.33"
 png = "0.17"
 base64 = "0.22"
+tauri-plugin-updater = "2"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",

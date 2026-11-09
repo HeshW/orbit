@@ -4,7 +4,7 @@
 import { call } from './api.js';
 import { store, on, setSettings, setQuery, selectProcess } from './store.js';
 import { fuzzy, escapeHtml, pct, bytes } from './format.js';
-import { navigate, toast, restartAsAdmin, openRunTask } from './app.js';
+import { navigate, toast, restartAsAdmin, openRunTask, checkForUpdates } from './app.js';
 import { endTask, exportCsv, restartProcess } from './views/processes.js';
 
 const MAX_ACTIONS = 10;
@@ -144,6 +144,14 @@ function actionItems() {
       run: () => restartAsAdmin(),
     });
   }
+  items.push({
+    group: 'Actions',
+    label: 'Check for updates',
+    search: 'check for updates update upgrade new version',
+    icon: 'i-refresh',
+    hint: '',
+    run: () => checkForUpdates({ manual: true }),
+  });
   return items;
 }
 

@@ -1,5 +1,8 @@
 # Builds the Orbit installer on GitHub's Windows runners and publishes it as a GitHub Release.
 # Trigger: push a tag like v0.2.0 (git tag v0.2.0 && git push origin v0.2.0), or run it by hand.
+# The release includes latest.json, which installed copies of Orbit read to update themselves.
+# Update signing uses the repo secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (same setup as RiftLens).
 name: Release
 
 on:
@@ -14,7 +17,7 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -22,7 +25,7 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -34,6 +37,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tauriScript: tauri
           args: --bundles nsis
@@ -43,6 +48,7 @@ jobs:
           releaseBody: |
             Windows 10 and 11 (64-bit). Download **Orbit-Setup.exe** below and run it.
             Orbit is not code-signed yet, so Windows SmartScreen may warn you: click **More info**, then **Run anyway**.
+            Installed copies (0.3.0 and later) update themselves.
           releaseDraft: false
           prerelease: false
 

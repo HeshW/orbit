@@ -32,8 +32,13 @@ const TOAST_MS = { info: 3800, success: 3800, warn: 6000, error: 6500 };
 const TOAST_ICON = { info: null, success: 'i-check', warn: 'i-bolt', error: 'i-x' };
 const MAX_TOASTS = 4;
 
-/** Show a short message. kind: 'info' | 'success' | 'warn' | 'error'. Returns a dismiss function. */
-export function toast(message, kind = 'info') {
+const TOAST_ACTION_MS = 20000;
+
+/**
+ * Show a short message. kind: 'info' | 'success' | 'warn' | 'error'. Returns a dismiss function.
+ * Optional action: { label, run } adds a button; clicking it runs `run()` and closes the toast.
+ */
+export function toast(message, kind = 'info', action = null) {
   const host = $('toasts');
   if (!host) return () => {};
   const k = Object.prototype.hasOwnProperty.call(TOAST_MS, kind) ? kind : 'info';
@@ -43,6 +48,18 @@ export function toast(message, kind = 'info') {
   el.className = `toast toast--${k}`;
   if (k === 'error') el.setAttribute('role', 'alert');
   el.innerHTML = `${TOAST_ICON[k] ? icon(TOAST_ICON[k]) : '<span class="signal" aria-hidden="true"></span>'}<span class="toast__msg">${escapeHtml(text)}</span>`;
+  if (action && action.label && typeof action.run === 'function') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--sm btn--primary toast__action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      dismiss();
+      action.run();
+    });
+    el.appendChild(btn);
+  }
   host.appendChild(el);
   while (host.children.length > MAX_TOASTS) host.firstElementChild.remove();
 
@@ -55,13 +72,56 @@ export function toast(message, kind = 'info') {
   };
   const arm = () => {
     clearTimeout(timer);
-    timer = setTimeout(dismiss, TOAST_MS[k]);
+    timer = setTimeout(dismiss, action ? TOAST_ACTION_MS : TOAST_MS[k]);
   };
   el.addEventListener('mouseenter', () => clearTimeout(timer));
   el.addEventListener('mouseleave', arm);
   el.addEventListener('click', dismiss);
   arm();
   return dismiss;
+}
+
+// ======================================================================== updates
+
+const UPDATE_CHECK_DELAY_MS = 8000;
+
+/**
+ * Ask GitHub Releases for a newer Orbit. Emits 'update' with
+ * { state: 'checking' | 'available' | 'current' | 'error' | 'installing', info?, message? }.
+ * manual: show the result even when Orbit is up to date or the check fails.
+ */
+export async function checkForUpdates({ manual = false } = {}) {
+  emit('update', { state: 'checking' });
+  try {
+    const info = await call('check_update');
+    if (info) {
+      store.update = { state: 'available', info };
+      emit('update', store.update);
+      toast(`Orbit ${info.version} is available.`, 'info', { label: 'Update now', run: installUpdate });
+    } else {
+      store.update = { state: 'current' };
+      emit('update', store.update);
+      if (manual) toast('Orbit is up to date.', 'success');
+    }
+  } catch (err) {
+    store.update = { state: 'error', message: errText(err) };
+    emit('update', store.update);
+    if (manual) toast(errText(err), 'error');
+  }
+}
+
+/** Download and install the newest release. Orbit restarts into it when done. */
+export async function installUpdate() {
+  store.update = { ...(store.update || {}), state: 'installing' };
+  emit('update', store.update);
+  toast('Downloading the update. Orbit will restart when it is installed.', 'info');
+  try {
+    await call('install_update'); // does not return on success: Orbit restarts
+  } catch (err) {
+    store.update = { state: 'error', message: errText(err) };
+    emit('update', store.update);
+    toast(errText(err), 'error');
+  }
 }
 
 // ======================================================================== context menu
@@ -1074,6 +1134,9 @@ async function boot() {
     toast(`Could not read the first sample. ${errText(err)}`, 'error');
   }
   applySampling(true);
+
+  // Check for a newer release shortly after start, once the first samples are in.
+  if (store.settings.autoUpdate) setTimeout(() => checkForUpdates(), UPDATE_CHECK_DELAY_MS);
 }
 
 if (document.readyState === 'loading') {

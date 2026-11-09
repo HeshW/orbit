@@ -60,6 +60,14 @@ export const win = {
   },
 };
 
+/** The installed app's version (from tauri.conf.json). The browser preview reports MOCK_VERSION. */
+export async function appVersion() {
+  if (isTauri && T.app && typeof T.app.getVersion === 'function') return T.app.getVersion();
+  return MOCK_VERSION;
+}
+
+const MOCK_VERSION = '0.3.0';
+
 // ======================================================================== mock backend
 
 const mock = (() => {
@@ -885,6 +893,15 @@ const mock = (() => {
       });
       removeProc(p.pid);
       return q.pid;
+    },
+
+    check_update() {
+      // The preview pretends a newer release exists so the update UI can be seen.
+      return { version: '0.3.1', currentVersion: MOCK_VERSION, notes: 'Preview release notes.', date: null };
+    },
+
+    install_update() {
+      throw 'Updates install only in the desktop app.';
     },
 
     run_task({ command, asAdmin }) {
