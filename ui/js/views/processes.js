@@ -13,6 +13,7 @@ import { call } from '../api.js';
 import { store, on, setSettings, setQuery, selectProcess, pinStartMatches, pinEntry } from '../store.js';
 import { bytes, rate, pct, heat, escapeHtml, fuzzy, IO_TITLE } from '../format.js';
 import { toast, showMenu, confirmDialog, formDialog, openRunTask } from '../app.js';
+import { openLockFinder } from '../tools.js';
 
 const ROW_H = 32;
 const ROW_H_COMPACT = 26;
@@ -297,13 +298,20 @@ function startOf(startTime, row) {
   return row && row.startTime ? row.startTime : undefined;
 }
 
-export async function endTask(pid, name, startTime) {
+// opts.confirm = false skips the Explorer / Windows confirm (the caller already asked).
+// opts.quiet = true shows no toast: it resolves true when ended and throws the error.
+export async function endTask(pid, name, startTime, { confirm = true, quiet = false } = {}) {
   const row = rowFor(pid);
   const label = name || (row && row.name) || `PID ${pid}`;
   const lower = lc(label);
-  if (isSelf(pid, label)) return refuseSelf();
+  if (isSelf(pid, label)) {
+    if (quiet) throw 'Close Orbit with its window close button.';
+    return refuseSelf();
+  }
   let ok = true;
-  if (lower === 'explorer.exe') {
+  if (!confirm) {
+    // asked already
+  } else if (lower === 'explorer.exe') {
     ok = await confirmDialog({
       title: 'End Explorer?',
       body: 'Explorer will restart the taskbar. The taskbar and desktop disappear for a moment, then Windows brings them back.',
@@ -319,6 +327,10 @@ export async function endTask(pid, name, startTime) {
     });
   }
   if (!ok) return false;
+  if (quiet) {
+    await call('end_task', { pid, startTime: startOf(startTime, row) });
+    return true;
+  }
   try {
     await call('end_task', { pid, startTime: startOf(startTime, row) });
     toast(`Ended ${label} (${pid}).`, 'success');
@@ -327,6 +339,53 @@ export async function endTask(pid, name, startTime) {
     toast(errText(err), 'error');
     return false;
   }
+}
+
+/* "End not responding": every row that is not responding, after one confirm. */
+
+function notRespondingRows() {
+  const out = [];
+  for (const r of currentRows()) {
+    if (r.notResponding && !isSelf(r.pid, r.name) && !NO_END_ALL.has(lc(r.name))) out.push(r);
+  }
+  return out;
+}
+
+export async function endNotResponding() {
+  const rows = notRespondingRows();
+  if (!rows.length) {
+    toast('Every app is responding.', 'info');
+    return 0;
+  }
+  const n = rows.length;
+  const list = rows.map((r) => `- ${r.windowTitle ? `${r.name}: ${r.windowTitle}` : r.name} (${r.pid})`).join('\n');
+  const sys = rows.some((r) => r.kind === 'windows' || CRITICAL.has(lc(r.name)));
+  const ok = await confirmDialog({
+    title: n === 1 ? `End ${rows[0].name}?` : `End ${n} apps that are not responding?`,
+    body: `${n === 1 ? 'This app is' : 'These apps are'} not responding:\n${list}\n\n` +
+      (sys
+        ? `${n === 1 ? 'It is' : 'Some of them are'} part of Windows. Ending ${n === 1 ? 'it' : 'them'} can make Windows unstable. Save your work first.`
+        : `Unsaved work in ${n === 1 ? 'it' : 'them'} is lost.`),
+    confirmLabel: n === 1 ? 'End task' : `End ${n} apps`,
+    danger: true,
+  });
+  if (!ok) return 0;
+  let ended = 0;
+  let lastErr = null;
+  let lastFailed = '';
+  for (const r of rows) {
+    try {
+      await endTask(r.pid, r.name, r.startTime, { confirm: false, quiet: true });
+      ended++;
+    } catch (err) {
+      lastErr = err;
+      lastFailed = r.name;
+    }
+  }
+  if (ended === n) toast(n === 1 ? `Ended ${rows[0].name} (${rows[0].pid}).` : `Ended ${n} apps that were not responding.`, 'success');
+  else if (ended > 0) toast(`Ended ${ended} of ${n}. ${lastFailed}: ${errText(lastErr)}`, 'warn');
+  else toast(n === 1 ? errText(lastErr) : `Could not end them. ${lastFailed}: ${errText(lastErr)}`, 'error');
+  return ended;
 }
 
 export async function endTree(pid, name, startTime) {
@@ -1261,6 +1320,8 @@ function viewTemplate() {
         `<div class="proc-chips" role="group" aria-label="Filters">${chips}</div>` +
         '<span class="proc-count micro" data-count></span>' +
         '<span class="proc-spacer"></span>' +
+        '<button type="button" class="btn btn--ghost btn--sm tl-tool" data-act="locks" title="Find which programs have a file or folder open"><span>Find locks</span><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg></button>' +
+        '<button type="button" class="btn btn--ghost btn--sm tl-tool" data-act="end-nr" disabled title="Every app is responding"><span>End not responding</span><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg></button>' +
         '<button type="button" class="btn btn--ghost btn--sm" data-act="run" title="Run new task (Ctrl+N)"><span>Run task</span><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg></button>' +
         '<button type="button" class="btn btn--ghost btn--sm" data-act="export"><span>Export CSV</span><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></button>' +
         '<button type="button" class="btn btn--danger btn--sm" data-act="end" disabled><span>End task</span><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg></button>' +
@@ -1296,6 +1357,7 @@ export function mount(rootEl) {
     canvas: q('.proc-canvas'),
     count: q('[data-count]'),
     endBtn: q('[data-act="end"]'),
+    endNrBtn: q('[data-act="end-nr"]'),
     empty: q('.proc-empty'),
     emptyMicro: q('[data-empty-micro]'),
     emptyTitle: q('[data-empty-title]'),
@@ -1510,6 +1572,20 @@ function updateEndButton() {
   if (state.els.endBtn.title !== title) state.els.endBtn.title = title;
 }
 
+function updateEndNrButton() {
+  const btn = state.els && state.els.endNrBtn;
+  if (!btn) return;
+  const rows = notRespondingRows();
+  const enabled = rows.length > 0;
+  if (btn.disabled === enabled) btn.disabled = !enabled;
+  const title = !enabled
+    ? 'Every app is responding'
+    : rows.length === 1
+      ? `End ${rows[0].name} (${rows[0].pid}), which is not responding`
+      : `End ${rows.length} apps that are not responding`;
+  if (btn.title !== title) btn.title = title;
+}
+
 function updateToolbar() {
   const els = state.els;
   if (!els) return;
@@ -1521,6 +1597,7 @@ function updateToolbar() {
     if (mineBtn.title !== t) mineBtn.title = t;
   }
   updateEndButton();
+  updateEndNrButton();
   const empty = m.items.length === 0;
   if (els.empty.hidden === empty) els.empty.hidden = !empty;
   if (empty) {
@@ -1901,6 +1978,8 @@ function onRootClick(e) {
   const a = act.dataset.act;
   if (a === 'export') exportCsv();
   else if (a === 'run') openRunTask();
+  else if (a === 'locks') openLockFinder();
+  else if (a === 'end-nr') endNotResponding();
   else if (a === 'end') endSelected();
   else if (a === 'clear') clearFilters();
 }

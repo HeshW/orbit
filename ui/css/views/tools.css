@@ -2,3 +2,167 @@
    Owner: tools feature (docs/V04-CONTRACT.md). Used by ui/js/tools.js, panels/backup.js, views/processes.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ------------------------------------------------ "What's locking this?" dialog */
+
+.dialog--form:has(.tl-results) {
+  width: min(600px, 100%);
+}
+
+/* A file dragged over the window while the dialog is open (Tauri drag-drop). */
+.dialog--form.tl-drop {
+  outline: 2px dashed var(--cyan-ink);
+  outline-offset: 4px;
+}
+
+.tl-help {
+  margin-top: -6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tl-results {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tl-results[hidden] {
+  display: none;
+}
+
+.tl-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+p.tl-state {
+  align-items: center;
+}
+
+.tl-state .icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.tl-state strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tl-state p {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.tl-state--empty .icon {
+  color: var(--ok);
+}
+
+.tl-state--error {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+.tl-count {
+  color: var(--muted);
+}
+
+.tl-list {
+  display: grid;
+  gap: 0;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
+}
+
+.tl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.tl-item + .tl-item {
+  border-top: 1px solid var(--line-soft);
+}
+
+.tl-item-text {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tl-item-name {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-chip {
+  padding-block: 1px;
+  font-size: 10px;
+}
+
+.tl-item-path {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-item-path--none {
+  font-style: italic;
+}
+
+.tl-item-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+/* ------------------------------------------------ Processes toolbar */
+
+/* Narrow windows: the two tool buttons keep only their icons (the title says what they do). */
+@media (max-width: 1240px) {
+  .proc-toolbar .tl-tool > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
