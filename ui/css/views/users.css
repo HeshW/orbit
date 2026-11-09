@@ -2,3 +2,238 @@
    Owner: users feature (docs/V04-CONTRACT.md). Used by ui/js/views/users.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ============================================================ toolbar */
+
+.usr-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ============================================================ table */
+
+.usr-table { min-width: 560px; }
+.usr-table .c-user { width: auto; }
+.usr-table .c-session { width: 100px; }
+.usr-table .c-state { width: 120px; }
+.usr-table .c-client { width: 124px; }
+.usr-table .c-logon { width: 120px; }
+.usr-table .c-procs { width: 118px; }
+.usr-table .c-cpu { width: 76px; }
+.usr-table .c-mem { width: 92px; }
+.usr-table .c-io { width: 92px; }
+.usr-table .c-actions { width: 56px; }
+
+.usr-row {
+  cursor: pointer;
+}
+
+.usr-row.is-open > td {
+  border-bottom-color: transparent;
+}
+
+.usr-toggle .icon {
+  transition: transform var(--dur-1) var(--ease);
+}
+
+.usr-row.is-open .usr-toggle .icon {
+  transform: rotate(90deg);
+}
+
+html.reduce-motion .usr-toggle .icon {
+  transition: none;
+}
+
+.usr-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-tile-sm, 6px 2px 6px 2px);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.usr-row.is-current .usr-avatar {
+  border-color: color-mix(in srgb, var(--cyan) 55%, transparent);
+  background: color-mix(in srgb, var(--cyan) 14%, transparent);
+}
+
+.chip.usr-you {
+  flex: none;
+  border-color: color-mix(in srgb, var(--cyan) 40%, transparent);
+  background: color-mix(in srgb, var(--cyan) 8%, transparent);
+  color: var(--cyan-ink);
+}
+
+.chip.usr-state--conn {
+  border-color: color-mix(in srgb, var(--blue-soft) 40%, transparent);
+  color: var(--ink-2);
+}
+
+/* ============================================================ expanded row */
+
+.usr-table .usr-detail > td {
+  padding: 0;
+  white-space: normal;
+  overflow: visible;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
+}
+
+.usr-detail-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 18px;
+  padding: 12px 16px 14px 46px;
+}
+
+.usr-detail-label {
+  margin: 0 0 8px;
+}
+
+.usr-procs-head,
+.usr-proc {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 64px 68px 84px 88px;
+  align-items: center;
+  gap: 10px;
+}
+
+.usr-procs-head {
+  padding: 0 9px 4px;
+}
+
+.usr-procs-head span:nth-child(n + 3) {
+  text-align: right;
+}
+
+.usr-procs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usr-proc {
+  appearance: none;
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.usr-proc:hover {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--blue) 7%, transparent);
+  color: var(--ink);
+}
+
+.usr-proc:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: -2px;
+}
+
+.usr-proc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.usr-proc-pid,
+.usr-proc-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.usr-proc-pid {
+  font-size: 12px;
+}
+
+.usr-more {
+  margin: 8px 8px 0;
+  font-size: 13px;
+}
+
+.usr-detail-acts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.usr-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.usr-admin-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.usr-admin-note .lv-link {
+  font-size: 12.5px;
+  margin: 0;
+  padding: 0;
+}
+
+/* ============================================================ message dialog */
+
+.dialog__input.usr-msg {
+  height: auto;
+  min-height: 96px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.usr-msg-count {
+  margin: -8px 0 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Narrow windows: the session number and client move into the expanded row only. */
+@media (max-width: 1400px) {
+  .usr-table .c-session,
+  .usr-table .c-client {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .usr-table .c-logon {
+    display: none;
+  }
+
+  .usr-detail-inner {
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: 16px;
+  }
+
+  .usr-procs-head,
+  .usr-proc {
+    grid-template-columns: 18px minmax(0, 1fr) 56px 60px 76px 80px;
+    gap: 8px;
+  }
+}
