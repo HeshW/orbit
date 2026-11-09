@@ -2,3 +2,308 @@
    Owner: autoruns feature (docs/V04-CONTRACT.md). Used by ui/js/views/startup.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ------------------------------------------------------------ tabs */
+
+.ar-tabs {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-btn);
+  background: var(--bg-raised);
+}
+
+.ar-tab {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--radius-tile-sm, 10px 3px 10px 3px);
+  background: transparent;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+
+.ar-tab:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.ar-tab[aria-selected="true"] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--blue) 24%, transparent);
+  box-shadow: inset 0 -2px 0 var(--cyan);
+}
+
+.ar-tab:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 3px;
+}
+
+.ar-tab-count {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ar-tab-count:empty {
+  display: none;
+}
+
+.ar-tab[aria-selected="true"] .ar-tab-count {
+  color: var(--ink-2);
+}
+
+.ar-tab .ar-tab-count--warn,
+.ar-tab[aria-selected="true"] .ar-tab-count--warn {
+  color: var(--warn);
+}
+
+/* ------------------------------------------------------------ panes */
+
+/* Each pane is a column like .lv itself, so the table panel fills the rest. */
+.ar-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.ar-pane[hidden],
+.ar-pane .lv-table-panel[hidden],
+.lv-stats[hidden] {
+  display: none;
+}
+
+.ar-pane > .toolbar {
+  flex: none;
+  margin-bottom: 0;
+}
+
+.ar-help {
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ tables */
+
+.ar-table .c-name { width: 26%; }
+.ar-table .c-cmd { width: auto; }
+.ar-table .c-trig { width: 210px; }
+.ar-table .c-start { width: 150px; }
+.ar-table .c-pub { width: 210px; }
+.ar-table .c-status { width: 88px; }
+.ar-table .c-acts { width: 112px; }
+
+.ar-table--hijacks .c-name { width: 22%; }
+
+.ar-table td.c-acts {
+  overflow: visible;
+}
+
+.ar-trig {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ar-pub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ar-pub--none {
+  color: var(--muted);
+}
+
+.ar-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ar-acts .icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 1180px) {
+  .ar-table .c-trig { width: 150px; }
+  .ar-table .c-pub { width: 160px; }
+  .ar-table .c-start { width: 120px; }
+}
+
+/* ------------------------------------------------------------ logon */
+
+.ar-logon {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.ar-logon[hidden] {
+  display: none;
+}
+
+.ar-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+
+.ar-verdict--warn {
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+}
+
+.ar-verdict--muted {
+  border-color: var(--line-strong);
+  background: var(--bg-raised);
+}
+
+.ar-verdict > .icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--ok);
+}
+
+.ar-verdict--warn > .icon {
+  color: var(--warn);
+}
+
+.ar-verdict--muted > .icon {
+  color: var(--muted);
+}
+
+.ar-verdict-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ar-verdict-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.ar-verdict-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.ar-facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.ar-fact {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 16px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.ar-fact dt {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ar-fact dd {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.ar-value-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.ar-value {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ar-default {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.ar-default code {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------ reduced motion */
+
+html.reduce-motion .ar-tab {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ar-tab {
+    transition: none;
+  }
+}

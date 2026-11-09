@@ -1,8 +1,10 @@
-// 04 / Startup: every Run key and Startup folder entry, with on/off switches.
+// 04 / Startup: every Run key and Startup folder entry, with on/off switches ("Apps"),
+// plus read-only autoruns tabs: scheduled tasks, services, logon keys and image hijacks.
 import { call } from '../api.js';
 import { store, on, setQuery } from '../store.js';
 import { escapeHtml, fuzzy, time } from '../format.js';
 import { toast, showMenu } from '../app.js';
+import { checkOnVirusTotal } from './security.js';
 
 const FILTERS = [
   { id: 'all', label: 'All', test: () => true },
@@ -46,6 +48,38 @@ let filter = 'all';
 let sort = { key: 'name', dir: 1 };
 let measureScheduled = false; // a one-shot RunOnce measurement waits for the next sign-in
 let measureBusy = false;
+let appsCount = 0; // Apps entries matching the search (tab count)
+
+// Autoruns tabs (read only, list_autoruns).
+const TABS = [
+  { id: 'apps', label: 'Apps' },
+  { id: 'tasks', label: 'Scheduled tasks' },
+  { id: 'services', label: 'Services' },
+  { id: 'logon', label: 'Logon' },
+  { id: 'hijacks', label: 'Image hijacks' },
+];
+const START_TYPES = {
+  auto: 'Automatic', autoDelayed: 'Automatic (delayed)', boot: 'Boot', system: 'System',
+  manual: 'Manual', disabled: 'Disabled', unknown: 'Unknown',
+};
+const AR_SR_ACTIONS = '<span class="lv-sr">Actions</span>';
+const AR_COLS = {
+  tasks: [['c-name', 'Name'], ['c-cmd', 'Command'], ['c-trig', 'Triggers'], ['c-pub', 'Publisher'], ['c-status', 'Status'], ['c-acts', AR_SR_ACTIONS]],
+  services: [['c-name', 'Name'], ['c-cmd', 'Path'], ['c-start', 'Start type'], ['c-pub', 'Publisher'], ['c-acts', AR_SR_ACTIONS]],
+  hijacks: [['c-name', 'Image'], ['c-cmd', 'Runs instead'], ['c-pub', 'Publisher'], ['c-acts', AR_SR_ACTIONS]],
+};
+const VT_TITLE = 'Check on VirusTotal. Orbit sends only the file’s SHA-256 hash, never the file.';
+const DEFAULT_SHELL = 'explorer.exe';
+const DEFAULT_USERINIT = 'C:\\Windows\\system32\\userinit.exe,';
+
+let tab = 'apps';
+let ar = null; // { tasks, services, logon, imageHijacks }
+let arLoaded = false;
+let arLoading = false;
+let arError = null;
+let arHeadFor = '';
+let arRows = []; // rows as rendered in the autoruns table (data-i indexes into this)
+const hijackSigs = new Map(); // debugger exe -> SignatureInfo
 
 /* ---------- helpers ---------- */
 
@@ -341,7 +375,14 @@ function updateSortHeaders() {
 function render() {
   if (!root) return;
   dirty = false;
+  renderApps();
+  renderTabs();
+  renderAutoruns();
+}
+
+function renderApps() {
   const counts = computeRows();
+  appsCount = counts.all;
 
   let enabled = 0;
   for (const e of entries) if (e.enabled) enabled++;
@@ -410,6 +451,376 @@ function render() {
   }
 }
 
+/* ---------- autoruns (read only) ---------- */
+
+function query() {
+  return (store.query || '').trim().toLowerCase();
+}
+
+function leafName(taskPath) {
+  const s = String(taskPath || '');
+  const i = s.lastIndexOf('\\');
+  return i >= 0 && i < s.length - 1 ? s.slice(i + 1) : s;
+}
+
+function folderOf(taskPath) {
+  const s = String(taskPath || '');
+  const i = s.lastIndexOf('\\');
+  return i > 0 ? s.slice(0, i) : '';
+}
+
+/** The program a command line starts: the quoted part, a path up to ".exe", or the first word. */
+function exeFromCommand(cmd) {
+  const s = String(cmd || '').trim();
+  if (!s) return '';
+  if (s.startsWith('"')) return s.slice(1).split('"')[0].trim();
+  const first = s.split(/\s+/)[0];
+  if (!/[\\/]/.test(first)) return first;
+  const m = /^(.*?\.(?:exe|com|bat|cmd))(?=\s|$)/i.exec(s);
+  return m ? m[1] : first;
+}
+
+function normalizeAutoruns(d) {
+  const o = d && typeof d === 'object' ? d : {};
+  const list = (x) => (Array.isArray(x) ? x : []);
+  const l = o.logon && typeof o.logon === 'object' ? o.logon : {};
+  return {
+    tasks: list(o.tasks),
+    services: list(o.services),
+    logon: {
+      shell: String(l.shell ?? ''), userinit: String(l.userinit ?? ''),
+      shellOk: l.shellOk === true, userinitOk: l.userinitOk === true,
+    },
+    imageHijacks: list(o.imageHijacks),
+  };
+}
+
+function setArRefreshBusy(on) {
+  if (!els.arRefresh) return;
+  els.arRefresh.classList.toggle('is-busy', on);
+  els.arRefresh.setAttribute('aria-busy', on ? 'true' : 'false');
+}
+
+async function loadAutoruns() {
+  if (arLoading) return;
+  arLoading = true;
+  setArRefreshBusy(true);
+  if (visible) render();
+  try {
+    ar = normalizeAutoruns(await call('list_autoruns'));
+    arError = null;
+  } catch (err) {
+    arError = errMsg(err);
+    if (arLoaded) toast(arError, 'error');
+  } finally {
+    arLoaded = true;
+    arLoading = false;
+    setArRefreshBusy(false);
+    if (visible) render(); else dirty = true;
+  }
+  loadHijackSigs();
+}
+
+/** Signatures of the programs image hijacks start (the list has no publisher of its own). */
+async function loadHijackSigs() {
+  if (!ar) return;
+  const wanted = [];
+  for (const h of ar.imageHijacks) {
+    const p = exeFromCommand(h.debugger);
+    if (p && /[\\/]/.test(p) && !hijackSigs.has(p) && !wanted.includes(p)) wanted.push(p);
+  }
+  if (!wanted.length) return;
+  try {
+    const result = await call('get_signatures', { paths: wanted });
+    for (const p of wanted) if (result && result[p]) hijackSigs.set(p, result[p]);
+    if (visible) render(); else dirty = true;
+  } catch {
+    // The publisher column stays "Can't check".
+  }
+}
+
+function arList(kind, q) {
+  if (!ar) return [];
+  if (kind === 'tasks') {
+    return ar.tasks.filter((t) => !q || matches(leafName(t.name), q) || includes(t.name, q) || includes(t.command, q)
+      || includes(t.author, q) || includes(t.publisher, q) || (t.triggers || []).some((x) => includes(x, q)));
+  }
+  if (kind === 'services') {
+    return ar.services.filter((s) => !q || matches(s.displayName, q) || includes(s.name, q) || includes(s.path, q)
+      || includes(s.publisher, q) || includes(START_TYPES[s.startType], q));
+  }
+  if (kind === 'hijacks') {
+    return ar.imageHijacks.filter((h) => !q || matches(h.image, q) || includes(h.debugger, q));
+  }
+  return [];
+}
+
+function logonWarnings() {
+  if (!ar) return 0;
+  const l = ar.logon;
+  if (!l.shell && !l.userinit) return 0;
+  return (l.shellOk ? 0 : 1) + (l.userinitOk ? 0 : 1);
+}
+
+function renderTabs() {
+  const q = query();
+  for (const btn of els.tabs.querySelectorAll('[data-tab]')) {
+    const id = btn.dataset.tab;
+    const on = id === tab;
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    btn.tabIndex = on ? 0 : -1;
+    const c = btn.querySelector('.ar-tab-count');
+    let n = '';
+    let warn = false;
+    if (id === 'apps') n = loaded ? String(appsCount) : '';
+    else if (id === 'logon') {
+      const w = ar ? logonWarnings() : 0;
+      n = w ? String(w) : '';
+      warn = w > 0;
+    } else if (ar) n = String(arList(id, q).length);
+    c.textContent = n;
+    c.classList.toggle('ar-tab-count--warn', warn);
+    c.title = warn ? `${n} value${n === '1' ? ' is' : 's are'} not the Windows default` : '';
+  }
+  els.appsPane.hidden = tab !== 'apps';
+  els.arPane.hidden = tab === 'apps';
+  els.stats.hidden = tab !== 'apps';
+}
+
+function pubHtml(status, publisher) {
+  if (status === 'unsigned') return '<span class="chip lv-chip chip--warn">Unsigned</span>';
+  if (status === 'invalid') {
+    return `<span class="chip lv-chip chip--danger" title="${attr(publisher ? `Signed as ${publisher}, but the signature does not check out` : 'The signature does not check out')}">Invalid signature</span>`;
+  }
+  if (status === 'signed') return `<span class="ar-pub" title="${attr(publisher || 'Signed')}">${text(publisher || 'Signed')}</span>`;
+  if (status === 'unknown') return '<span class="ar-pub ar-pub--none" title="Orbit could not open this file to check its signature. It may be missing.">Can’t check</span>';
+  return '<span class="ar-pub ar-pub--none" title="This entry does not start a program file">No file</span>';
+}
+
+function actsHtml(r) {
+  const label = attr(r.label);
+  const noFile = r.path ? '' : ' disabled';
+  return `<div class="ar-acts">
+    <button type="button" class="icon-btn lv-more" data-ar="open" aria-label="Open file location of ${label}" title="Open file location"${noFile}>${icon('i-folder')}</button>
+    <button type="button" class="icon-btn lv-more" data-ar="search" aria-label="Search online for ${label}" title="Search online">${icon('i-globe')}</button>
+    <button type="button" class="icon-btn lv-more" data-ar="vt" aria-label="Check ${label} on VirusTotal" title="${attr(VT_TITLE)}"${noFile}>${icon('i-shield')}</button>
+  </div>`;
+}
+
+function taskRow(t, i) {
+  const leaf = leafName(t.name);
+  const folder = folderOf(t.name);
+  const triggers = (t.triggers || []).join(', ');
+  return `<tr class="row" data-i="${i}">
+    <td class="c-name"><div class="lv-namecell"><span class="lv-primary" title="${attr(t.name)}">${text(leaf)}</span>${folder ? `<span class="lv-secondary" title="${attr(folder)}">${text(folder)}</span>` : ''}</div></td>
+    <td class="c-cmd"><span class="lv-mono" title="${attr(t.command)}">${text(t.command)}</span></td>
+    <td class="c-trig"><span class="ar-trig" title="${attr(triggers)}">${text(triggers)}</span></td>
+    <td class="c-pub">${pubHtml(t.signatureStatus, t.publisher)}</td>
+    <td class="c-status"><span class="lv-status ${t.enabled ? 'lv-status--on' : 'lv-status--off'}">${t.enabled ? 'Enabled' : 'Disabled'}</span></td>
+    <td class="c-acts">${actsHtml(arRows[i])}</td>
+  </tr>`;
+}
+
+function serviceRow(s, i) {
+  const showName = s.name && s.name !== s.displayName;
+  return `<tr class="row" data-i="${i}">
+    <td class="c-name"><div class="lv-namecell"><span class="lv-primary" title="${attr(s.displayName)}">${text(s.displayName)}</span>${showName ? `<span class="lv-secondary" title="${attr(s.name)}">${text(s.name)}</span>` : ''}</div></td>
+    <td class="c-cmd"><span class="lv-mono" title="${attr(s.path)}">${text(s.path)}</span></td>
+    <td class="c-start"><span class="lv-start">${text(START_TYPES[s.startType] || s.startType)}</span></td>
+    <td class="c-pub">${pubHtml(s.signatureStatus, s.publisher)}</td>
+    <td class="c-acts">${actsHtml(arRows[i])}</td>
+  </tr>`;
+}
+
+function hijackRow(h, i) {
+  const sig = hijackSigs.get(arRows[i].path);
+  return `<tr class="row" data-i="${i}">
+    <td class="c-name"><div class="lv-namecell"><span class="lv-primary" title="${attr(h.image)}">${text(h.image)}</span></div></td>
+    <td class="c-cmd"><span class="lv-mono" title="${attr(h.debugger)}">${text(h.debugger)}</span></td>
+    <td class="c-pub">${sig ? pubHtml(sig.status, sig.publisher) : pubHtml(arRows[i].path ? 'unknown' : null, null)}</td>
+    <td class="c-acts">${actsHtml(arRows[i])}</td>
+  </tr>`;
+}
+
+function arShowEmpty(title, body, action) {
+  els.arTbody.innerHTML = '';
+  arRows = [];
+  els.arTable.classList.add('is-empty');
+  els.arEmpty.hidden = false;
+  els.arEmpty.innerHTML = `${icon('i-rocket')}
+    <p class="empty-title lv-empty-title">${text(title)}</p>
+    ${body ? `<p class="lv-empty-body">${text(body)}</p>` : ''}
+    ${action ? `<button type="button" class="btn btn--ghost btn--sm" data-ar-empty="${action.id}">${text(action.label)}</button>` : ''}`;
+}
+
+function arHelpText() {
+  if (tab === 'tasks') {
+    const admin = store.staticInfo && store.staticInfo.isAdmin;
+    return 'Scheduled tasks that run when you sign in or when Windows starts. Read only.'
+      + (admin ? '' : ' Tasks of other accounts show after Restart as administrator.');
+  }
+  if (tab === 'services') return 'Services and drivers that start on their own and are not signed by Microsoft. Read only.';
+  if (tab === 'logon') return 'The programs Windows runs at every sign-in. Read only.';
+  return 'Programs set to open in place of another program (Image File Execution Options). Read only.';
+}
+
+const AR_EMPTY = {
+  tasks: ['No scheduled tasks start at sign-in', 'No task has a log on or system start trigger.'],
+  services: ['No third-party services start on their own', 'Every automatic service and driver is signed by Microsoft.'],
+  hijacks: ['No image hijacks', 'No program is set to open in place of another.'],
+};
+
+function renderAutoruns() {
+  if (tab === 'apps') return;
+  const isLogon = tab === 'logon';
+  els.arTablePanel.hidden = isLogon;
+  els.logon.hidden = !isLogon;
+  els.arHelp.textContent = arHelpText();
+  if (isLogon) {
+    els.arCount.textContent = '';
+    renderLogon();
+    return;
+  }
+
+  if (arHeadFor !== tab) {
+    arHeadFor = tab;
+    els.arTable.className = `table lv-table ar-table ar-table--${tab}`;
+    els.arThead.innerHTML = `<tr>${AR_COLS[tab].map(([cls, label]) => `<th class="${cls}" scope="col">${label}</th>`).join('')}</tr>`;
+    els.arScroll.scrollTop = 0;
+  }
+
+  const all = tab === 'tasks' ? ar?.tasks : tab === 'services' ? ar?.services : ar?.imageHijacks;
+  const list = arList(tab, query());
+  els.arCount.textContent = ar && !arError ? `${list.length} of ${all.length}` : '';
+
+  if (!ar) {
+    if (arError) arShowEmpty('Could not read the autoruns', arError, { id: 'retry', label: 'Try again' });
+    else arShowEmpty('Reading scheduled tasks and services', 'Checking signatures can take a few seconds the first time.');
+    return;
+  }
+  if (!all.length) {
+    arShowEmpty(AR_EMPTY[tab][0], AR_EMPTY[tab][1]);
+    return;
+  }
+  if (!list.length) {
+    const q = (store.query || '').trim();
+    arShowEmpty(`Nothing matches "${q}"`, 'Search looks at names, commands, paths and publishers.', { id: 'clear', label: 'Clear search' });
+    return;
+  }
+  els.arEmpty.hidden = true;
+  els.arEmpty.innerHTML = '';
+  els.arTable.classList.remove('is-empty');
+
+  // Keep keyboard focus on the same button across the rebuild.
+  let focusKey = null;
+  let focusAct = null;
+  const active = document.activeElement;
+  if (active && els.arTbody.contains(active)) {
+    const tr = active.closest('tr[data-i]');
+    const prev = tr ? arRows[Number(tr.dataset.i)] : null;
+    focusKey = prev ? prev.key : null;
+    focusAct = active.dataset.ar || null;
+  }
+
+  arRows = list.map((item) => {
+    if (tab === 'tasks') return { kind: tab, item, key: item.name, path: item.path || '', label: leafName(item.name), search: `${leafName(item.name)} scheduled task` };
+    if (tab === 'services') return { kind: tab, item, key: item.name, path: item.path || '', label: item.displayName || item.name, search: `${item.displayName || item.name} service` };
+    const exe = exeFromCommand(item.debugger);
+    return { kind: tab, item, key: `${item.image}|${item.debugger}`, path: /[\\/]/.test(exe) ? exe : '', label: item.image, search: `${item.image} Image File Execution Options debugger` };
+  });
+  const rowFn = tab === 'tasks' ? taskRow : tab === 'services' ? serviceRow : hijackRow;
+  els.arTbody.innerHTML = arRows.map((r, i) => rowFn(r.item, i)).join('');
+
+  if (focusKey) {
+    const idx = arRows.findIndex((r) => r.key === focusKey);
+    if (idx >= 0) {
+      const target = els.arTbody.children[idx].querySelector(`[data-ar="${focusAct}"]:not(:disabled)`)
+        || els.arTbody.children[idx].querySelector('[data-ar]:not(:disabled)');
+      if (target) target.focus({ preventScroll: true });
+    }
+  }
+}
+
+function logonFact(label, value, ok, fallback) {
+  const shown = value ? text(value) : '<span class="lv-faint">(empty)</span>';
+  const chip = ok
+    ? '<span class="chip lv-chip chip--ok">Default</span>'
+    : '<span class="chip lv-chip chip--warn">Not the default</span>';
+  return `<div class="ar-fact">
+    <dt>${label}</dt>
+    <dd>
+      <div class="ar-value-row"><code class="ar-value">${shown}</code>${chip}</div>
+      ${ok ? '' : `<p class="ar-default">Windows default: <code>${text(fallback)}</code></p>`}
+    </dd>
+  </div>`;
+}
+
+function verdictHtml(kind, iconId, title, body) {
+  return `<div class="ar-verdict${kind ? ` ar-verdict--${kind}` : ''}" role="status">
+    ${icon(iconId)}
+    <div class="ar-verdict-text">
+      <p class="ar-verdict-title">${text(title)}</p>
+      ${body ? `<p class="ar-verdict-body">${text(body)}</p>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderLogon() {
+  if (!ar) {
+    els.logon.innerHTML = arError
+      ? `${verdictHtml('muted', 'i-shield', 'Could not read the logon values', arError)}
+         <div><button type="button" class="btn btn--ghost btn--sm" data-ar-empty="retry">Try again</button></div>`
+      : verdictHtml('muted', 'i-clock', 'Reading the logon values', '');
+    return;
+  }
+  const l = ar.logon;
+  if (!l.shell && !l.userinit) {
+    els.logon.innerHTML = verdictHtml('muted', 'i-shield', 'Could not read the logon values', 'Try Restart as administrator.');
+    return;
+  }
+  const warn = !l.shellOk || !l.userinitOk;
+  const about = 'Windows starts these at sign-in. Anything after explorer.exe here also runs at every sign-in.';
+  els.logon.innerHTML = `
+    ${warn
+      ? verdictHtml('warn', 'i-shield', 'A logon value is not the Windows default', `${about} Check what the extra part starts before you trust it.`)
+      : verdictHtml('', 'i-check', 'Both logon values are the Windows defaults', about)}
+    <dl class="ar-facts">
+      ${logonFact('Shell', l.shell, l.shellOk, DEFAULT_SHELL)}
+      ${logonFact('Userinit', l.userinit, l.userinitOk, DEFAULT_USERINIT)}
+    </dl>
+    <p class="lv-help">Read from HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon. Orbit does not change these values.</p>`;
+}
+
+async function arAction(act, r) {
+  if (!r) return;
+  if (act === 'open') {
+    if (!r.path) return;
+    try {
+      await call('open_location', { path: r.path });
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  } else if (act === 'search') {
+    try {
+      await call('search_online', { query: r.search });
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  } else if (act === 'vt') {
+    if (r.path) await checkOnVirusTotal(r.path, r.label);
+  }
+}
+
+function selectTab(id, focus) {
+  if (!TABS.some((t) => t.id === id)) return;
+  tab = id;
+  render();
+  if (focus) {
+    const btn = els.tabs.querySelector(`[data-tab="${id}"]`);
+    if (btn) btn.focus();
+  }
+}
+
 function entryFromEvent(target) {
   const tr = target.closest('tr[data-i]');
   if (!tr || !els.tbody.contains(tr)) return null;
@@ -434,6 +845,10 @@ export function mount(rootEl) {
         <div class="stat lv-stat"><span class="micro stat-label">Disabled</span><span class="stat-value lv-stat-value" data-stat="disabled">-</span></div>
       </div>
     </header>
+    <div class="ar-tabs" role="tablist" aria-label="Startup lists">
+      ${TABS.map((t) => `<button type="button" class="ar-tab" role="tab" id="ar-tab-${t.id}" data-tab="${t.id}" aria-selected="false" aria-controls="${t.id === 'apps' ? 'ar-pane-apps' : 'ar-pane-auto'}" tabindex="-1">${t.label}<span class="ar-tab-count"></span></button>`).join('')}
+    </div>
+    <div class="ar-pane" id="ar-pane-apps" role="tabpanel" aria-labelledby="ar-tab-apps" data-pane="apps">
     <div class="toolbar lv-toolbar">
       <div class="lv-chips" role="group" aria-label="Filter startup entries">
         ${FILTERS.map((f) => `<button type="button" class="chip" data-filter="${f.id}" aria-pressed="false">${f.label}<span class="lv-chip-count"></span></button>`).join('')}
@@ -466,21 +881,90 @@ export function mount(rootEl) {
         <div class="empty lv-empty" hidden></div>
       </div>
     </div>
+    </div>
+    <div class="ar-pane" id="ar-pane-auto" role="tabpanel" data-pane="auto" hidden>
+      <div class="toolbar lv-toolbar">
+        <p class="ar-help" data-ar-help></p>
+        <span class="micro lv-count" data-ar-count aria-live="polite"></span>
+        <button type="button" class="icon-btn lv-refresh" data-ar-refresh aria-label="Refresh scheduled tasks, services and logon values" title="Refresh">${icon('i-refresh')}</button>
+      </div>
+      <div class="panel lv-table-panel ar-table-panel" data-ar-panel>
+        <div class="lv-scroll" data-ar-scroll>
+          <table class="table lv-table ar-table" data-ar-table>
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+          <div class="empty lv-empty" data-ar-empty-box hidden></div>
+        </div>
+      </div>
+      <section class="panel ar-logon" data-ar-logon aria-label="Logon values" hidden></section>
+    </div>
   </div>`;
 
+  els.stats = root.querySelector('.lv-stats');
+  els.tabs = root.querySelector('.ar-tabs');
+  els.appsPane = root.querySelector('[data-pane="apps"]');
+  els.arPane = root.querySelector('[data-pane="auto"]');
   els.statEnabled = root.querySelector('[data-stat="enabled"]');
   els.statDisabled = root.querySelector('[data-stat="disabled"]');
-  els.chips = root.querySelector('.lv-chips');
-  els.count = root.querySelector('.lv-count');
-  els.refresh = root.querySelector('[data-refresh]');
-  els.table = root.querySelector('table');
+  els.chips = els.appsPane.querySelector('.lv-chips');
+  els.count = els.appsPane.querySelector('.lv-count');
+  els.refresh = els.appsPane.querySelector('[data-refresh]');
+  els.table = els.appsPane.querySelector('table');
   els.thead = els.table.tHead;
   els.tbody = els.table.tBodies[0];
-  els.empty = root.querySelector('.lv-empty');
+  els.empty = els.appsPane.querySelector('.lv-empty');
   els.measure = root.querySelector('[data-measure]');
   els.note = root.querySelector('[data-note]');
   els.noteCancel = root.querySelector('[data-note-cancel]');
   els.when = root.querySelector('[data-when]');
+  els.arHelp = root.querySelector('[data-ar-help]');
+  els.arCount = root.querySelector('[data-ar-count]');
+  els.arRefresh = root.querySelector('[data-ar-refresh]');
+  els.arTablePanel = root.querySelector('[data-ar-panel]');
+  els.arScroll = root.querySelector('[data-ar-scroll]');
+  els.arTable = root.querySelector('[data-ar-table]');
+  els.arThead = els.arTable.tHead;
+  els.arTbody = els.arTable.tBodies[0];
+  els.arEmpty = root.querySelector('[data-ar-empty-box]');
+  els.logon = root.querySelector('[data-ar-logon]');
+
+  els.tabs.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-tab]');
+    if (btn) selectTab(btn.dataset.tab, false);
+  });
+  // Arrow keys move between tabs (one tab stop for the whole list).
+  els.tabs.addEventListener('keydown', (ev) => {
+    const i = TABS.findIndex((t) => t.id === tab);
+    let next = -1;
+    if (ev.key === 'ArrowRight') next = (i + 1) % TABS.length;
+    else if (ev.key === 'ArrowLeft') next = (i - 1 + TABS.length) % TABS.length;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = TABS.length - 1;
+    if (next < 0) return;
+    ev.preventDefault();
+    selectTab(TABS[next].id, true);
+  });
+
+  els.arRefresh.addEventListener('click', () => loadAutoruns());
+
+  els.arTbody.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-ar]');
+    if (!btn || btn.disabled) return;
+    const tr = btn.closest('tr[data-i]');
+    if (!tr) return;
+    arAction(btn.dataset.ar, arRows[Number(tr.dataset.i)]);
+  });
+
+  els.arPane.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-ar-empty]');
+    if (!btn) return;
+    if (btn.dataset.arEmpty === 'retry') loadAutoruns();
+    else if (btn.dataset.arEmpty === 'clear') {
+      clearSearch();
+      render();
+    }
+  });
 
   els.measure.addEventListener('click', () => setMeasure(true));
   els.noteCancel.addEventListener('click', () => setMeasure(false));
@@ -551,6 +1035,7 @@ export function mount(rootEl) {
 
 export function onShow() {
   visible = true;
+  if (!arLoaded && !arLoading) loadAutoruns();
   if (!loaded && !loading) load();
   else if (dirty) render();
 }
