@@ -2,3 +2,128 @@
    Owner: history feature (docs/V04-CONTRACT.md). Used by ui/js/views/history.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ============================================================ toolbar */
+
+.hist-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.hist-custom[hidden] {
+  display: none;
+}
+
+.hist-days {
+  width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist-days-max {
+  margin: 0;
+}
+
+.hist-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 0 6px;
+}
+
+.hist-rec-label {
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* ============================================================ privacy note */
+
+.hist-note {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hist-note .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--cyan-ink);
+}
+
+.hist-note.is-off .icon {
+  color: var(--warn);
+}
+
+/* ============================================================ table */
+
+.hist-table { min-width: 860px; }
+.hist-table .c-name { width: auto; }
+.hist-table .c-cpu { width: 150px; }
+.hist-table .c-active { width: 96px; }
+.hist-table .c-avg { width: 98px; }
+.hist-table .c-max { width: 98px; }
+.hist-table .c-read { width: 98px; }
+.hist-table .c-write { width: 102px; }
+.hist-table .c-net { width: 100px; }
+.hist-table .c-last { width: 126px; }
+
+.hist-cpu {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hist-bar {
+  display: block;
+  flex: 1 1 auto;
+  max-width: 52px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.hist-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--chart-cpu, var(--blue));
+}
+
+.hist-cpu-val {
+  flex: none;
+  color: var(--ink);
+}
+
+.hist-na {
+  font-size: 12.5px;
+}
+
+/* Narrow windows: drop the columns that matter least. */
+@media (max-width: 1300px) {
+  .hist-table .c-max,
+  .hist-table .c-write {
+    display: none;
+  }
+
+  .hist-table { min-width: 680px; }
+}
+
+@media (max-width: 1080px) {
+  .hist-table .c-last {
+    display: none;
+  }
+
+  .hist-table .c-cpu { width: 150px; }
+  .hist-bar { max-width: 40px; }
+}
