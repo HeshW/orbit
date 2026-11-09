@@ -1,4 +1,4 @@
-// 03 / Startup: every Run key and Startup folder entry, with on/off switches.
+// 04 / Startup: every Run key and Startup folder entry, with on/off switches.
 import { call } from '../api.js';
 import { store, on, setQuery } from '../store.js';
 import { escapeHtml, fuzzy, time } from '../format.js';
@@ -426,7 +426,7 @@ export function mount(rootEl) {
   <div class="lv lv--startup">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">03 / Startup</p>
+        <p class="micro">04 / Startup</p>
         <h1 class="view-title">Boot lean. <em>Start fast.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">

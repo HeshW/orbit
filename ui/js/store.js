@@ -23,6 +23,14 @@ const DEFAULT_SETTINGS = Object.freeze({
   grouping: 'grouped',
   alwaysOnTop: false,
   autoUpdate: true,
+  // v0.4 (docs/V04-CONTRACT.md)
+  showTray: true,
+  closeToTray: false,
+  startWithWindows: false,
+  startMinimized: true,
+  hotkeyEnabled: true,
+  historyEnabled: true,
+  historyDays: 30,
   watchlist: [],
   watchNames: [],
 });
@@ -39,6 +47,11 @@ function sanitize(raw) {
   if (GROUPINGS.includes(raw.grouping)) s.grouping = raw.grouping;
   if (typeof raw.alwaysOnTop === 'boolean') s.alwaysOnTop = raw.alwaysOnTop;
   if (typeof raw.autoUpdate === 'boolean') s.autoUpdate = raw.autoUpdate;
+  for (const k of ['showTray', 'closeToTray', 'startWithWindows', 'startMinimized', 'hotkeyEnabled', 'historyEnabled']) {
+    if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  }
+  const days = Number(raw.historyDays);
+  if (Number.isFinite(days)) s.historyDays = Math.min(90, Math.max(1, Math.round(days)));
   if (Array.isArray(raw.watchlist)) {
     // Each pid pin is bound to the process start time, so a pid Windows reuses later
     // is not pinned. Old bare-number entries cannot be checked and are dropped.

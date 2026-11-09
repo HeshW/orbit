@@ -1,6 +1,9 @@
 // Orbit / api: the Tauri bridge, plus a mock backend so the UI runs in a normal browser.
 // In Tauri (withGlobalTauri) every call goes to the Rust commands; outside Tauri the mock
-// below answers every command in docs/CONTRACT.md with realistic, drifting data.
+// below answers every command in docs/CONTRACT.md with realistic, drifting data. Commands
+// added in v0.4 are answered by the feature mocks in js/mock/ (docs/V04-CONTRACT.md).
+
+import * as mockRegistry from './mock/index.js';
 
 const T = typeof window !== 'undefined' ? window.__TAURI__ : undefined;
 
@@ -472,7 +475,7 @@ const mock = (() => {
   }
 
   function rowOf(p) {
-    return {
+    const row = {
       pid: p.pid,
       parentPid: p.parentPid,
       name: p.name,
@@ -490,7 +493,11 @@ const mock = (() => {
       windowTitle: p.windowTitle,
       notResponding: p.notResponding,
       suspended: p.suspended,
+      sessionId: null,
+      netRxBps: null,
+      netTxBps: null,
     };
+    return mockRegistry.decorateRow(row, p);
   }
 
   function sample() {
@@ -596,7 +603,7 @@ const mock = (() => {
         free: Math.round(clamp(TOTAL_MEM - used - state.cached + 0.22 * GB, 0, TOTAL_MEM - used)),
       },
       disk,
-      network: { rxBps: Math.round(rx), txBps: Math.round(tx), interfaces },
+      network: { rxBps: Math.round(rx), txBps: Math.round(tx), interfaces, perApp: { available: false, reason: null } },
       gpu: NO_GPU
         ? { usage: null, dedicatedUsed: null }
         : { usage: Math.round(clamp(gpuSum + 1.5 + Math.random(), 0, 100) * 10) / 10, dedicatedUsed: Math.round(2.35 * GB + Math.random() * 40 * MB) },
@@ -606,8 +613,12 @@ const mock = (() => {
         threadCount: state.threads,
         handleCount: state.handles,
       },
+      disks: [],
+      gpuEngines: [],
+      battery: null,
       processes: rows,
     };
+    mockRegistry.decorateSnapshot(snap);
     state.last = snap;
     return snap;
   }
@@ -627,6 +638,7 @@ const mock = (() => {
         pid: r.pid, cpu: r.cpu, memory: r.memory, diskReadBps: r.diskReadBps, diskWriteBps: r.diskWriteBps,
         gpu: r.gpu, status: r.status, kind: r.kind, windowTitle: r.windowTitle,
         notResponding: r.notResponding, suspended: r.suspended,
+        sessionId: r.sessionId, netRxBps: r.netRxBps, netTxBps: r.netTxBps,
       })),
     };
   }
@@ -1003,12 +1015,20 @@ const mock = (() => {
     },
   };
 
+  // v0.4 feature mocks (js/mock/*.js); one with the same name replaces the built-in handler.
+  Object.assign(handlers, mockRegistry.handlers);
+  const ctx = {
+    snapshot: () => state.last || sample(),
+    isAdmin: () => state.isAdmin,
+    delay,
+  };
+
   async function mockCall(cmd, args) {
     const h = handlers[cmd];
     await delay(cmd === 'get_snapshot' ? 5 : 25 + Math.random() * 70);
     if (!h) throw `Unknown command: ${cmd}`;
     try {
-      return clone(await h(args));
+      return clone(await h(args, ctx));
     } catch (err) {
       throw typeof err === 'string' ? err : (err && err.message) || 'Something went wrong.';
     }

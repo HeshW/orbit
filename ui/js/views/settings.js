@@ -1,8 +1,11 @@
-// 05 / Settings: themes, update speed, display, watchlist, permissions, shortcuts, about.
+// 09 / Settings: themes, update speed, display, behavior, watchlist, permissions, shortcuts,
+// backup, about. The Behavior and Backup panels come from js/panels/ (docs/V04-CONTRACT.md).
 import { call, appVersion } from '../api.js';
 import { store, on, setSettings, pinStartMatches } from '../store.js';
 import { bytes, escapeHtml } from '../format.js';
 import { toast, confirmDialog, restartAsAdmin as relaunchElevated, checkForUpdates, installUpdate } from '../app.js';
+import { mountPanel as mountBehaviorPanel } from '../panels/behavior.js';
+import { mountPanel as mountBackupPanel } from '../panels/backup.js';
 
 const THEMES = [
   { id: 'night', name: 'Night', note: 'The design system as-is' },
@@ -23,7 +26,7 @@ const SHORTCUTS = [
   { keys: ['/'], what: 'Focus search' },
   { keys: ['Ctrl', 'K'], what: 'Open the command palette' },
   { keys: ['Ctrl', 'N'], what: 'Run a new task' },
-  { keys: ['1', '5'], range: true, what: 'Switch section' },
+  { keys: ['1', '9'], range: true, what: 'Switch section' },
   { keys: ['Space'], what: 'Pause or resume updates' },
   { keys: ['Del'], what: 'End the selected task' },
   { keys: ['Enter'], what: 'Open details for the selected process' },
@@ -130,7 +133,7 @@ function template() {
   <div class="lv lv--settings">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">05 / Settings</p>
+        <p class="micro">09 / Settings</p>
         <h1 class="view-title">Your console. <em>Your rules.</em></h1>
       </div>
     </header>
@@ -206,6 +209,8 @@ function template() {
         </div>
       </section>
 
+      <section class="panel lv-panel" data-panel="behavior"></section>
+
       <section class="panel lv-panel" aria-labelledby="set-watch-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-watch-h">Watchlist</h2>
@@ -239,6 +244,8 @@ function template() {
           </tbody>
         </table>
       </section>
+
+      <section class="panel lv-panel" data-panel="backup"></section>
 
       <section class="panel lv-panel lv-about" aria-labelledby="set-about-h">
         <div class="lv-panel-head">
@@ -499,6 +506,17 @@ export function mount(rootEl) {
   els.permHelp = root.querySelector('[data-perm-help]');
   els.admin = root.querySelector('[data-admin]');
   els.facts = root.querySelector('[data-facts]');
+
+  // Panels owned by other modules; one that fails is hidden, the rest of Settings still works.
+  for (const [name, mountFn] of [['behavior', mountBehaviorPanel], ['backup', mountBackupPanel]]) {
+    const el = root.querySelector(`[data-panel="${name}"]`);
+    try {
+      mountFn(el);
+    } catch (err) {
+      console.error(`[orbit] ${name} panel failed`, err);
+      el.hidden = true;
+    }
+  }
 
   els.themes.addEventListener('click', (ev) => {
     const card = ev.target.closest('[data-pick]');

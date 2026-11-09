@@ -27,10 +27,51 @@ const icon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"/><
 const VIEWS = [
   ['processes', 'Processes', 'i-list', '01', 'tasks apps'],
   ['performance', 'Performance', 'i-chart', '02', 'cpu memory disk network gpu graphs'],
-  ['startup', 'Startup', 'i-rocket', '03', 'boot autorun run keys'],
-  ['services', 'Services', 'i-services', '04', 'windows services'],
-  ['settings', 'Settings', 'i-gear', '05', 'preferences options themes'],
+  ['history', 'History', 'i-history', '03', 'app history usage past days cpu time data'],
+  ['startup', 'Startup', 'i-rocket', '04', 'boot autorun run keys scheduled tasks autoruns'],
+  ['users', 'Users', 'i-users', '05', 'sessions accounts sign out disconnect'],
+  ['services', 'Services', 'i-services', '06', 'windows services'],
+  ['network', 'Network', 'i-plug', '07', 'connections ports sockets tcp udp internet'],
+  ['security', 'Security', 'i-radar', '08', 'scan signatures malware suspicious signed'],
+  ['settings', 'Settings', 'i-gear', '09', 'preferences options themes'],
 ];
+
+// Commands other modules add (docs/V04-CONTRACT.md "Palette registry").
+const providers = [];
+
+/**
+ * Add palette items from another module. `provider()` is called each time the palette
+ * renders and returns items in the built-in shape:
+ * { label, search?, icon, hint?, danger?, run } (group is set to 'Actions').
+ * They are listed after the built-in actions. Returns a function that removes the provider.
+ */
+export function registerCommands(provider) {
+  if (typeof provider !== 'function') return () => {};
+  providers.push(provider);
+  return () => {
+    const i = providers.indexOf(provider);
+    if (i >= 0) providers.splice(i, 1);
+  };
+}
+
+function registeredItems() {
+  const out = [];
+  for (const provider of providers) {
+    let items;
+    try {
+      items = provider();
+    } catch (err) {
+      console.error('[orbit] palette provider failed', err);
+      continue;
+    }
+    if (!Array.isArray(items)) continue;
+    for (const it of items) {
+      if (!it || typeof it.label !== 'string' || typeof it.run !== 'function') continue;
+      out.push({ icon: 'i-spark', hint: '', search: it.label, ...it, group: 'Actions' });
+    }
+  }
+  return out;
+}
 
 const THEMES = [
   ['night', 'Night'],
@@ -152,7 +193,7 @@ function actionItems() {
     hint: '',
     run: () => checkForUpdates({ manual: true }),
   });
-  return items;
+  return items.concat(registeredItems());
 }
 
 // Open a process in the Processes view. The search is global, so an active query

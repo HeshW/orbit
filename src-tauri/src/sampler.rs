@@ -283,6 +283,15 @@ fn run_loop(app: AppHandle, latest: Arc<Mutex<Option<Snapshot>>>, control: Arc<C
         let suspended = read_suspended(&app);
         let snapshot = sampler.sample(&suspended, interval.as_millis() as u64);
         prune_suspended(&app, &snapshot);
+        // Seconds this sample stands for in App history: the gap since the
+        // last one, capped at two intervals so a long pause adds nothing odd.
+        let covered = last_sample.map_or(0.0, |at| {
+            started
+                .duration_since(at)
+                .as_secs_f64()
+                .min(interval.as_secs_f64() * 2.0)
+        });
+        crate::history::record(&snapshot, covered);
 
         if control.delta.load(Ordering::Relaxed) {
             if !delta_mode {
@@ -329,6 +338,9 @@ fn build_delta<'a>(snapshot: &'a Snapshot, emitted: &HashMap<u32, u64>) -> Snaps
         network: &snapshot.network,
         gpu: &snapshot.gpu,
         system: &snapshot.system,
+        disks: &snapshot.disks,
+        gpu_engines: &snapshot.gpu_engines,
+        battery: snapshot.battery.as_ref(),
         added: snapshot
             .processes
             .iter()
@@ -602,6 +614,10 @@ impl Sampler {
             network,
             gpu,
             system,
+            // Filled by the data feature (v0.4); empty until then.
+            disks: Vec::new(),
+            gpu_engines: Vec::new(),
+            battery: None,
             processes,
         }
     }
@@ -635,6 +651,9 @@ impl Sampler {
         cores: f64,
     ) -> Vec<ProcessRow> {
         let gpu_available = pdh.gpu_total.is_some();
+        // Per-process network bytes/sec from network.rs; `None` leaves the
+        // row fields null.
+        let net_rates = crate::network::per_app_rates();
         let mut rows = Vec::with_capacity(self.sys.processes().len());
         let mut seen: HashMap<u32, u64> = HashMap::with_capacity(self.sys.processes().len());
 
@@ -716,6 +735,16 @@ impl Sampler {
                 suspended: suspended
                     .get(&pid)
                     .is_some_and(|&recorded| suspended_matches(recorded, start_time)),
+                // Filled by the data feature (v0.4).
+                session_id: None,
+                net_rx_bps: net_rates
+                    .as_ref()
+                    .and_then(|m| m.get(&pid))
+                    .map(|&(rx, _)| rx.round()),
+                net_tx_bps: net_rates
+                    .as_ref()
+                    .and_then(|m| m.get(&pid))
+                    .map(|&(_, tx)| tx.round()),
             });
         }
 
@@ -770,6 +799,7 @@ impl Sampler {
             rx_bps: rx_bps.round(),
             tx_bps: tx_bps.round(),
             interfaces,
+            per_app: crate::network::per_app_status(),
         }
     }
 }

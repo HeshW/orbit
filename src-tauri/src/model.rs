@@ -26,6 +26,14 @@ pub struct Snapshot {
     pub network: NetworkStats,
     pub gpu: GpuStats,
     pub system: SystemStats,
+    /// Per physical disk activity (PDH PhysicalDisk instances, "_Total" left
+    /// out). Empty when the counters are unavailable.
+    pub disks: Vec<DiskActivity>,
+    /// GPU usage per engine type ("3D", "Copy", "Video Decode", ...), 0-100.
+    /// Empty when GPU counters are unavailable.
+    pub gpu_engines: Vec<GpuEngine>,
+    /// `None` on a PC without a battery.
+    pub battery: Option<BatteryStats>,
     pub processes: Vec<ProcessRow>,
 }
 
@@ -73,6 +81,51 @@ pub struct NetworkStats {
     pub rx_bps: f64,
     pub tx_bps: f64,
     pub interfaces: Vec<InterfaceStats>,
+    /// Whether per-process network rates (`ProcessRow::net_rx_bps`) are filled.
+    pub per_app: PerAppStatus,
+}
+
+/// Whether per-app network data is available, and why not when it isn't.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PerAppStatus {
+    pub available: bool,
+    /// Short human reason when `available` is false, e.g. "Needs administrator rights.".
+    pub reason: Option<String>,
+}
+
+/// One physical disk.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskActivity {
+    /// PDH instance name, e.g. "0 C: E:".
+    pub name: String,
+    /// Active time 0-100, `None` when unavailable.
+    pub active_pct: Option<f64>,
+    pub read_bps: f64,
+    pub write_bps: f64,
+}
+
+/// Usage of one GPU engine type, summed over processes.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuEngine {
+    /// "3D", "Copy", "Video Decode", "Video Encode", "Compute", ...
+    pub name: String,
+    /// 0-100.
+    pub usage: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BatteryStats {
+    /// Charge 0-100.
+    pub percent: f64,
+    pub charging: bool,
+    /// Plugged in.
+    pub ac_online: bool,
+    /// Estimated seconds of battery left, `None` while charging or unknown.
+    pub seconds_left: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -146,6 +199,12 @@ pub struct ProcessRow {
     pub not_responding: bool,
     /// True if Orbit suspended this process.
     pub suspended: bool,
+    /// Windows session (0 = services), `None` if unreadable.
+    pub session_id: Option<u32>,
+    /// Network bytes/sec received and sent by this process. `None` unless
+    /// per-app network data is available (see `NetworkStats::per_app`).
+    pub net_rx_bps: Option<f64>,
+    pub net_tx_bps: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +227,9 @@ pub struct DynRow<'a> {
     pub window_title: Option<&'a str>,
     pub not_responding: bool,
     pub suspended: bool,
+    pub session_id: Option<u32>,
+    pub net_rx_bps: Option<f64>,
+    pub net_tx_bps: Option<f64>,
 }
 
 impl<'a> From<&'a ProcessRow> for DynRow<'a> {
@@ -184,6 +246,9 @@ impl<'a> From<&'a ProcessRow> for DynRow<'a> {
             window_title: r.window_title.as_deref(),
             not_responding: r.not_responding,
             suspended: r.suspended,
+            session_id: r.session_id,
+            net_rx_bps: r.net_rx_bps,
+            net_tx_bps: r.net_tx_bps,
         }
     }
 }
@@ -205,6 +270,9 @@ pub struct SnapshotDelta<'a> {
     pub network: &'a NetworkStats,
     pub gpu: &'a GpuStats,
     pub system: &'a SystemStats,
+    pub disks: &'a [DiskActivity],
+    pub gpu_engines: &'a [GpuEngine],
+    pub battery: Option<&'a BatteryStats>,
     pub added: Vec<&'a ProcessRow>,
     pub removed: Vec<u32>,
     pub rows: Vec<DynRow<'a>>,

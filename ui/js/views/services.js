@@ -1,4 +1,4 @@
-// 04 / Services: every Windows service with start, stop and restart.
+// 06 / Services: every Windows service with start, stop and restart.
 import { call } from '../api.js';
 import { store, on, setQuery, selectProcess } from '../store.js';
 import { escapeHtml, fuzzy } from '../format.js';
@@ -530,7 +530,7 @@ export function mount(rootEl) {
   <div class="lv lv--services">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">04 / Services</p>
+        <p class="micro">06 / Services</p>
         <h1 class="view-title">Every service. <em>One switch.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">

@@ -6,7 +6,8 @@ import { pct, bytes, escapeHtml } from './format.js';
 
 export const views = {};
 
-const VIEW_NAMES = ['processes', 'performance', 'startup', 'services', 'settings'];
+// Sidebar order; number keys 1-9 follow it (docs/V04-CONTRACT.md).
+const VIEW_NAMES = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'settings'];
 const VIEW_KEY = 'orbit.view';
 const SEARCH_DEBOUNCE_MS = 80;
 const WATCH_CPU = 50;
@@ -600,7 +601,7 @@ function initialView() {
   return 'processes';
 }
 
-/** Show a view by name: processes | performance | startup | services | settings. */
+/** Show a view by name: one of VIEW_NAMES (processes ... settings). */
 export function navigate(view) {
   if (!VIEW_NAMES.includes(view) || view === currentView) return;
   const main = $('main');
@@ -1001,7 +1002,7 @@ function wireKeys() {
       focusSearch();
       return;
     }
-    if (key >= '1' && key <= '5' && key.length === 1) {
+    if (key >= '1' && key <= '9' && key.length === 1) {
       e.preventDefault();
       navigate(VIEW_NAMES[Number(key) - 1]);
       return;
@@ -1114,8 +1115,18 @@ async function boot() {
     palette = null;
     console.error('[orbit] command palette failed to load', err);
   }
+  // v0.4 feature modules without a view of their own (tray, hotkey, mini mode; tools).
+  // init() is not awaited, so a slow backend call there never holds up the first view.
+  for (const name of ['shell', 'tools']) {
+    try {
+      const mod = await import(`./${name}.js`);
+      Promise.resolve(mod.init()).catch((err) => console.error(`[orbit] ${name} failed to start`, err));
+    } catch (err) {
+      console.error(`[orbit] ${name} failed to load`, err);
+    }
+  }
 
-  // A sidebar click or 1-5 during boot already picked a view before its module had
+  // A sidebar click or 1-9 during boot already picked a view before its module had
   // mounted: keep that choice and show it now instead of jumping back to the saved view.
   if (currentView) {
     try {

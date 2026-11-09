@@ -1,14 +1,21 @@
 //! Orbit backend: Tauri builder, shared state and command registration.
 
 pub mod actions;
+pub mod autoruns;
+pub mod history;
 pub mod icons;
 pub mod impact;
 pub mod model;
+pub mod network;
 pub mod pdh;
 pub mod sampler;
+pub mod security;
 pub mod services;
+pub mod shell;
 pub mod startup;
+pub mod tools;
 pub mod updates;
+pub mod users;
 pub mod winenum;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,7 +33,7 @@ pub fn run() {
         impact::run_measurement();
         return;
     }
-    tauri::Builder::default()
+    shell::configure(tauri::Builder::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .manage(model::SuspendedSet(Default::default()))
@@ -67,9 +74,36 @@ pub fn run() {
             // updates
             updates::check_update,
             updates::install_update,
+            // security (v0.4)
+            security::get_signatures,
+            security::security_scan,
+            security::file_sha256,
+            security::get_process_modules,
+            security::get_process_environment,
+            // autoruns (v0.4)
+            autoruns::list_autoruns,
+            // network (v0.4)
+            network::list_connections,
+            network::per_app_network_status,
+            // users (v0.4)
+            users::list_sessions,
+            users::session_action,
+            // history (v0.4)
+            history::get_history,
+            history::clear_history,
+            history::set_history_enabled,
+            // tools (v0.4)
+            tools::find_file_lockers,
+            // shell (v0.4)
+            shell::get_shell_state,
+            shell::set_autostart,
+            shell::set_hotkey_enabled,
+            shell::toggle_mini,
         ])
         .setup(|app| {
+            history::init(app.handle());
             sampler::start(app.handle().clone());
+            shell::setup(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 hide_webview_when_minimized(&window);
             }
@@ -78,10 +112,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Orbit failed to start")
         .run(|app, event| {
+            shell::on_run_event(app, &event);
             // Closing the window, app.exit(0) and Restart as administrator all
             // end here: wake whatever Orbit suspended before the process goes.
             if let tauri::RunEvent::Exit = event {
                 actions::resume_all(app);
+                network::shutdown();
+                history::flush();
             }
         });
 }

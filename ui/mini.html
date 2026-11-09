@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Orbit mini</title>
+  <script>
+    /* Same theme as the main window, before first paint. */
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('orbit.settings') || '{}') || {};
+        var themes = ['night', 'void', 'signal', 'daylight'];
+        document.documentElement.setAttribute('data-theme', themes.indexOf(s.theme) >= 0 ? s.theme : 'night');
+      } catch (e) { /* storage blocked: defaults apply */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/views/shell.css">
+  <script type="module" src="js/mini.js"></script>
+</head>
+<body class="mini">
+  <main id="mini-root" class="mini-root">
+    <div class="empty">
+      <strong>Mini mode</strong>
+      <p>A small always-on-top readout is coming in Orbit 0.4.</p>
+    </div>
+  </main>
+</body>
+</html>

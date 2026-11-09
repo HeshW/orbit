@@ -1,0 +1,4 @@
+/* Orbit / tools.css: Find file locker, Backup panel and other process tools.
+   Owner: tools feature (docs/V04-CONTRACT.md). Used by ui/js/tools.js, panels/backup.js, views/processes.js.
+   Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
+   with a short name for this feature so they never collide. */
