@@ -201,7 +201,7 @@ otherwise `background`. `app` wins over `windows` (explorer.exe with a window is
 | `open_location` | `path: String` | `Result<(), String>` (explorer /select,) | actions |
 | `search_online` | `query: String` | `Result<(), String>` (default browser, https://www.bing.com/search?q=<urlencoded>) | actions |
 | `open_url` | `url: String` (must start with https://) | `Result<(), String>` | actions |
-| `restart_as_admin` | – | `Result<(), String>` (ShellExecuteW "runas" self, then exit 0) | actions |
+| `restart_as_admin` | – | `Result<(), String>` (async: ShellExecuteEx "runas" self on a blocking thread, then exit 0; "Elevation was cancelled." when the prompt is declined) | actions |
 | `export_report` | `fileName: String, contents: String` | `Result<String, String>` full path written in the user's Downloads folder (sanitize fileName, no path separators) | actions |
 | `get_icons` | `paths: Vec<String>` | `HashMap<String, String>` path -> `data:image/png;base64,...` (32x32; skip failures; cache in a Mutex<HashMap>) | icons |
 | `list_startup` | – | `Result<Vec<StartupEntry>, String>` | startup |

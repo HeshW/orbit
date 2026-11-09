@@ -21,7 +21,7 @@ pub mod winenum;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 
 pub use sampler::AppState;
 
@@ -33,7 +33,9 @@ pub fn run() {
         impact::run_measurement();
         return;
     }
-    shell::configure(tauri::Builder::default())
+    let context = tauri::generate_context!();
+    let identifier = context.config().identifier.clone();
+    shell::configure(tauri::Builder::default(), &identifier)
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .manage(model::SuspendedSet(Default::default()))
@@ -109,18 +111,27 @@ pub fn run() {
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Orbit failed to start")
         .run(|app, event| {
-            shell::on_run_event(app, &event);
             // Closing the window, app.exit(0) and Restart as administrator all
-            // end here: wake whatever Orbit suspended before the process goes.
+            // end here.
             if let tauri::RunEvent::Exit = event {
-                actions::resume_all(app);
-                network::shutdown();
-                history::flush();
+                exit_cleanup(app);
             }
         });
+}
+
+/// What has to happen before the process goes: save the shell prefs and
+/// take the tray icon down, wake whatever Orbit suspended, stop the network
+/// trace session (it outlives the process otherwise) and write pending app
+/// history. Runs on RunEvent::Exit and right before an update's installer
+/// ends the process (no RunEvent::Exit then). Every step is safe to repeat.
+pub(crate) fn exit_cleanup(app: &AppHandle) {
+    shell::on_exit(app);
+    actions::resume_all(app);
+    network::shutdown();
+    history::flush();
 }
 
 /// Minimizing does not tell WebView2 it is hidden, so it would keep drawing

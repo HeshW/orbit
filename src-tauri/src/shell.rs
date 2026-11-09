@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{
-    AppHandle, Builder, Emitter, Listener, Manager, PhysicalPosition, RunEvent, WebviewUrl,
+    AppHandle, Builder, Emitter, Listener, Manager, PhysicalPosition, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
@@ -37,6 +37,10 @@ pub const MINIMIZED_FLAG: &str = "--minimized";
 /// single-instance lock (Restart as administrator passes Orbit's own pid).
 pub const AWAIT_PID_FLAG: &str = "--await-pid";
 const AWAIT_PID_TIMEOUT_MS: u32 = 10_000;
+/// The single-instance plugin's WM_COPYDATA id for NUL-separated arguments.
+const SINGLE_INSTANCE_DATA_NUL: usize = 1543;
+/// How long a second launch waits for the running Orbit to take its arguments.
+const FORWARD_TIMEOUT_MS: u32 = 10_000;
 
 const MAIN: &str = "main";
 const MINI: &str = "mini";
@@ -139,14 +143,16 @@ fn hotkey() -> Shortcut {
 // ---------------------------------------------------------------------------
 
 /// Called by lib.rs on the fresh builder, before any other plugin (the
-/// single-instance plugin must be registered first).
-pub fn configure(builder: Builder<Wry>) -> Builder<Wry> {
+/// single-instance plugin must be registered first). `identifier` is the
+/// app identifier from tauri.conf.json, which names the plugin's lock.
+pub fn configure(builder: Builder<Wry>, identifier: &str) -> Builder<Wry> {
     // Restart as administrator: the old Orbit is still exiting and holds the
     // single-instance lock. Without this wait the elevated Orbit would hand
     // its arguments to the old one and quit.
     if let Some(pid) = await_pid_arg(std::env::args().skip(1)) {
         wait_for_exit(pid, AWAIT_PID_TIMEOUT_MS);
     }
+    forward_if_running(identifier);
     builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(
@@ -217,17 +223,16 @@ pub fn setup(app: &AppHandle) {
     spawn_tooltip_thread(app.clone());
 }
 
-/// Called by lib.rs for every run event, before Orbit's own exit handling.
-pub fn on_run_event(app: &AppHandle, event: &RunEvent) {
-    if let RunEvent::Exit = event {
-        shell().exiting.store(true, Ordering::Relaxed);
-        if let Some(mini) = app.get_webview_window(MINI) {
-            remember_mini_position(&mini);
-        }
-        save_prefs();
-        // Remove the icon now so it does not linger in the tray after exit.
-        let _ = app.remove_tray_by_id(TRAY_ID);
+/// Called by `crate::exit_cleanup` when Orbit exits (RunEvent::Exit, or
+/// right before an update's installer ends the process). Safe to call twice.
+pub fn on_exit(app: &AppHandle) {
+    shell().exiting.store(true, Ordering::Relaxed);
+    if let Some(mini) = app.get_webview_window(MINI) {
+        remember_mini_position(&mini);
     }
+    save_prefs();
+    // Remove the icon now so it does not linger in the tray after exit.
+    let _ = app.remove_tray_by_id(TRAY_ID);
 }
 
 // ---------------------------------------------------------------------------
@@ -772,6 +777,83 @@ fn wait_for_exit(pid: u32, timeout_ms: u32) {
 fn is_elevated() -> bool {
     // SAFETY: IsUserAnAdmin takes no arguments and only reads the process token.
     unsafe { windows::Win32::UI::Shell::IsUserAnAdmin() }.as_bool()
+}
+
+/// Hands this launch to an Orbit that is already running in this Windows
+/// session and exits, the way the single-instance plugin does. The plugin
+/// only does it when CreateMutexW reports ERROR_ALREADY_EXISTS; when the
+/// running Orbit is elevated, a normal launch gets ERROR_ACCESS_DENIED
+/// instead and the plugin would start a second Orbit. So check first: the
+/// lock exists if OpenMutexW succeeds or is denied.
+fn forward_if_running(identifier: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, LPARAM, WPARAM};
+    use windows::Win32::System::DataExchange::COPYDATASTRUCT;
+    use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, SendMessageTimeoutW,
+        SMTO_NORMAL, WM_COPYDATA,
+    };
+    let wide = |s: String| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let mutex = wide(format!("{identifier}-sim"));
+    let class = wide(format!("{identifier}-sic"));
+    let title = wide(format!("{identifier}-siw"));
+    // SAFETY: plain Win32 calls; the strings are NUL-terminated and outlive
+    // them, the handle is closed and `data` outlives SendMessageTimeoutW.
+    unsafe {
+        match OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, PCWSTR(mutex.as_ptr())) {
+            Ok(handle) => {
+                let _ = CloseHandle(handle);
+            }
+            Err(e) if e.code() == ERROR_ACCESS_DENIED.to_hresult() => {}
+            // Not found (no Orbit running) or anything else: the plugin decides.
+            Err(_) => return,
+        }
+        // The running Orbit may still be creating its message window.
+        let mut hwnd = None;
+        for _ in 0..40 {
+            if let Ok(h) = FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(title.as_ptr())) {
+                if !h.is_invalid() {
+                    hwnd = Some(h);
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        if let Some(hwnd) = hwnd {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid != 0 {
+                let _ = AllowSetForegroundWindow(pid);
+            }
+            // The plugin's format: cwd, then each argument after a NUL, no terminator.
+            let mut data = std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned();
+            for arg in std::env::args_os() {
+                data.push('\0');
+                data.push_str(&arg.to_string_lossy());
+            }
+            let cds = COPYDATASTRUCT {
+                dwData: SINGLE_INSTANCE_DATA_NUL,
+                cbData: data.len() as u32,
+                lpData: data.as_ptr() as *mut _,
+            };
+            let sent = SendMessageTimeoutW(
+                hwnd,
+                WM_COPYDATA,
+                WPARAM(0),
+                LPARAM(&cds as *const COPYDATASTRUCT as isize),
+                SMTO_NORMAL,
+                FORWARD_TIMEOUT_MS,
+                None,
+            );
+            if sent.0 == 0 {
+                eprintln!("[orbit] could not hand this launch to the running Orbit");
+            }
+        } else {
+            eprintln!("[orbit] Orbit is already running but its window was not found");
+        }
+    }
+    std::process::exit(0);
 }
 
 /// When Orbit runs elevated, Windows drops WM_COPYDATA from normal

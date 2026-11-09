@@ -168,7 +168,9 @@ fn file_from_command(command: &str) -> String {
         // A bare name ("rundll32") never has spaces.
         return first.to_string();
     }
-    let lower = s.to_lowercase();
+    // ASCII lowercasing keeps every byte where it is, so offsets found in
+    // `lower` are valid in `s` (Unicode lowercasing can change the length).
+    let lower = s.to_ascii_lowercase();
     let mut best: Option<usize> = None;
     for ext in [".exe", ".sys", ".dll"] {
         let mut from = 0usize;
@@ -902,6 +904,12 @@ mod tests {
             "C:/Program Files (x86)/LagoFast/NetworkDaemon.exe"
         );
         assert_eq!(file_from_command(""), "");
+        // Characters whose Unicode lowercase takes more bytes.
+        assert_eq!(
+            file_from_command(r"C:\Users\İsmail\AppData\Local\x.exe /a"),
+            r"C:\Users\İsmail\AppData\Local\x.exe"
+        );
+        assert_eq!(file_from_command("C:\\\u{212A}it\\Tool.EXE --run"), "C:\\\u{212A}it\\Tool.EXE");
     }
 
     #[test]

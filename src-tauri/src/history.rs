@@ -43,7 +43,11 @@ const PRUNE_EVERY_TICKS: u64 = 64;
 const FILE_VERSION: u32 = 1;
 const NO_DAY: i64 = i64::MIN;
 
-static ENABLED: AtomicBool = AtomicBool::new(true);
+/// Off until the UI says otherwise (`set_history_enabled` at boot), so a
+/// user who turned recording off gets nothing recorded at startup.
+static ENABLED: AtomicBool = AtomicBool::new(false);
+/// Set by the first `set_history_enabled` call.
+static KNOWN: AtomicBool = AtomicBool::new(false);
 static APP_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// When the pending totals were last written (ms since the epoch, 0 = not yet).
 static LAST_FLUSH_MS: AtomicU64 = AtomicU64::new(0);
@@ -471,7 +475,8 @@ fn merge_into_file(dir: &Path, day: i64, apps: &[DayApp]) -> std::io::Result<()>
     file.date = file_name(day).trim_end_matches(".json").to_string();
     let json = serde_json::to_vec(&file).map_err(std::io::Error::other)?;
     let path = dir.join(file_name(day));
-    let tmp = path.with_extension("json.tmp");
+    // Per-process name: a second Orbit can never write into this one's file.
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     fs::write(&tmp, json)?;
     fs::rename(&tmp, &path)
 }
@@ -518,6 +523,15 @@ fn prune(dir: &Path, today: i64) {
     }
 }
 
+/// "<day>.json" or "<day>.json.<pid>": what is left of a half-written day
+/// file's name without ".tmp".
+fn is_tmp_stem(stem: &str) -> bool {
+    parse_file_name(stem).is_some()
+        || stem.rsplit_once('.').is_some_and(|(day, pid)| {
+            !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()) && parse_file_name(day).is_some()
+        })
+}
+
 /// Deletes every day file (and a half-written one) in `dir`.
 fn delete_all(dir: &Path) -> std::io::Result<()> {
     let entries = match fs::read_dir(dir) {
@@ -529,8 +543,7 @@ fn delete_all(dir: &Path) -> std::io::Result<()> {
     for e in entries.flatten() {
         let name = e.file_name();
         let Some(name) = name.to_str() else { continue };
-        let ours = parse_file_name(name).is_some()
-            || name.strip_suffix(".tmp").is_some_and(|n| parse_file_name(n).is_some());
+        let ours = parse_file_name(name).is_some() || name.strip_suffix(".tmp").is_some_and(is_tmp_stem);
         if ours {
             if let Err(err) = fs::remove_file(e.path()) {
                 failed = Some(err);
@@ -692,14 +705,27 @@ pub async fn clear_history() -> Result<(), String> {
 }
 
 /// The UI calls this at boot and whenever the setting changes. Turning it
-/// off writes what was recorded so far.
+/// off writes what was recorded so far; a first answer of "off" drops
+/// anything recorded before it instead.
 #[tauri::command]
 pub async fn set_history_enabled(enabled: bool) -> Result<(), String> {
+    let first = !KNOWN.swap(true, Ordering::Relaxed);
     let was = ENABLED.swap(enabled, Ordering::Relaxed);
-    if was && !enabled {
+    if first && !enabled {
+        drop_pending();
+    } else if was && !enabled {
         let _ = tauri::async_runtime::spawn_blocking(flush).await;
     }
     Ok(())
+}
+
+/// Forgets what is pending without writing it.
+fn drop_pending() {
+    let mut guard = lock(&STATE);
+    if let Some(rec) = guard.as_mut() {
+        let day = rec.day;
+        rec.reset(day);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -929,6 +955,7 @@ mod tests {
         assert!(dir.join("notes.txt").exists());
 
         fs::write(dir.join(format!("{}.tmp", file_name(today))), b"x").unwrap();
+        fs::write(dir.join(format!("{}.4242.tmp", file_name(today))), b"x").unwrap();
         delete_all(&dir).unwrap();
         let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(left, vec![std::ffi::OsString::from("notes.txt")]);
@@ -941,6 +968,9 @@ mod tests {
     fn global_record_flush_read_clear() {
         let dir = scratch("global");
         std::env::set_var("ORBIT_HISTORY_DIR", &dir);
+        // Recording starts off until the UI's first answer.
+        assert!(!ENABLED.load(Ordering::Relaxed));
+        ENABLED.store(true, Ordering::Relaxed);
         let now = now_secs();
         let app = r"C:\Tools\Global.exe";
         let rows = |cpu| vec![row(77, "Global.exe", Some(app), cpu, 4096, ProcessKind::App)];
@@ -963,6 +993,11 @@ mod tests {
         // Disabled: ticks are ignored.
         ENABLED.store(false, Ordering::Relaxed);
         record(&snapshot(now, 4, rows(100.0)), 1.0);
+        ENABLED.store(true, Ordering::Relaxed);
+        record(&snapshot(now, 4, rows(100.0)), 1.0);
+        // A first answer of "off" drops what was recorded before it.
+        KNOWN.store(false, Ordering::Relaxed);
+        tauri::async_runtime::block_on(set_history_enabled(false)).unwrap();
         ENABLED.store(true, Ordering::Relaxed);
         let g = history_rows(1).into_iter().find(|r| r.key == app.to_lowercase()).unwrap();
         assert!((g.cpu_seconds - 1.0).abs() < 1e-9);

@@ -1305,27 +1305,20 @@ pub fn open_url(url: String) -> Result<(), String> {
     shell_open(url)
 }
 
+/// Async so the UAC prompt does not block the main thread: ShellExecuteEx
+/// "runas" only returns once the prompt is answered.
 #[tauri::command]
-pub fn restart_as_admin(app: AppHandle) -> Result<(), String> {
+pub async fn restart_as_admin(app: AppHandle) -> Result<(), String> {
     let exe = std::env::current_exe()
-        .map_err(|e| format!("Could not find Orbit's executable: {e}."))?;
-    let exe = to_wide(&exe.to_string_lossy());
+        .map_err(|e| format!("Could not find Orbit's executable: {e}."))?
+        .to_string_lossy()
+        .into_owned();
     // The elevated Orbit waits for this one to exit before it takes the
     // single-instance lock (shell::configure), so it is not turned away.
-    let params = to_wide(&format!("{} {}", crate::shell::AWAIT_PID_FLAG, std::process::id()));
-    let result = unsafe {
-        ShellExecuteW(
-            HWND::default(),
-            w!("runas"),
-            PCWSTR(exe.as_ptr()),
-            PCWSTR(params.as_ptr()),
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    if (result.0 as isize) <= 32 {
-        return Err("Elevation was cancelled.".to_string());
-    }
+    let params = format!("{} {}", crate::shell::AWAIT_PID_FLAG, std::process::id());
+    tauri::async_runtime::spawn_blocking(move || shell_run_sta(&exe, &params, true))
+        .await
+        .map_err(|_| "Could not restart as administrator.".to_string())??;
     // app.exit raises RunEvent::Exit, whose handler resumes suspended processes.
     app.exit(0);
     Ok(())
@@ -1901,6 +1894,13 @@ fn run_task_blocking(command: &str, as_admin: bool) -> Result<(), String> {
     } else {
         file
     };
+    shell_run_sta(&file, &params, as_admin)
+}
+
+/// `shell_run` on a fresh thread with COM initialized as an STA (what the
+/// shell expects). Blocks until ShellExecuteEx returns.
+fn shell_run_sta(file: &str, params: &str, as_admin: bool) -> Result<(), String> {
+    let (file, params) = (file.to_string(), params.to_string());
     std::thread::spawn(move || {
         let init = unsafe {
             CoInitializeEx(None, COINIT(COINIT_APARTMENTTHREADED.0 | COINIT_DISABLE_OLE1DDE.0))

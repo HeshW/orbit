@@ -280,12 +280,13 @@ ShellState { trayAvailable: boolean, autostart: boolean, hotkeyRegistered: boole
   hotkeyError: string|null }
 ```
 
-Non-command hooks lib.rs calls: `pub fn configure(builder: Builder<Wry>) -> Builder<Wry>`
-(first thing on the fresh builder: register single-instance first, then global-shortcut
-and autostart here), `pub fn setup(app: &AppHandle)` (setup hook, after the sampler
-starts: tray, hotkey Ctrl+Shift+O, close-to-tray window events), `pub fn
-on_run_event(app: &AppHandle, event: &RunEvent)` (every run event, before Orbit's own
-exit handling; use it for `ExitRequested` when closing to tray). The mini window is a
+Non-command hooks lib.rs calls: `pub fn configure(builder: Builder<Wry>, identifier: &str)
+-> Builder<Wry>` (first thing on the fresh builder: hand the launch to an Orbit already
+running, even an elevated one, then register single-instance first, then global-shortcut
+and autostart here; `identifier` comes from `generate_context!()`), `pub fn setup(app:
+&AppHandle)` (setup hook, after the sampler starts: tray, hotkey Ctrl+Shift+O,
+close-to-tray window events), `pub fn on_exit(app: &AppHandle)` (called by
+`crate::exit_cleanup`: save shell prefs, take the tray icon down). The mini window is a
 second window (label `mini`, `mini.html`) the shell agent adds in `tauri.conf.json` or
 creates at runtime, with its capability in `capabilities/default.json`. The titlebar
 button `#mini-toggle` (icon `i-mini`, aria-label "Mini mode") starts `hidden`; `shell.js`
@@ -294,15 +295,17 @@ un-hides it and wires it to `toggle_mini`.
 ## lib.rs order (already in place)
 
 ```rust
-shell::configure(tauri::Builder::default())
+let context = tauri::generate_context!();
+let identifier = context.config().identifier.clone();
+shell::configure(tauri::Builder::default(), &identifier)
     .plugin(tauri_plugin_updater::Builder::new().build())
     .manage(...)
     .invoke_handler(generate_handler![ ...v0.3 commands..., every command above ])
     .setup(|app| { history::init(app.handle()); sampler::start(..); shell::setup(app.handle()); ... })
-    .run(|app, event| {
-        shell::on_run_event(app, &event);
-        if let RunEvent::Exit = event { actions::resume_all(app); network::shutdown(); history::flush(); }
-    });
+    .build(context).expect("Orbit failed to start")
+    .run(|app, event| { if let RunEvent::Exit = event { exit_cleanup(app); } });
+// exit_cleanup: shell::on_exit, actions::resume_all, network::shutdown, history::flush.
+// updates::install_update also calls it from the updater's on_before_exit hook.
 ```
 
 ## Cargo (already in place)

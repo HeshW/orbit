@@ -37,14 +37,14 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
 /// Downloads and installs the newest release, then restarts into it.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    // The installer exits this process without a RunEvent::Exit, so take the tray
-    // icon down first or it lingers until the mouse passes over it.
+    // On Windows the installer exits this process without a RunEvent::Exit,
+    // so run the exit cleanup (tray icon, suspended processes, network trace
+    // session, pending history) right before it starts. If the installer
+    // then fails to start, per-app network stays off until Orbit restarts.
     let handle = app.clone();
     let update = app
         .updater_builder()
-        .on_before_exit(move || {
-            let _ = handle.remove_tray_by_id(crate::shell::TRAY_ID);
-        })
+        .on_before_exit(move || crate::exit_cleanup(&handle))
         .build()
         .map_err(|e| format!("Couldn't check for updates: {e}"))?
         .check()
@@ -55,9 +55,6 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .download(|_, _| {}, || {})
         .await
         .map_err(|e| format!("The update couldn't be downloaded: {e}"))?;
-    // On Windows the installer takes over and this process exits without a
-    // RunEvent::Exit, so wake anything Orbit suspended first.
-    crate::actions::resume_all(&app);
     update
         .install(bytes)
         .map_err(|e| format!("The update couldn't be installed: {e}"))?;

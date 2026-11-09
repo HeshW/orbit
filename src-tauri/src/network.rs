@@ -5,8 +5,9 @@
 //! `GetExtendedUdpTable(UDP_TABLE_OWNER_PID)`; no admin rights needed.
 //!
 //! Per-app rates need administrator rights: a real-time ETW session
-//! ("Orbit Network Trace") with the Microsoft-Windows-Kernel-Network provider
-//! runs on a background thread, adds up sent and received bytes per pid, and
+//! ("Orbit Network Trace (session N)", one per Windows session) with the
+//! Microsoft-Windows-Kernel-Network provider runs on a background thread,
+//! adds up sent and received bytes per pid, and
 //! `per_app_rates()` turns the totals into bytes/sec on every sampler tick.
 //! The session starts the first time the sampler asks while Orbit is elevated
 //! and is stopped in `shutdown()` (ETW sessions outlive the process otherwise).
@@ -32,6 +33,8 @@ use windows::Win32::System::Diagnostics::Etw::{
     EVENT_TRACE_REAL_TIME_MODE, PROCESSTRACE_HANDLE, PROCESS_TRACE_MODE_EVENT_RECORD,
     PROCESS_TRACE_MODE_REAL_TIME, WNODE_FLAG_TRACED_GUID,
 };
+use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+use windows::Win32::System::Threading::GetCurrentProcessId;
 
 use crate::model::PerAppStatus;
 
@@ -306,13 +309,16 @@ pub fn per_app_rates() -> Option<HashMap<u32, (f64, f64)>> {
 /// Called once when Orbit exits (RunEvent::Exit). Stops the trace session,
 /// which also ends the consumer thread's `ProcessTrace`.
 pub fn shutdown() {
-    let control = {
+    let (control, starting) = {
         let mut t = trace();
         t.shutdown = true;
-        std::mem::take(&mut t.control)
+        (std::mem::take(&mut t.control), t.phase == Phase::Starting)
     };
     if control != 0 {
-        stop_session(control, &wide(SESSION_NAME));
+        stop_session(control, &wide(session_name()));
+    } else if starting {
+        // The trace thread may be inside StartTraceW: stop the session by name.
+        stop_session(0, &wide(session_name()));
     }
 }
 
@@ -391,9 +397,21 @@ fn totals() -> &'static Mutex<Totals> {
 
 // --- trace session ------------------------------------------------------------
 
-const SESSION_NAME: &str = "Orbit Network Trace";
-/// Our own session id (any fixed GUID).
-const SESSION_GUID: GUID = GUID::from_u128(0x5c1d0a52_4b8e_4f0e_9a7c_3e6b2f81d9a4);
+/// ETW session names are machine-wide, the single-instance lock is per
+/// Windows session: one name per Windows session, so an elevated Orbit in
+/// another session is never taken over. A session with this name can only be
+/// left over from a crashed Orbit in this Windows session.
+fn session_name() -> &'static str {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        let mut id = 0u32;
+        // SAFETY: plain Win32 call writing one u32.
+        match unsafe { ProcessIdToSessionId(GetCurrentProcessId(), &mut id) } {
+            Ok(()) => format!("Orbit Network Trace (session {id})"),
+            Err(_) => "Orbit Network Trace".to_string(),
+        }
+    })
+}
 /// Microsoft-Windows-Kernel-Network.
 const KERNEL_NETWORK: GUID = GUID::from_u128(0x7dd42a49_5329_4832_8dfd_43d979153a88);
 const KEYWORD_IPV4: u64 = 0x10;
@@ -464,7 +482,7 @@ impl Props {
         p.props.Wnode.BufferSize = std::mem::size_of::<Props>() as u32;
         p.props.Wnode.Flags = WNODE_FLAG_TRACED_GUID;
         p.props.Wnode.ClientContext = 1; // QueryPerformanceCounter timestamps
-        p.props.Wnode.Guid = SESSION_GUID;
+        // Wnode.Guid stays zero: ETW assigns the session its own GUID.
         p.props.LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
         p.props.BufferSize = 64; // KB
         p.props.MinimumBuffers = 4;
@@ -583,7 +601,7 @@ unsafe extern "system" fn on_event(record: *mut EVENT_RECORD) {
 /// The trace thread: start the session, enable the provider, then consume
 /// events until the session stops.
 fn run_trace() {
-    let name = wide(SESSION_NAME);
+    let name = wide(session_name());
     let control = match start_session(&name) {
         Ok(h) => h,
         Err(msg) => {
@@ -591,6 +609,16 @@ fn run_trace() {
             return;
         }
     };
+    {
+        // From here on shutdown() can stop the session by handle.
+        let mut t = trace();
+        if t.shutdown {
+            drop(t);
+            stop_session(control, &name);
+            return;
+        }
+        t.control = control;
+    }
     // SAFETY: valid session handle and provider GUID.
     let rc = unsafe {
         EnableTraceEx2(
@@ -605,7 +633,7 @@ fn run_trace() {
         )
     };
     if rc.0 != 0 {
-        stop_session(control, &name);
+        stop_owned_session(&name);
         set_phase(Phase::Failed(format!("Per-app network could not start (error {}).", rc.0)));
         return;
     }
@@ -620,7 +648,7 @@ fn run_trace() {
     // SAFETY: `logfile` and `logger` outlive the call.
     let consumer = unsafe { OpenTraceW(&mut logfile) };
     if invalid_trace_handle(consumer) {
-        stop_session(control, &name);
+        stop_owned_session(&name);
         let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
         set_phase(Phase::Failed(format!("Per-app network could not start (error {err}).")));
         return;
@@ -632,13 +660,12 @@ fn run_trace() {
     {
         let mut t = trace();
         if t.shutdown {
+            // shutdown() has already stopped the session.
             drop(t);
             // SAFETY: handle from OpenTraceW.
             let _ = unsafe { CloseTrace(PROCESSTRACE_HANDLE { Value: consumer }) };
-            stop_session(control, &name);
             return;
         }
-        t.control = control;
         t.phase = Phase::Running;
     }
 
@@ -652,15 +679,25 @@ fn run_trace() {
     if t.shutdown {
         t.phase = Phase::Stopped;
     } else {
-        let control = std::mem::take(&mut t.control);
+        // The handle may be stale (the session was stopped from outside), so
+        // do not use it. If ProcessTrace failed with the session still up,
+        // stop it by name: the name is ours alone (see session_name).
+        t.control = 0;
         t.phase = Phase::Failed(format!(
             "Per-app network stopped (error {}). Restart Orbit to try again.",
             rc.0
         ));
         drop(t);
-        if control != 0 {
-            stop_session(control, &name);
-        }
+        stop_session(0, &name);
+    }
+}
+
+/// On a failed start: stops the session unless shutdown() already took the
+/// handle (and stopped it).
+fn stop_owned_session(name: &[u16]) {
+    let control = std::mem::take(&mut trace().control);
+    if control != 0 {
+        stop_session(control, name);
     }
 }
 

@@ -86,8 +86,9 @@ pub struct PdhSample {
     pub gpu_total: Option<f64>,
     /// GPU usage per pid, 0-100.
     pub gpu_per_pid: HashMap<u32, f64>,
-    /// Dedicated GPU memory used by processes on the adapter with the largest
-    /// sum, bytes (not a sum over all adapters).
+    /// Adapter-level dedicated GPU memory in use on the busiest adapter,
+    /// bytes (`\GPU Adapter Memory(*)\Dedicated Usage`; not a sum over
+    /// adapters). Falls back to the per-process sum when that counter is missing.
     pub gpu_dedicated: Option<u64>,
     /// 100 - "% Idle Time" of all physical disks, 0-100.
     pub disk_active_pct: Option<f64>,
@@ -321,6 +322,7 @@ struct GpuCounters {
     query: Query,
     engine: Option<PdhHandle>,
     memory: Option<PdhHandle>,
+    adapter_memory: Option<PdhHandle>,
 }
 
 impl GpuCounters {
@@ -328,7 +330,8 @@ impl GpuCounters {
         let query = Query::open()?;
         let engine = query.add(r"\GPU Engine(*)\Utilization Percentage");
         let memory = query.add(r"\GPU Process Memory(*)\Dedicated Usage");
-        if engine.is_none() && memory.is_none() {
+        let adapter_memory = query.add(r"\GPU Adapter Memory(*)\Dedicated Usage");
+        if engine.is_none() && memory.is_none() && adapter_memory.is_none() {
             return None;
         }
         // Baseline: Utilization Percentage is a rate counter.
@@ -337,6 +340,7 @@ impl GpuCounters {
             query,
             engine,
             memory,
+            adapter_memory,
         })
     }
 
@@ -377,8 +381,18 @@ impl GpuCounters {
             out.gpu_engines = engine_types(per_engine.into_values());
         }
 
-        if let Some(items) = self.memory.and_then(read_array) {
-            // Sum per adapter, then report the adapter using the most.
+        let adapter_items = self.adapter_memory.and_then(read_array).filter(|items| !items.is_empty());
+        if let Some(items) = adapter_items {
+            // What each adapter has in use, counted once. The largest one.
+            let largest = items
+                .iter()
+                .filter(|(name, _)| parse_adapter(name).is_some())
+                .map(|(_, value)| value.max(0.0))
+                .fold(0.0_f64, f64::max);
+            out.gpu_dedicated = Some(to_u64(largest));
+        } else if let Some(items) = self.memory.and_then(read_array) {
+            // Fallback: sum per adapter, then report the adapter using the most.
+            // Per-process values can count shared memory more than once.
             let mut per_adapter: HashMap<&str, f64> = HashMap::new();
             for (name, value) in &items {
                 if let Some(adapter) = parse_adapter(name) {

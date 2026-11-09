@@ -39,9 +39,10 @@ use windows::Win32::Security::WinTrust::{
     WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
 use windows::Win32::System::ProcessStatus::{
-    EnumProcessModulesEx, GetModuleFileNameExW, GetModuleInformation, LIST_MODULES_ALL, MODULEINFO,
+    EnumProcessModulesEx, GetMappedFileNameW, GetModuleFileNameExW, GetModuleInformation,
+    LIST_MODULES_ALL, MODULEINFO,
 };
-use windows::Win32::System::Threading::{PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+use windows::Win32::System::Threading::{IsWow64Process, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
 
 use crate::actions::{handle_creation_filetime, normalize_path, open_process};
 use crate::model::same_start;
@@ -921,15 +922,29 @@ fn modules_blocking(pid: u32, start_time: Option<u64>) -> Result<Vec<ModuleInfo>
     }
     mods.truncate(count);
 
+    // For a 32-bit process GetModuleFileNameExW names SysWOW64 DLLs under
+    // System32; the mapped file name gives the file that is really loaded.
+    let wow64 = {
+        let mut b = BOOL::default();
+        unsafe { IsWow64Process(handle.0, &mut b) }.is_ok() && b.as_bool()
+    };
+    let devices = if wow64 { crate::winenum::dos_device_map() } else { Vec::new() };
+
     let mut out: Vec<ModuleInfo> = Vec::with_capacity(mods.len());
     let mut seen = std::collections::HashSet::new();
     let mut buf = vec![0u16; 1024];
     for m in mods {
-        let n = unsafe { GetModuleFileNameExW(handle.0, m, &mut buf) } as usize;
-        if n == 0 {
-            continue;
-        }
-        let path = clean_path(&String::from_utf16_lossy(&buf[..n.min(buf.len())]));
+        let mapped = if wow64 { mapped_module_path(handle.0, m, &devices, &mut buf) } else { None };
+        let path = match mapped {
+            Some(p) => p,
+            None => {
+                let n = unsafe { GetModuleFileNameExW(handle.0, m, &mut buf) } as usize;
+                if n == 0 {
+                    continue;
+                }
+                clean_path(&String::from_utf16_lossy(&buf[..n.min(buf.len())]))
+            }
+        };
         if !seen.insert(path.to_lowercase()) {
             continue;
         }
@@ -942,6 +957,23 @@ fn modules_blocking(pid: u32, start_time: Option<u64>) -> Result<Vec<ModuleInfo>
         out.push(ModuleInfo { path, size: size.unwrap_or(0) });
     }
     Ok(out)
+}
+
+/// The drive path of the file mapped at a module's base address, or `None`.
+fn mapped_module_path(
+    process: HANDLE,
+    module: HMODULE,
+    devices: &[(String, String)],
+    buf: &mut [u16],
+) -> Option<String> {
+    let mut info = MODULEINFO::default();
+    unsafe { GetModuleInformation(process, module, &mut info, size_of::<MODULEINFO>() as u32) }.ok()?;
+    let n = unsafe { GetMappedFileNameW(process, info.lpBaseOfDll, buf) } as usize;
+    if n == 0 {
+        return None;
+    }
+    let nt = String::from_utf16_lossy(&buf[..n.min(buf.len())]);
+    crate::winenum::nt_to_dos(&nt, devices).map(|p| clean_path(&p))
 }
 
 /// Modules loaded in a process. `start_time` guards against pid reuse as in

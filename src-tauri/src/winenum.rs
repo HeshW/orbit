@@ -438,7 +438,7 @@ fn nt_image_path(pid: u32) -> Option<String> {
 }
 
 /// Maps each drive letter to its NT device name with QueryDosDeviceW.
-fn dos_device_map() -> Vec<(String, String)> {
+pub(crate) fn dos_device_map() -> Vec<(String, String)> {
     let mut out = Vec::new();
     for letter in b'A'..=b'Z' {
         let drive = format!("{}:", letter as char);
