@@ -2,3 +2,358 @@
    Owner: network feature (docs/V04-CONTRACT.md). Used by ui/js/views/network.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ============================================================ top row: find port + top apps */
+
+.net-top {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.net-find,
+.net-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.net-find-label,
+.net-apps-label {
+  margin: 0;
+}
+
+.net-find-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.net-find-box > .icon {
+  position: absolute;
+  left: 14px;
+  width: 18px;
+  height: 18px;
+  color: var(--blue-soft);
+  pointer-events: none;
+}
+
+.net-find-input.input {
+  width: 100%;
+  height: 44px;
+  padding: 0 44px 0 42px;
+  border-color: var(--line-strong);
+  border-radius: var(--radius-tile);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.net-find.is-active .net-find-input.input {
+  border-color: color-mix(in srgb, var(--cyan) 55%, transparent);
+}
+
+.net-find-input.input:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 3px;
+}
+
+.net-find-clear {
+  position: absolute;
+  right: 7px;
+  border-color: transparent;
+}
+
+.net-find-clear[hidden] {
+  display: none;
+}
+
+.net-find-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 20px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.net-find-result p {
+  margin: 0;
+}
+
+.net-find-hint {
+  color: var(--muted);
+}
+
+.net-find-hint--warn {
+  color: var(--warn);
+}
+
+.net-find-answer strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.net-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.net-hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, transparent);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+}
+
+.net-hit-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.net-hit-name,
+.net-hit-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.net-hit-name {
+  color: var(--ink);
+}
+
+.net-hit-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.net-hit .btn--sm {
+  flex: none;
+}
+
+/* ============================================================ top apps (per-app rates) */
+
+.net-apps-body {
+  min-width: 0;
+}
+
+.net-apps-off {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-tile);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.net-apps-off > .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.net-apps-off p {
+  flex: 1 1 220px;
+  margin: 0;
+}
+
+.net-apps-off-title {
+  display: block;
+  color: var(--ink-2);
+}
+
+.net-talkers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.net-talker {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  font-size: 13px;
+}
+
+.net-talker-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.net-talker-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.net-talker-name .lv-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+  padding: 0;
+  color: var(--ink);
+  text-decoration-color: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+.net-talker-name .lv-faint {
+  font-size: 12px;
+}
+
+.net-talker-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.net-talker-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--chart-net, var(--cyan));
+}
+
+.net-rate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 76px;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.net-rate .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+}
+
+/* ============================================================ toolbar */
+
+.net-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line-strong);
+}
+
+/* ============================================================ table */
+
+.net-table .c-proc { width: 22%; }
+.net-table .c-pid { width: 72px; }
+.net-table .c-proto { width: 112px; }
+.net-table .c-local { width: auto; }
+.net-table .c-remote { width: auto; }
+.net-table .c-state { width: 136px; }
+.net-table .c-actions { width: 132px; }
+
+.net-table td.c-actions,
+.net-table td.c-pid {
+  overflow: visible;
+}
+
+.net-proto {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+.net-fam {
+  margin-left: 6px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.net-addr {
+  color: var(--ink-2);
+}
+
+.net-port {
+  color: var(--ink);
+}
+
+.net-port--hit {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  box-shadow: inset 0 -2px 0 var(--cyan);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.net-row.is-hit {
+  background: color-mix(in srgb, var(--cyan) 7%, transparent);
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+
+.chip.net-state--listen {
+  border-color: color-mix(in srgb, var(--cyan) 40%, transparent);
+  background: color-mix(in srgb, var(--cyan) 8%, transparent);
+  color: var(--cyan-ink);
+}
+
+.chip.net-state--est {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+  color: var(--ok);
+}
+
+.net-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.net-actions .icon-btn:disabled {
+  cursor: not-allowed;
+}
+
+.net-act--danger:hover:not(:disabled),
+.net-act--danger:hover:not(:disabled) .icon {
+  color: var(--danger);
+}
+
+@media (max-width: 1180px) {
+  .net-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .net-table .c-proc { width: 20%; }
+  .net-table .c-state { width: 118px; }
+}
+
