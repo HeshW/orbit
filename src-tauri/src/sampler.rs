@@ -404,6 +404,10 @@ struct Sampler {
     /// once per process. The name guards against a reused pid whose start
     /// time is unknown (0).
     exe_cache: HashMap<(u32, u64), (String, Option<String>)>,
+    /// (pid, start time) -> (name, Windows session), read once per process.
+    /// The name guards a reused pid whose start time is unknown (0), as in
+    /// `exe_cache`.
+    session_cache: HashMap<(u32, u64), (String, Option<u32>)>,
     /// pid -> start time of processes seen last tick (for disk rate deltas).
     previous: HashMap<u32, u64>,
     /// Interface name -> (total rx, total tx) at the last tick.
@@ -489,6 +493,7 @@ impl Sampler {
             user_cache: HashMap::new(),
             image_paths: ImagePaths::new(),
             exe_cache: HashMap::new(),
+            session_cache: HashMap::new(),
             previous,
             previous_net,
             last_refresh,
@@ -525,7 +530,7 @@ impl Sampler {
             self.users = Users::new_with_refreshed_list();
         }
 
-        let pdh = self.pdh.sample();
+        let mut pdh = self.pdh.sample();
         let windows = winenum::top_level_windows();
         let network = self.sample_network(elapsed);
 
@@ -614,10 +619,9 @@ impl Sampler {
             network,
             gpu,
             system,
-            // Filled by the data feature (v0.4); empty until then.
-            disks: Vec::new(),
-            gpu_engines: Vec::new(),
-            battery: None,
+            disks: std::mem::take(&mut pdh.disks),
+            gpu_engines: std::mem::take(&mut pdh.gpu_engines),
+            battery: winenum::battery_status(),
             processes,
         }
     }
@@ -654,6 +658,7 @@ impl Sampler {
         // Per-process network bytes/sec from network.rs; `None` leaves the
         // row fields null.
         let net_rates = crate::network::per_app_rates();
+        let mut wts_sessions: Option<HashMap<u32, u32>> = None;
         let mut rows = Vec::with_capacity(self.sys.processes().len());
         let mut seen: HashMap<u32, u64> = HashMap::with_capacity(self.sys.processes().len());
 
@@ -715,6 +720,23 @@ impl Sampler {
                 None
             };
 
+            // ProcessIdToSessionId first; for processes it refuses (SYSTEM
+            // ones, unelevated) one WTS process list, at most once per tick.
+            let session_id = match self.session_cache.get(&(pid, start_time)) {
+                Some((cached_name, id)) if *cached_name == name => *id,
+                _ => {
+                    let id = winenum::process_session_id(pid).or_else(|| {
+                        wts_sessions
+                            .get_or_insert_with(winenum::all_session_ids)
+                            .get(&pid)
+                            .copied()
+                    });
+                    self.session_cache
+                        .insert((pid, start_time), (name.clone(), id));
+                    id
+                }
+            };
+
             rows.push(ProcessRow {
                 pid,
                 parent_pid: p.parent().map(|pp| pp.as_u32()),
@@ -735,8 +757,7 @@ impl Sampler {
                 suspended: suspended
                     .get(&pid)
                     .is_some_and(|&recorded| suspended_matches(recorded, start_time)),
-                // Filled by the data feature (v0.4).
-                session_id: None,
+                session_id,
                 net_rx_bps: net_rates
                     .as_ref()
                     .and_then(|m| m.get(&pid))
@@ -751,6 +772,8 @@ impl Sampler {
         self.user_cache
             .retain(|(pid, start), _| seen.get(pid) == Some(start));
         self.exe_cache
+            .retain(|(pid, start), _| seen.get(pid) == Some(start));
+        self.session_cache
             .retain(|(pid, start), _| seen.get(pid) == Some(start));
         self.previous = seen;
         rows.sort_unstable_by_key(|r| r.pid);
@@ -972,6 +995,68 @@ mod tests {
             r#""C:\Program Files\App\app.exe" --flag "two words""#
         );
         assert_eq!(join_command_line(&[]), "");
+    }
+
+    /// Tick cost harness (reads the live machine, so not run by default):
+    /// `cargo test tick_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing harness on the live machine"]
+    fn tick_cost() {
+        let mut sampler = Sampler::new();
+        let none = HashMap::new();
+        let first = Instant::now();
+        sampler.sample(&none, 1000);
+        println!(
+            "tick_cost: first tick {:.1} ms",
+            first.elapsed().as_secs_f64() * 1000.0
+        );
+        let ticks = 10;
+        let mut total = Duration::ZERO;
+        let mut worst = Duration::ZERO;
+        let mut last = None;
+        for _ in 0..ticks {
+            std::thread::sleep(Duration::from_millis(1000));
+            let started = Instant::now();
+            let snapshot = sampler.sample(&none, 1000);
+            let took = started.elapsed();
+            total += took;
+            worst = worst.max(took);
+            last = Some(snapshot);
+        }
+        let snapshot = last.unwrap();
+        println!(
+            "tick_cost: avg {:.1} ms, max {:.1} ms over {ticks} ticks, {} processes",
+            total.as_secs_f64() * 1000.0 / ticks as f64,
+            worst.as_secs_f64() * 1000.0,
+            snapshot.processes.len()
+        );
+        println!("disks: {:?}", snapshot.disks);
+        println!("gpu_engines: {:?}", snapshot.gpu_engines);
+        println!("battery: {:?}", snapshot.battery);
+        let with_session = snapshot
+            .processes
+            .iter()
+            .filter(|r| r.session_id.is_some())
+            .count();
+        let missing: Vec<String> = snapshot
+            .processes
+            .iter()
+            .filter(|r| r.session_id.is_none())
+            .map(|r| format!("{} ({})", r.name, r.pid))
+            .take(20)
+            .collect();
+        let mut sessions: Vec<u32> = snapshot
+            .processes
+            .iter()
+            .filter_map(|r| r.session_id)
+            .collect();
+        sessions.sort_unstable();
+        sessions.dedup();
+        println!("sessions seen: {sessions:?}");
+        println!(
+            "session ids: {with_session}/{} set; missing: {missing:?}",
+            snapshot.processes.len()
+        );
     }
 
     #[test]

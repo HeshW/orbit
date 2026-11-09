@@ -4,7 +4,8 @@
 //!   NETWORK SERVICE, DWM-1 and similar accounts that sysinfo's user list
 //!   does not include),
 //! - image paths of processes Orbit cannot open (SystemProcessIdInformation),
-//! - the physical core count.
+//! - the physical core count,
+//! - the Windows session of a process and the battery status.
 //!
 //! The few entry points are declared directly against their system DLLs with
 //! the documented C signatures. Each unsafe block is short and commented.
@@ -676,9 +677,116 @@ pub fn physical_core_count() -> Option<u32> {
     }
 }
 
+/// Windows session of a process (0 = services). The Idle and System
+/// processes always run in session 0; `None` when Windows refuses to say.
+pub fn process_session_id(pid: u32) -> Option<u32> {
+    if pid == 0 || pid == 4 {
+        return Some(0);
+    }
+    let mut session = 0u32;
+    // SAFETY: `session` is a valid out pointer for the duration of the call.
+    unsafe { windows::Win32::System::RemoteDesktop::ProcessIdToSessionId(pid, &mut session) }
+        .ok()
+        .map(|_| session)
+}
+
+/// pid -> session for every process, from one `WTSEnumerateProcessesW` call.
+/// Needs no access to the processes, so it covers the SYSTEM processes that
+/// `ProcessIdToSessionId` refuses without elevation. Empty on failure.
+pub fn all_session_ids() -> HashMap<u32, u32> {
+    use windows::Win32::System::RemoteDesktop::{
+        WTSEnumerateProcessesW, WTSFreeMemory, WTS_CURRENT_SERVER_HANDLE, WTS_PROCESS_INFOW,
+    };
+    let mut info: *mut WTS_PROCESS_INFOW = null_mut();
+    let mut count = 0u32;
+    // SAFETY: level-1 enumeration of the local server; both out pointers are
+    // valid for the call.
+    let listed =
+        unsafe { WTSEnumerateProcessesW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &mut info, &mut count) };
+    if listed.is_err() || info.is_null() {
+        return HashMap::new();
+    }
+    // SAFETY: Windows wrote `count` structs at `info`; they are read before
+    // the block is freed exactly once with WTSFreeMemory.
+    unsafe {
+        let map = std::slice::from_raw_parts(info, count as usize)
+            .iter()
+            .map(|p| (p.ProcessId, p.SessionId))
+            .collect();
+        WTSFreeMemory(info.cast());
+        map
+    }
+}
+
+/// Battery charge and power source, `None` on a PC without a battery.
+pub fn battery_status() -> Option<crate::model::BatteryStats> {
+    let mut status = windows::Win32::System::Power::SYSTEM_POWER_STATUS::default();
+    // SAFETY: `status` is a valid, correctly laid out out pointer.
+    unsafe { windows::Win32::System::Power::GetSystemPowerStatus(&mut status) }.ok()?;
+    battery_from_status(
+        status.ACLineStatus,
+        status.BatteryFlag,
+        status.BatteryLifePercent,
+        status.BatteryLifeTime,
+    )
+}
+
+/// `SYSTEM_POWER_STATUS` fields to `BatteryStats`. BatteryFlag 128 means no
+/// battery and 255 unknown; 255 percent and `u32::MAX` seconds mean unknown.
+fn battery_from_status(
+    ac_line: u8,
+    flag: u8,
+    percent: u8,
+    life_secs: u32,
+) -> Option<crate::model::BatteryStats> {
+    const NO_BATTERY: u8 = 128;
+    const UNKNOWN: u8 = 255;
+    const CHARGING: u8 = 8;
+    if flag == UNKNOWN || flag & NO_BATTERY != 0 || percent == UNKNOWN {
+        return None;
+    }
+    let charging = flag & CHARGING != 0;
+    let ac_online = ac_line == 1;
+    Some(crate::model::BatteryStats {
+        percent: f64::from(percent.min(100)),
+        charging,
+        ac_online,
+        seconds_left: (!charging && !ac_online && life_secs != u32::MAX)
+            .then_some(u64::from(life_secs)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::nt_to_dos;
+    use super::{all_session_ids, battery_from_status, nt_to_dos, process_session_id};
+
+    #[test]
+    fn reads_battery_flags() {
+        // Desktop: no system battery.
+        assert!(battery_from_status(1, 128, 255, u32::MAX).is_none());
+        assert!(battery_from_status(255, 255, 255, u32::MAX).is_none());
+        // On battery, 84%, 2.5 h left.
+        let b = battery_from_status(0, 1, 84, 9000).unwrap();
+        assert_eq!(b.percent, 84.0);
+        assert!(!b.charging && !b.ac_online);
+        assert_eq!(b.seconds_left, Some(9000));
+        // Plugged in and charging (high + charging): no estimate.
+        let b = battery_from_status(1, 1 | 8, 60, u32::MAX).unwrap();
+        assert!(b.charging && b.ac_online);
+        assert_eq!(b.seconds_left, None);
+        // On battery but Windows has no estimate yet.
+        let no_estimate = battery_from_status(0, 2, 20, u32::MAX).unwrap();
+        assert_eq!(no_estimate.seconds_left, None);
+    }
+
+    #[test]
+    fn reads_own_session() {
+        assert_eq!(process_session_id(4), Some(0));
+        // Any session (CI runners may run in session 0), but readable.
+        let own = process_session_id(std::process::id());
+        assert!(own.is_some());
+        assert_eq!(all_session_ids().get(&std::process::id()).copied(), own);
+    }
 
     fn devices() -> Vec<(String, String)> {
         vec![
