@@ -99,7 +99,9 @@ New keys in `store.settings` (defaults, sanitized in `store.js`):
 | `startMinimized` | `true` | when started with Windows, start in the tray |
 | `hotkeyEnabled` | `true` | Ctrl+Shift+O shows Orbit from anywhere |
 | `historyEnabled` | `true` | record App history |
-| `historyDays` | `30` | days History shows and keeps, integer clamped 1..90 |
+| `historyDays` | `30` | days History shows, integer clamped 1..90 (the backend always keeps 90 days) |
+| `historyRange` | `'today'` | History range chip: `'today'`, `'7'`, `'30'` or `'custom'` |
+| `historyCustomDays` | `14` | days for the Custom range, integer clamped 1..90 (History caps it at `historyDays`) |
 
 Settings panels: `settings.js` puts two empty `<section class="panel lv-panel"
 data-panel="behavior|backup">` in the grid (Behavior after Display, Backup before About)
@@ -132,7 +134,7 @@ network.perApp: { available: boolean, reason: string|null }
 
 ```ts
 sessionId: number|null      // Windows session, 0 = services
-netRxBps: number|null       // bytes/sec, null unless network.perApp.available
+netRxBps: number|null       // bytes/sec; null unless network.perApp.available, then 0 for no traffic
 netTxBps: number|null
 ```
 
@@ -238,7 +240,9 @@ actions only against the mock: never against the real session.
 HistoryRow { key /*lowercased exe path, or lowercased name*/, name, exe: string|null,
   cpuSeconds: number, maxMemory: number, avgMemory: number /*bytes*/,
   diskReadBytes, diskWriteBytes /*I/O, as ProcessRow*/, netRxBytes, netTxBytes /*0 without per-app data*/,
-  activeSeconds: number, firstSeen: number, lastSeen: number /*Unix secs*/ }
+  activeSeconds: number /*seconds above 0.5% CPU or with a window*/,
+  firstSeen: number, lastSeen: number /*Unix secs*/ }
+// cpuSeconds = seconds of one logical core; avgMemory is time-weighted over the seconds the app ran.
 ```
 
 Non-command: `pub fn init(app: &AppHandle)` (setup hook, may run after the first
@@ -333,10 +337,11 @@ Promise) or throws a short string like the Rust error. `ctx = { snapshot(), isAd
 delay(ms) }`. A registry handler with the same name as a built-in one in `api.js`
 replaces it. Mock modules must not import `api.js`. `mock/data.js` also exports
 `decorateRow(row)` and `decorateSnapshot(snap)`, which `api.js` calls for every mock row
-and snapshot; they fill the 0.4 fields (two disks, three GPU engines, a battery,
+and snapshot; they fill the 0.4 fields (two disks, five GPU engines in the real order
+3D, Copy, Video Encode, Video Decode, Security, a battery unless `?nobattery`,
 `sessionId` 1 for the user's processes and 0 for services, `netRxBps`/`netTxBps` null,
-`perApp { available: false, reason: "Needs administrator rights." }`). Every view must
-run in a plain browser against the mock (`ui/` served over HTTP).
+`perApp { available: false, reason: "Needs administrator rights. Use Run as admin." }`).
+Every view must run in a plain browser against the mock (`ui/` served over HTTP).
 
 ## Verification each agent runs
 
@@ -345,3 +350,35 @@ run in a plain browser against the mock (`ui/` served over HTTP).
 - Serve `ui/` over HTTP (`.js` as `text/javascript`), open it, check your view in all four
   themes with no console errors, and that the other eight views still open.
 - Report: files changed, verification done, what is untested, and `contractChanges`.
+
+## Integration notes (0.4.0)
+
+What the merge step settled. These are part of the contract now; each feature's own
+details are in `docs/features/<key>.md`.
+
+- **security**: `security_scan` returns one finding per program file (the oldest process
+  running it). Plain AppData is `info`; Temp, Downloads, browser profiles and the
+  ProgramData root are `medium`, or `high` when unsigned. `security::signatures_for` is
+  `pub(crate)` and shared with autoruns. The mock seeds `svch0st.exe` (pid 9172) and
+  `chromeupdate.exe` (pid 11408) so its two high findings point at live rows.
+- **autoruns**: real `AutorunService.microsoft` is always false (Microsoft-signed services
+  are filtered out in the backend). For services, `path` is the binary parsed from
+  ImagePath, or the ServiceDll for svchost services, without arguments.
+- **network**: with per-app data available, rows the ETW session saw no traffic for read
+  0, not null.
+- **history**: `set_history_enabled` is `async fn`. The backend keeps 90 days of files
+  whatever `historyDays` says.
+- **tools**: `export_report` also accepts `.json` (no BOM), used by the Backup panel.
+  `views/processes.js` `endTask(pid, name, startTime?, { confirm = true, quiet = false }?)`
+  (`quiet`: no toast, throws the error; `confirm: false` skips its own confirm). New
+  exports: `endNotResponding()` (`views/processes.js`), `openLockFinder({ path?, run? })`
+  (`tools.js`), `validateSettings(raw)` and `describeChanges(patch)` (`panels/backup.js`).
+- **shell**: the main window is `"visible": false` in `tauri.conf.json` and
+  `shell::setup` shows it (unless started in the tray), so anything that drops
+  `shell::setup` must show the window itself. Mini mode opens beside the main window.
+  Internal events: `orbit://shell-settings` and `orbit://shell-show` (UI to Rust),
+  `orbit://shell-action` and `orbit://shell-mini` (Rust to UI); store event `'shell'`.
+  `ORBIT_SHELL_DIR` overrides where `shell.json` is kept (tests). The updater removes the
+  tray icon (`shell::TRAY_ID`) in its `on_before_exit` hook.
+- **quality**: `npm install` then `npm run test:ui` runs `tests/ui-smoke.mjs` against the
+  mock (`ORBIT_BROWSER=msedge` uses the installed Edge). `node_modules/` is git-ignored.

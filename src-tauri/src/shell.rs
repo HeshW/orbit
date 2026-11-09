@@ -40,7 +40,7 @@ const AWAIT_PID_TIMEOUT_MS: u32 = 10_000;
 
 const MAIN: &str = "main";
 const MINI: &str = "mini";
-const TRAY_ID: &str = "orbit";
+pub(crate) const TRAY_ID: &str = "orbit";
 const HOTKEY_NAME: &str = "Ctrl+Shift+O";
 
 const SETTINGS_EVENT: &str = "orbit://shell-settings";

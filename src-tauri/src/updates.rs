@@ -37,8 +37,15 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
 /// Downloads and installs the newest release, then restarts into it.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    // The installer exits this process without a RunEvent::Exit, so take the tray
+    // icon down first or it lingers until the mouse passes over it.
+    let handle = app.clone();
     let update = app
-        .updater()
+        .updater_builder()
+        .on_before_exit(move || {
+            let _ = handle.remove_tray_by_id(crate::shell::TRAY_ID);
+        })
+        .build()
         .map_err(|e| format!("Couldn't check for updates: {e}"))?
         .check()
         .await

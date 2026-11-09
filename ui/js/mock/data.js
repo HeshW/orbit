@@ -70,7 +70,7 @@ export function decorateSnapshot(snap) {
     };
   }
 
-  if (snap.network) snap.network.perApp = { available: false, reason: 'Needs administrator rights.' };
+  if (snap.network) snap.network.perApp = { available: false, reason: 'Needs administrator rights. Use Run as admin.' };
   return snap;
 }
 

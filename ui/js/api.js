@@ -69,7 +69,7 @@ export async function appVersion() {
   return MOCK_VERSION;
 }
 
-const MOCK_VERSION = '0.3.0';
+const MOCK_VERSION = '0.4.0';
 
 // ======================================================================== mock backend
 
@@ -124,7 +124,8 @@ const mock = (() => {
   // ------------------------------------------------------------ process templates
 
   const SYS32 = 'C:\\Windows\\System32';
-  const usedPids = new Set([0, 4]);
+  // 9172 and 11408: the two malware-like files mock/security.js reports as high findings.
+  const usedPids = new Set([0, 4, 9172, 11408]);
   function newPid() {
     let p;
     do {
@@ -281,6 +282,9 @@ const mock = (() => {
     addProc({ name: 'smartscreen.exe', parent: dcom.pid, exe: `${SYS32}\\smartscreen.exe`, cmd: `${SYS32}\\smartscreen.exe -Embedding`, cpu: 0, mem: 24 });
     addProc({ name: 'PhoneExperienceHost.exe', parent: dcom.pid, exe: 'C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.24092.211.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe', cmd: '"C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.24092.211.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe" -ComServer:Background', cpu: 0.02, mem: 41 });
     addProc({ name: 'OneDrive.exe', parent: explorer.pid, exe: 'C:\\Users\\Hesh\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe', cmd: '"C:\\Users\\Hesh\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe" /background', cpu: 0, mem: 58, suspended: true, start: at(48) });
+    // Malware-like files, so the mock Security view's high findings point at live rows.
+    addProc({ pid: 9172, name: 'svch0st.exe', parent: explorer.pid, exe: 'C:\\Users\\Hesh\\AppData\\Local\\Temp\\svch0st.exe', cpu: 0.1, mem: 14, start: at(50) });
+    addProc({ pid: 11408, name: 'chromeupdate.exe', parent: explorer.pid, exe: 'C:\\Users\\Hesh\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\chromeupdate.exe', cpu: 0.05, mem: 9, start: at(51) });
 
     // Apps.
     const chromeExe = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -909,7 +913,7 @@ const mock = (() => {
 
     check_update() {
       // The preview pretends a newer release exists so the update UI can be seen.
-      return { version: '0.3.1', currentVersion: MOCK_VERSION, notes: 'Preview release notes.', date: null };
+      return { version: '0.4.1', currentVersion: MOCK_VERSION, notes: 'Preview release notes.', date: null };
     },
 
     install_update() {

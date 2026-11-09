@@ -1376,7 +1376,7 @@ fn sanitize_file_name(raw: &str) -> (String, String) {
     let (mut stem, ext) = match cleaned.rfind('.') {
         Some(dot) => {
             let ext = cleaned[dot + 1..].to_ascii_lowercase();
-            if ext == "csv" || ext == "txt" {
+            if ext == "csv" || ext == "txt" || ext == "json" {
                 (cleaned[..dot].to_string(), ext)
             } else {
                 (cleaned.to_string(), "txt".to_string())
@@ -2004,7 +2004,8 @@ mod tests {
             ("orbitprocesses".to_string(), "csv".to_string())
         );
         assert_eq!(sanitize_file_name("report.TXT"), ("report".to_string(), "txt".to_string()));
-        assert_eq!(sanitize_file_name("data.json"), ("data.json".to_string(), "txt".to_string()));
+        assert_eq!(sanitize_file_name("data.json"), ("data".to_string(), "json".to_string()));
+        assert_eq!(sanitize_file_name("data.exe"), ("data.exe".to_string(), "txt".to_string()));
         assert_eq!(sanitize_file_name("CON.csv"), ("orbit-CON".to_string(), "csv".to_string()));
         assert_eq!(sanitize_file_name("  "), ("orbit-report".to_string(), "txt".to_string()));
     }

@@ -13,6 +13,7 @@ export const HISTORY_LEN = 60;
 const SETTINGS_KEY = 'orbit.settings';
 const THEMES = ['night', 'void', 'signal', 'daylight'];
 const GROUPINGS = ['grouped', 'tree', 'flat'];
+const HISTORY_RANGES = ['today', '7', '30', 'custom'];
 
 const DEFAULT_SETTINGS = Object.freeze({
   theme: 'night',
@@ -31,6 +32,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   hotkeyEnabled: true,
   historyEnabled: true,
   historyDays: 30,
+  historyRange: 'today',
+  historyCustomDays: 14,
   watchlist: [],
   watchNames: [],
 });
@@ -52,6 +55,9 @@ function sanitize(raw) {
   }
   const days = Number(raw.historyDays);
   if (Number.isFinite(days)) s.historyDays = Math.min(90, Math.max(1, Math.round(days)));
+  if (HISTORY_RANGES.includes(raw.historyRange)) s.historyRange = raw.historyRange;
+  const custom = Number(raw.historyCustomDays);
+  if (Number.isFinite(custom)) s.historyCustomDays = Math.min(90, Math.max(1, Math.round(custom)));
   if (Array.isArray(raw.watchlist)) {
     // Each pid pin is bound to the process start time, so a pid Windows reuses later
     // is not pinned. Old bare-number entries cannot be checked and are dropped.

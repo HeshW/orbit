@@ -467,6 +467,11 @@ sortable headers are `<th aria-sort><button class="lv-sort" data-sort>` (Process
 
 What the code has beyond the sections above. These are part of the contract now.
 
+**v0.4: History, Users, Network, Security, autoruns, tools, tray and mini mode**
+- Nine views (Processes, Performance, History, Startup, Users, Services, Network,
+  Security, Settings; keys 1-9), new snapshot fields, commands, settings keys, palette
+  and mock registries: see `docs/V04-CONTRACT.md`, including its "Integration notes".
+
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`
   (masks are decimal u64 strings, bit n = CPU n; JS uses BigInt). `StartupEntry` gains

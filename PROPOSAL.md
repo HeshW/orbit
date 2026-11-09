@@ -36,32 +36,60 @@ things faster.
 
 **02 / Performance**
 - Live CPU (total + per-core grid), Memory, Disk, Network and GPU graphs, 60 s history.
+- One tile per physical disk and per active network interface, GPU engines (3D, Copy,
+  Video Encode/Decode...), and a Battery tile on laptops.
 - System facts: uptime, processes, threads, handles, committed memory, CPU model,
   core counts.
 
-**03 / Startup**
+**03 / History** (0.4)
+- App history recorded by Orbit while it runs: CPU time, active time, average and max
+  memory, I/O and (as admin) network per app. Today, 7 days, 30 days or custom. Stays on
+  this PC; recording can be turned off and the history deleted.
+
+**04 / Startup**
 - Every startup entry (HKCU/HKLM Run keys and both Startup folders), on/off toggle
   using the same switch Windows itself uses (StartupApproved), search.
 - Startup impact (High / Medium / Low) with Task Manager's thresholds. Windows keeps its
   own numbers private, so "Measure at next sign-in" has Orbit measure them once (CPU time
   and disk reads in each app's first minute), with no window and nothing left behind.
+- Autoruns lite (0.4, read only): scheduled tasks that run at log on or start-up,
+  non-Microsoft auto-start services and drivers, the Winlogon Shell and Userinit values,
+  and Image File Execution Options debugger hijacks.
 
-**04 / Services**
+**05 / Users** (0.4)
+- Signed-in sessions with per-session CPU, memory and I/O, their busiest processes, and
+  Send message, Disconnect and Sign out.
+
+**06 / Services**
 - All services with status, start type and PID. Start / Stop / Restart. Search and
   "running only" filter. Jump from a service to its process.
 
-**05 / Settings**
+**07 / Network** (0.4)
+- Every TCP and UDP connection with its owning app, Find port ("what is on 3000?"),
+  and per-app download/upload rates when Orbit runs as administrator (ETW).
+
+**08 / Security** (0.4)
+- Signature check of every running program, plus a scan for unsigned files, odd
+  folders (Temp, Downloads, browser profiles), hidden files and names that imitate
+  Windows. Check on VirusTotal sends only the file's SHA-256. The details drawer lists
+  modules and environment variables.
+
+**09 / Settings**
 - Themes: Night (default, the design system as-is), Void (pure black for OLED),
   Signal (high contrast), Daylight (light, built from the logo kit's light colours).
 - Update speed (0.5 s / 1 s / 2 s / 5 s), pause, compact rows, reduced motion, always on
   top (also the pin in the title bar).
+- Behavior (0.4): tray icon, close to tray, start with Windows (in the tray), the
+  Ctrl+Shift+O hotkey. Backup (0.4): export and import settings as JSON.
 - Admin badge and "Restart as administrator" (some actions need it).
 
 **Everywhere**
 - Ctrl+K command palette: jump to any process or action by typing ("end chrome",
   "theme void", "performance").
-- Shortcuts: `/` search, `Del` end task, `Ctrl+N` run new task, `1–5` switch section,
-  `Space` pause updates, `Esc` close.
+- Shortcuts: `/` search, `Del` end task, `Ctrl+N` run new task, `1–9` switch section,
+  `Space` pause updates, `Esc` close. Ctrl+Shift+O shows Orbit from anywhere.
+- Tray icon, single instance, and a small always-on-top mini mode with live sparklines.
+- Tools (0.4): "What's locking this file?" (Restart Manager) and "End not responding".
 - Watchlist: pin processes to the top; Orbit warns (in-app toast) when a pinned
   process passes 50% CPU for 10 seconds.
 
@@ -79,8 +107,8 @@ things faster.
 
 ## Limits (honest)
 
-- Per-process **network** usage needs Windows event tracing (ETW); not in v1. Total
-  network is shown.
+- Per-process **network** usage needs Windows event tracing (ETW), which needs
+  administrator rights. Unelevated, Orbit shows total network and the connection list.
 - Some system processes are protected: even as admin, Windows won't let anyone end or
   inspect them. Orbit shows "Access denied" instead of failing silently.
 - Memory per process is the working set (Task Manager shows private working set, so

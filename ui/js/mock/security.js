@@ -54,8 +54,7 @@ function rowsOf(ctx) {
 
 const SEV_ORDER = { high: 0, medium: 1, info: 2 };
 
-// Malware-like files the mock PC "runs"; their pids are not in the mock process list,
-// so the view shows them as exited.
+// Malware-like files the mock PC "runs"; api.js seeds processes with these pids and exes.
 const FAKE_HIGH = [
   {
     pid: 11408, name: 'chromeupdate.exe', severity: 'high',
@@ -70,6 +69,8 @@ const FAKE_HIGH = [
     signatureStatus: 'unsigned', publisher: null,
   },
 ];
+
+const FAKE_EXES = new Set(FAKE_HIGH.map((f) => f.exe.toLowerCase()));
 
 function evaluate(row) {
   const sig = signatureOf(row.exe);
@@ -105,6 +106,7 @@ export default {
     for (const r of rowsOf(ctx)) {
       if (!r.exe || r.pid === 0 || r.pid === 4) continue;
       const key = r.exe.toLowerCase();
+      if (FAKE_EXES.has(key)) continue; // already reported by FAKE_HIGH
       const cur = oldest.get(key);
       if (!cur || r.startTime < cur.startTime || (r.startTime === cur.startTime && r.pid < cur.pid)) oldest.set(key, r);
     }

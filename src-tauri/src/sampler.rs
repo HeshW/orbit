@@ -758,14 +758,13 @@ impl Sampler {
                     .get(&pid)
                     .is_some_and(|&recorded| suspended_matches(recorded, start_time)),
                 session_id,
+                // With per-app data on, a process with no traffic reads 0, not null.
                 net_rx_bps: net_rates
                     .as_ref()
-                    .and_then(|m| m.get(&pid))
-                    .map(|&(rx, _)| rx.round()),
+                    .map(|m| m.get(&pid).map_or(0.0, |&(rx, _)| rx.round())),
                 net_tx_bps: net_rates
                     .as_ref()
-                    .and_then(|m| m.get(&pid))
-                    .map(|&(_, tx)| tx.round()),
+                    .map(|m| m.get(&pid).map_or(0.0, |&(_, tx)| tx.round())),
             });
         }
 

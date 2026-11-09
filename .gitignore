@@ -2,6 +2,9 @@
 src-tauri/target/
 src-tauri/gen/
 
+# UI smoke test dependencies (npm install at the repo root)
+node_modules/
+
 # OS / editor
 Thumbs.db
 desktop.ini
