@@ -13,6 +13,12 @@ Installed copies (0.3.0 and later) check for updates when they start and update 
 (Settings > About has the switch and a "Check for updates" button). Anyone on 0.2.x installs
 0.3.0 by hand once.
 
+## What's new
+
+Each version's changes are on [GitHub Releases](https://github.com/HeshW/orbit/releases), and
+the latest five are in the What's new section of [orbit.legacytech.me](https://orbit.legacytech.me).
+The release notes are the commit subjects since the previous tag, so write them for people.
+
 ## Releasing
 
 1. Bump the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (and the
@@ -58,7 +64,27 @@ cargo build --release
 
 `cargo test` runs the unit tests.
 
+## UI smoke test
+
+`tests/ui-smoke.mjs` serves `ui/` with the mock backend, opens it in Chromium, visits every
+view in all four themes, opens the palette and the details drawer, and fails on any console
+error, page error or empty view. CI (`.github/workflows/ci.yml`) runs it and `cargo test` on
+pushes and pull requests to `main` and `v0.4`, and a release only builds when both pass.
+
+```
+npm install
+npx playwright-core install chromium
+npm run test:ui
+```
+
+To use the installed Microsoft Edge instead of downloading Chromium:
+`$env:ORBIT_BROWSER = "msedge"; npm run test:ui`.
+
 ## Preview the UI in a browser
 
 `ui/js/api.js` has a mock backend, so `ui/` runs in any browser when served over HTTP
 with `.js` served as `text/javascript`.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Copyright (c) 2026 LegacyTech.

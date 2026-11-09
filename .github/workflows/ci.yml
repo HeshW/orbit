@@ -1,0 +1,47 @@
+# Runs the UI smoke test and the Rust unit tests on pushes and pull requests to main and v0.4.
+# The same checks gate every release (release.yml).
+name: CI
+
+on:
+  push:
+    branches: [main, v0.4]
+  pull_request:
+    branches: [main, v0.4]
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install test dependencies
+        run: npm install --no-audit --no-fund
+
+      # Same Playwright build as the playwright-core devDependency, so the browser matches it.
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: UI smoke test
+        run: npm run test:ui
+
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Rust unit tests
+        working-directory: src-tauri
+        run: cargo test

@@ -3,6 +3,8 @@
 # The release includes latest.json, which installed copies of Orbit read to update themselves.
 # Update signing uses the repo secrets TAURI_SIGNING_PRIVATE_KEY and
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD (same setup as RiftLens).
+# The UI smoke test and the Rust unit tests must pass first; the release notes are the commit
+# subjects since the previous tag, so latest.json and the Releases page show the real changes.
 name: Release
 
 on:
@@ -14,10 +16,32 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install test dependencies
+        run: npm install --no-audit --no-fund
+
+      # Same Playwright build as the playwright-core devDependency, so the browser matches it.
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: UI smoke test
+        run: npm run test:ui
+
   release:
+    needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -25,12 +49,33 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Rust unit tests
+        working-directory: src-tauri
+        run: cargo test
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
 
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli@2
+
+      # Commit subjects since the previous v* tag, as a markdown list (no merges, no scaffold commits).
+      - name: Release notes from commits
+        id: notes
+        shell: pwsh
+        run: |
+          $prev = git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>$null
+          $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..HEAD" } else { 'HEAD' }
+          $lines = @(git log --no-merges --pretty='- %s' $range | Where-Object { $_ -notmatch '^- v\d+(\.\d+)* scaffold' } | Select-Object -First 50)
+          if (-not $lines) { $lines = @('- Maintenance release.') }
+          $delim = "NOTES_$([guid]::NewGuid().ToString('N'))"
+          "notes<<$delim" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $lines | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $delim | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Notes for $range"
+          $lines | ForEach-Object { Write-Host $_ }
+          exit 0
 
       - name: Build installer and create release
         id: tauri
@@ -46,6 +91,8 @@ jobs:
           tagName: v__VERSION__
           releaseName: Orbit v__VERSION__
           releaseBody: |
+            ${{ steps.notes.outputs.notes }}
+
             Windows 10 and 11 (64-bit). Download **Orbit-Setup.exe** below and run it.
             Orbit is not code-signed yet, so Windows SmartScreen may warn you: click **More info**, then **Run anyway**.
             Installed copies (0.3.0 and later) update themselves.

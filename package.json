@@ -1,0 +1,13 @@
+{
+  "name": "orbit-ui-tests",
+  "private": true,
+  "description": "UI smoke test for Orbit: opens ui/ against the mock backend in Chromium.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test:ui": "node tests/ui-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.0"
+  }
+}

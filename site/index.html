@@ -43,6 +43,7 @@
       <nav class="top-nav" aria-label="Page">
         <a href="#features">Features</a>
         <a href="#install">Install</a>
+        <a href="#whats-new">What's new</a>
         <a href="https://github.com/HeshW/orbit" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </div>
@@ -61,7 +62,7 @@
           <span>View source</span><svg class="icon"><use href="#i-github"/></svg>
         </a>
       </div>
-      <p class="meta">Windows 10 and 11 · 64-bit · Free · 2.3 MB download</p>
+      <p class="meta">Windows 10 and 11 · 64-bit · Free · Updates itself · 2.3 MB download</p>
       <figure class="shot shot--hero">
         <img src="img/processes.jpg" alt="Orbit's Processes view: apps grouped with live CPU, memory, I/O and GPU columns" width="1760" height="1120">
       </figure>
@@ -94,7 +95,7 @@
         <svg class="icon icon--lg"><use href="#i-shield"/></svg>
         <p class="micro">02 / Privacy</p>
         <h2 class="display display--sm">Runs locally. <em>Sends nothing.</em></h2>
-        <p>No account, no telemetry, no tracking. Orbit reads your PC's process list from Windows and keeps it on your PC. It only goes online when you ask it to, like "Search online" for a process name.</p>
+        <p>No account, no telemetry, no tracking. Orbit reads your PC's process list from Windows and keeps it on your PC. It only goes online to check for updates, which you can turn off, and when you ask it to, like "Search online" for a process name.</p>
       </div>
       <div class="pass" id="install">
         <p class="micro">03 / Install</p>
@@ -104,14 +105,24 @@
           <li>Orbit isn't code-signed yet, so Windows may show "Windows protected your PC". Click <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
           <li>Open Orbit from the Start menu. Use <strong>Run as admin</strong> inside Orbit when you need to manage system processes.</li>
         </ol>
-        <p class="small">Needs Windows 10 or 11 (64-bit) and Microsoft Edge WebView2, which Windows 11 already has; the installer adds it on Windows 10 if missing. Uninstall any time from Settings &gt; Apps.</p>
+        <p class="small">Needs Windows 10 or 11 (64-bit) and Microsoft Edge WebView2, which Windows 11 already has; the installer adds it on Windows 10 if missing. Orbit checks for updates when it starts and installs them itself; turn that off in Orbit's Settings &gt; About. Uninstall any time from Settings &gt; Apps.</p>
+      </div>
+    </section>
+
+    <section class="section shell" id="whats-new">
+      <p class="micro">04 / What's new</p>
+      <h2 class="display display--sm">Updates itself. <em>Says what changed.</em></h2>
+      <p class="lede">Each new version reaches installed copies on their next start. These are the latest releases, straight from GitHub.</p>
+      <div class="releases" id="releases" aria-live="polite" aria-busy="true">
+        <p class="release-note">Loading the latest releases from <a href="https://github.com/HeshW/orbit/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>.</p>
       </div>
     </section>
   </main>
 
   <footer class="shell foot">
     <a class="brand" href="https://legacytech.me" target="_blank" rel="noopener noreferrer"><span class="brand-word">Legacy<span class="accent">Tech</span></span></a>
-    <p class="small">Orbit 0.3.1 · <a href="https://github.com/HeshW/orbit/releases" target="_blank" rel="noopener noreferrer">Releases</a> · <a href="https://github.com/HeshW/orbit" target="_blank" rel="noopener noreferrer">Source</a> · <a href="https://legacytech.me" target="_blank" rel="noopener noreferrer">legacytech.me</a></p>
+    <p class="small">Orbit 0.3.1 · <a href="https://github.com/HeshW/orbit/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a> · <a href="https://github.com/HeshW/orbit/releases" target="_blank" rel="noopener noreferrer">Releases</a> · <a href="https://github.com/HeshW/orbit" target="_blank" rel="noopener noreferrer">Source</a> · <a href="https://legacytech.me" target="_blank" rel="noopener noreferrer">legacytech.me</a></p>
   </footer>
+  <script src="whatsnew.js" defer></script>
 </body>
 </html>

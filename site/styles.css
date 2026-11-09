@@ -102,3 +102,17 @@ strong { color: var(--ink); font-weight: 650; }
   .btn { transition: none; }
   .btn:hover { transform: none; }
 }
+
+/* what's new */
+.releases { display: grid; gap: 16px; margin-top: clamp(28px, 3.5vw, 44px); }
+.release-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.card.release h3 { margin: 0; }
+.release h3 a { color: var(--ink); text-decoration: none; }
+.release h3 a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.release-body { margin-top: 12px; font-size: 15px; line-height: 1.7; }
+.release-body ul { margin: 0; padding-left: 20px; }
+.release-body li { margin-bottom: 4px; }
+.release-body p { margin: 10px 0 0; }
+.release-body p:first-child { margin-top: 0; }
+.release-note { margin: 0; font-size: 15px; }
+.release-note a { color: var(--blue-soft); }
