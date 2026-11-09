@@ -1310,12 +1310,15 @@ pub fn restart_as_admin(app: AppHandle) -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Could not find Orbit's executable: {e}."))?;
     let exe = to_wide(&exe.to_string_lossy());
+    // The elevated Orbit waits for this one to exit before it takes the
+    // single-instance lock (shell::configure), so it is not turned away.
+    let params = to_wide(&format!("{} {}", crate::shell::AWAIT_PID_FLAG, std::process::id()));
     let result = unsafe {
         ShellExecuteW(
             HWND::default(),
             w!("runas"),
             PCWSTR(exe.as_ptr()),
-            PCWSTR::null(),
+            PCWSTR(params.as_ptr()),
             PCWSTR::null(),
             SW_SHOWNORMAL,
         )

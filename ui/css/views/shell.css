@@ -2,3 +2,126 @@
    Owner: shell feature (docs/V04-CONTRACT.md). Used by ui/js/shell.js, panels/behavior.js, mini.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ------------------------------------------------------------ Behavior panel */
+
+.sh-status {
+  color: var(--ink-2);
+}
+
+.sh-status--error {
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------ mini window */
+
+body.sh-mini {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* The page atmosphere is too busy at this size: keep only the faint grid. */
+body.sh-mini::before {
+  background-image:
+    repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 32px);
+}
+
+body.sh-mini::after {
+  display: none;
+}
+
+.sh-mini-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sh-mini-head .brand-mark {
+  width: 16px;
+  height: 16px;
+}
+
+.sh-mini-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.sh-mini-state {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--cyan-ink);
+}
+
+.sh-mini-state.is-paused {
+  color: var(--muted);
+}
+
+.sh-mini-open {
+  height: 24px;
+  padding: 0 10px;
+}
+
+.sh-mini-close {
+  width: 26px;
+  height: 26px;
+  border-color: transparent;
+}
+
+.sh-mini-close .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.sh-mini-rows {
+  display: grid;
+  flex: 1 1 auto;
+  grid-auto-rows: minmax(0, 1fr);
+  padding: 4px 10px 6px;
+  min-height: 0;
+}
+
+.sh-mini-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 74px;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+}
+
+.sh-mini-k {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sh-mini-spark {
+  width: 100%;
+  height: 18px;
+}
+
+.sh-mini-v {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
+  white-space: nowrap;
+}

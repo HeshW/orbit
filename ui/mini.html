@@ -12,20 +12,38 @@
         var s = JSON.parse(localStorage.getItem('orbit.settings') || '{}') || {};
         var themes = ['night', 'void', 'signal', 'daylight'];
         document.documentElement.setAttribute('data-theme', themes.indexOf(s.theme) >= 0 ? s.theme : 'night');
+        if (s.reducedMotion) document.documentElement.classList.add('reduce-motion');
       } catch (e) { /* storage blocked: defaults apply */ }
     })();
   </script>
+  <link rel="icon" type="image/svg+xml" href="assets/orbit-mark-dark.svg">
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/views/shell.css">
   <script type="module" src="js/mini.js"></script>
 </head>
-<body class="mini">
-  <main id="mini-root" class="mini-root">
-    <div class="empty">
-      <strong>Mini mode</strong>
-      <p>A small always-on-top readout is coming in Orbit 0.4.</p>
-    </div>
+<body class="sh-mini">
+  <header class="sh-mini-head" data-tauri-drag-region>
+    <img class="brand-mark brand-mark--dark" src="assets/orbit-mark-dark.svg" alt="" width="16" height="16" draggable="false" data-tauri-drag-region>
+    <img class="brand-mark brand-mark--light" src="assets/orbit-mark-light.svg" alt="" width="16" height="16" draggable="false" data-tauri-drag-region>
+    <span class="sh-mini-title" data-tauri-drag-region>Orbit</span>
+    <span class="micro sh-mini-state" id="sh-mini-state" data-tauri-drag-region>Live</span>
+    <button type="button" class="btn btn--ghost btn--sm sh-mini-open" id="sh-mini-open">Open Orbit</button>
+    <button type="button" class="icon-btn sh-mini-close" id="sh-mini-close" aria-label="Close mini mode" title="Close mini mode">
+      <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+    </button>
+  </header>
+  <main class="sh-mini-rows" id="mini-root" aria-label="Live usage" data-tauri-drag-region>
+    <div class="sh-mini-row" data-tauri-drag-region><span class="sh-mini-k" data-tauri-drag-region>CPU</span><canvas class="sh-mini-spark" data-m="cpu" aria-hidden="true" data-tauri-drag-region></canvas><span class="sh-mini-v" id="sh-mini-cpu" data-tauri-drag-region>–</span></div>
+    <div class="sh-mini-row" data-tauri-drag-region><span class="sh-mini-k" data-tauri-drag-region>Memory</span><canvas class="sh-mini-spark" data-m="mem" aria-hidden="true" data-tauri-drag-region></canvas><span class="sh-mini-v" id="sh-mini-mem" data-tauri-drag-region>–</span></div>
+    <div class="sh-mini-row" data-tauri-drag-region><span class="sh-mini-k" data-tauri-drag-region>Disk</span><canvas class="sh-mini-spark" data-m="disk" aria-hidden="true" data-tauri-drag-region></canvas><span class="sh-mini-v" id="sh-mini-disk" data-tauri-drag-region>–</span></div>
+    <div class="sh-mini-row" data-tauri-drag-region><span class="sh-mini-k" data-tauri-drag-region>Network</span><canvas class="sh-mini-spark" data-m="net" aria-hidden="true" data-tauri-drag-region></canvas><span class="sh-mini-v" id="sh-mini-net" data-tauri-drag-region>–</span></div>
+    <div class="sh-mini-row" data-tauri-drag-region><span class="sh-mini-k" data-tauri-drag-region>GPU</span><canvas class="sh-mini-spark" data-m="gpu" aria-hidden="true" data-tauri-drag-region></canvas><span class="sh-mini-v" id="sh-mini-gpu" data-tauri-drag-region>–</span></div>
   </main>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>
+    </symbol>
+  </svg>
 </body>
 </html>

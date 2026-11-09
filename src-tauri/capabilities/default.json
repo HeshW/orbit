@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Window controls and events for the main Orbit window.",
-  "windows": ["main"],
+  "description": "Window controls and events for the main Orbit window and the mini window.",
+  "windows": ["main", "mini"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",

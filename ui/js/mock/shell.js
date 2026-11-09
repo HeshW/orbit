@@ -1,7 +1,17 @@
 // Orbit / mock/shell: tray, autostart, hotkey and mini window state for the browser
 // preview (shell feature, docs/V04-CONTRACT.md). Nothing here touches the real system.
+// ?hotkeytaken in the URL: another app holds Ctrl+Shift+O. ?notray: no tray icon.
 
-const state = { trayAvailable: true, autostart: false, hotkeyRegistered: true, hotkeyError: null, mini: false };
+const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const TAKEN = params.has('hotkeytaken');
+
+const state = {
+  trayAvailable: !params.has('notray'),
+  autostart: false,
+  hotkeyRegistered: !TAKEN,
+  hotkeyError: TAKEN ? 'Another app is using Ctrl+Shift+O.' : null,
+  mini: false,
+};
 
 export default {
   get_shell_state() {
@@ -9,14 +19,23 @@ export default {
     return out;
   },
 
-  set_autostart({ enabled }) {
+  set_autostart({ enabled }, ctx) {
+    if (enabled && ctx && ctx.isAdmin()) throw 'Orbit is running as administrator. Open it normally to turn this on.';
     state.autostart = !!enabled;
     return null;
   },
 
   set_hotkey_enabled({ enabled }) {
-    state.hotkeyRegistered = !!enabled;
-    state.hotkeyError = null;
+    if (!enabled) {
+      state.hotkeyRegistered = false;
+      state.hotkeyError = null;
+    } else if (TAKEN) {
+      state.hotkeyRegistered = false;
+      state.hotkeyError = 'Another app is using Ctrl+Shift+O.';
+    } else {
+      state.hotkeyRegistered = true;
+      state.hotkeyError = null;
+    }
     return null;
   },
 
