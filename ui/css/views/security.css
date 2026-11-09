@@ -2,3 +2,315 @@
    Owner: security feature (docs/V04-CONTRACT.md). Used by ui/js/views/security.js and the security parts of details.js.
    Reuse the shared classes and variables in app.css and tokens.css; prefix new classes
    with a short name for this feature so they never collide. */
+
+/* ============================================================ 08 / Security view */
+
+.sec-table .c-name { width: 24%; }
+.sec-table .c-pid { width: 76px; }
+.sec-table .c-pub { width: 15%; }
+.sec-table .c-reasons { width: auto; }
+.sec-table .c-sev { width: 96px; }
+.sec-table .c-actions { width: 140px; }
+
+/* Rows grow to fit their reasons; every other cell stays on one line. */
+.sec-table tbody .row {
+  height: auto;
+  min-height: var(--row-h, 32px);
+}
+
+.sec-table td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.sec-table td.c-reasons {
+  white-space: normal;
+}
+
+.sec-table td.c-actions,
+.sec-table td.c-pid {
+  overflow: visible;
+}
+
+.sec-namebox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sec-path {
+  font-size: 11.5px;
+}
+
+.sec-pub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.sec-pub--warn {
+  color: var(--warn);
+}
+
+.sec-pub--danger {
+  color: var(--danger);
+}
+
+.sec-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.sec-table .lv-chip.sec-reason {
+  max-height: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: left;
+  line-height: 1.4;
+  padding: 3px 10px;
+  border-radius: var(--radius-tile-sm, 8px);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+
+.sec-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sec-actions .icon-btn:disabled {
+  cursor: not-allowed;
+}
+
+.sec-act--danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.sec-act--danger:hover:not(:disabled) .icon {
+  color: var(--danger);
+}
+
+.sec-scan.is-busy .icon {
+  animation: lv-spin 0.9s linear infinite;
+}
+
+.sec .lv-note > .icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ok);
+}
+
+@media (max-width: 1240px) {
+  .sec-table .c-pub { width: 13%; }
+  .sec-table .c-sev { width: 84px; }
+}
+
+/* ============================================================ details drawer: signature */
+
+.sec-sigline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.sec-sig {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.sec-sig-pub {
+  color: var(--ink-2);
+}
+
+.sec-verify.btn--sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+.sec-verify .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.sec-verify-result {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.sec-verify-result[hidden] {
+  display: none;
+}
+
+/* ============================================================ details drawer: modules, environment */
+
+.sec-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sec-more {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--bg-raised) 40%, transparent);
+}
+
+.sec-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-tile);
+}
+
+.sec-summary::-webkit-details-marker {
+  display: none;
+}
+
+.sec-summary:hover {
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+}
+
+.sec-summary:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 3px;
+}
+
+.sec-summary-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.sec-summary-count {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sec-summary .icon {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform var(--dur-1) var(--ease);
+}
+
+.sec-more[open] > .sec-summary .icon {
+  transform: rotate(0deg);
+}
+
+.sec-list {
+  border-top: 1px solid var(--line-soft);
+}
+
+.sec-list-msg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sec-list-msg p {
+  margin: 0;
+  flex: 1 1 200px;
+}
+
+.sec-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 280px;
+  overflow: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.sec-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.sec-item + .sec-item {
+  border-top: 1px solid var(--line-soft);
+}
+
+.sec-item--more {
+  color: var(--muted);
+}
+
+.sec-item-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sec-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.sec-item-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.sec-item-value {
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: visible;
+  user-select: text;
+}
+
+.sec-item-side {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

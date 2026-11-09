@@ -35,7 +35,19 @@ const d = {
   cache: {},
   iconExe: undefined,
   priority: null,
+  sec: null,
 };
+
+// Security parts (signature, modules, environment): loaded on demand per opened process.
+const MAX_LIST_ITEMS = 1000;
+
+function freshSec() {
+  return {
+    sigExe: null, sig: null, sigBusy: false,
+    mods: null, modsErr: null, modsBusy: false,
+    env: null, envErr: null, envBusy: false,
+  };
+}
 
 function errText(err) {
   if (typeof err === 'string' && err) return err;
@@ -119,6 +131,13 @@ function template() {
           '<h3 class="micro dr-h">Facts</h3>' +
           '<dl class="dr-facts">' +
             monoFact('path', 'Path', 'Copy path') +
+            '<div class="dr-fact sec-sigfact"><dt>Signature</dt><dd>' +
+              '<div class="sec-sigline">' +
+                '<span class="sec-sig" data-r="sigLine">' + DASH + '</span>' +
+                `<button type="button" class="btn btn--ghost btn--sm sec-verify" data-act="verify" data-r="verify"><span>Verify signature</span>${icon('i-check')}</button>` +
+              '</div>' +
+              '<p class="sec-verify-result" data-r="sigResult" role="status" hidden></p>' +
+            '</dd></div>' +
             monoFact('cmd', 'Command line', 'Copy command line') +
             monoFact('cwd', 'Working dir', 'Copy working directory') +
             fact('user', 'User') +
@@ -137,6 +156,16 @@ function template() {
         '<section class="dr-section" aria-labelledby="dr-kids-h">' +
           '<h3 class="micro dr-h" id="dr-kids-h" data-r="kidsHead">Child processes</h3>' +
           '<ul class="dr-children" data-r="kids"></ul>' +
+        '</section>' +
+        '<section class="dr-section sec-drawer" aria-label="Modules and environment">' +
+          '<details class="sec-more" data-r="modsBox">' +
+            `<summary class="sec-summary"><span class="sec-summary-title">Modules</span><span class="sec-summary-count" data-r="modsCount"></span>${icon('i-chevron')}</summary>` +
+            '<div class="sec-list" data-r="mods"></div>' +
+          '</details>' +
+          '<details class="sec-more" data-r="envBox">' +
+            `<summary class="sec-summary"><span class="sec-summary-title">Environment</span><span class="sec-summary-count" data-r="envCount"></span>${icon('i-chevron')}</summary>` +
+            '<div class="sec-list" data-r="env"></div>' +
+          '</details>' +
         '</section>' +
       '</div>' +
       '<footer class="dr-actions" data-r="actions">' +
@@ -181,6 +210,10 @@ export function initDetails() {
 
   el.addEventListener('click', onClick);
   r.priority.addEventListener('change', onPriorityChange);
+  // 'toggle' does not bubble: listen on each box. Lists load the first time a box opens.
+  r.modsBox.addEventListener('toggle', () => { if (r.modsBox.open) loadModules(); });
+  r.envBox.addEventListener('toggle', () => { if (r.envBox.open) loadEnvironment(); });
+  d.sec = freshSec();
   document.addEventListener('keydown', onKeyDown, true);
 
   on('select', (data) => {
@@ -234,6 +267,7 @@ function openFor(pid) {
   d.r.exited.hidden = true;
   d.r.body.scrollTop = 0;
   d.r.note.hidden = true;
+  resetSecurity();
 
   patchHeader(row);
   patchLive(row);
@@ -465,6 +499,7 @@ function patchFacts() {
 
   setFact('path', exe || 'Access denied');
   setCopy('path', exe);
+  patchSignature(exe);
   setFact('cmd', cmd || DASH);
   setCopy('cmd', cmd);
   setFact('cwd', cwd || DASH);
@@ -608,6 +643,14 @@ async function onClick(e) {
     if (Number.isFinite(pid)) selectProcess(pid);
     return;
   }
+  const envBtn = t.closest('[data-env-copy]');
+  if (envBtn) {
+    const v = d.sec && Array.isArray(d.sec.env) ? d.sec.env[Number(envBtn.dataset.envCopy)] : null;
+    if (!v) return;
+    const ok = await copyText(`${v.name}=${v.value}`);
+    toast(ok ? `Copied ${v.name}.` : 'Could not copy to the clipboard.', ok ? 'success' : 'error');
+    return;
+  }
   const copyBtn = t.closest('[data-copy]');
   if (copyBtn) {
     const k = copyBtn.dataset.copy;
@@ -627,6 +670,16 @@ async function onClick(e) {
   const act = actBtn.dataset.act;
   if (act === 'close') {
     close();
+    return;
+  }
+  if (act === 'verify') {
+    const exe = currentExe();
+    if (exe) loadSignature(exe, true);
+    return;
+  }
+  if (act === 'sec-retry') {
+    if (actBtn.dataset.which === 'mods') loadModules();
+    else loadEnvironment();
     return;
   }
   const row = actionRow();
@@ -672,6 +725,194 @@ async function onClick(e) {
     default:
       break;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Security: signature, modules, environment                           */
+/* ------------------------------------------------------------------ */
+
+function currentExe() {
+  const row = findRow(d.pid);
+  return (d.details && d.details.exe) || (row && row.exe) || null;
+}
+
+function resetSecurity() {
+  const r = d.r;
+  d.sec = freshSec();
+  r.modsBox.open = false;
+  r.envBox.open = false;
+  r.mods.innerHTML = '';
+  r.env.innerHTML = '';
+  r.modsCount.textContent = '';
+  r.envCount.textContent = '';
+  r.sigLine.textContent = DASH;
+  r.sigResult.hidden = true;
+  r.sigResult.textContent = '';
+  r.verify.disabled = true;
+}
+
+function patchSignature(exe) {
+  const s = d.sec;
+  if (!s || !d.r) return;
+  if (!exe) {
+    if (!s.sigExe && !s.sigBusy) {
+      d.r.sigLine.textContent = 'No file to check';
+      d.r.verify.disabled = true;
+    }
+    return;
+  }
+  if (s.sigExe !== exe) loadSignature(exe, false);
+}
+
+function sigLineHtml(info) {
+  const pub = info.publisher ? `<span class="sec-sig-pub">${escapeHtml(info.publisher)}</span>` : '';
+  switch (info.status) {
+    case 'signed':
+      return `<span class="chip chip--sm chip--ok">Signed</span>${pub || '<span class="sec-sig-pub">Unknown publisher</span>'}`;
+    case 'unsigned':
+      return '<span class="chip chip--sm chip--warn">Unsigned</span>';
+    case 'invalid':
+      return `<span class="chip chip--sm chip--danger">Invalid</span>${pub}`;
+    default:
+      return '<span class="chip chip--sm">Unknown</span><span class="sec-sig-pub">Orbit could not read the file.</span>';
+  }
+}
+
+function verdict(info) {
+  const at = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  switch (info.status) {
+    case 'signed':
+      return `Valid signature from ${info.publisher || 'an unknown publisher'}. Checked at ${at}.`;
+    case 'unsigned':
+      return `No signature. Anyone could have made this file, so make sure you trust where it came from. Checked at ${at}.`;
+    case 'invalid':
+      return `The signature is not valid. The file may have changed after it was signed, or Windows does not trust the certificate. Checked at ${at}.`;
+    default:
+      return 'Orbit could not read this file to check it. Try Restart as administrator.';
+  }
+}
+
+async function loadSignature(exe, verify) {
+  const s = d.sec;
+  const r = d.r;
+  const tok = d.token;
+  s.sigExe = exe;
+  s.sigBusy = true;
+  r.verify.disabled = true;
+  if (!s.sig) r.sigLine.textContent = 'Checking';
+  if (verify) {
+    r.sigResult.hidden = false;
+    r.sigResult.textContent = 'Checking the signature.';
+  }
+  let info = null;
+  let err = null;
+  try {
+    const map = await call('get_signatures', { paths: [exe] });
+    info = (map && map[exe]) || { status: 'unknown', publisher: null };
+  } catch (e) {
+    err = errText(e);
+  }
+  if (tok !== d.token || d.sec !== s) return;
+  s.sigBusy = false;
+  r.verify.disabled = false;
+  if (info) {
+    s.sig = info;
+    r.sigLine.innerHTML = sigLineHtml(info);
+  } else if (!s.sig) {
+    r.sigLine.textContent = 'Could not check';
+  }
+  if (verify) r.sigResult.textContent = err || verdict(info);
+}
+
+function listMessage(msg, which) {
+  const retry = which
+    ? `<button type="button" class="btn btn--ghost btn--sm" data-act="sec-retry" data-which="${which}"><span>Try again</span>${icon('i-refresh')}</button>`
+    : '';
+  return `<div class="sec-list-msg"><p>${escapeHtml(msg)}</p>${retry}</div>`;
+}
+
+function splitPath(path) {
+  const p = String(path || '');
+  const i = p.lastIndexOf('\\');
+  return i < 0 ? { name: p, dir: '' } : { name: p.slice(i + 1), dir: p.slice(0, i) };
+}
+
+async function loadModules() {
+  const s = d.sec;
+  if (!s || s.mods || s.modsBusy || d.pid == null || d.exited) return;
+  const tok = d.token;
+  s.modsBusy = true;
+  d.r.mods.innerHTML = listMessage('Loading modules.');
+  try {
+    const list = await call('get_process_modules', { pid: d.pid, startTime: d.startTime || undefined });
+    if (tok !== d.token) return;
+    s.mods = Array.isArray(list) ? list : [];
+    s.modsErr = null;
+  } catch (e) {
+    if (tok !== d.token) return;
+    s.modsErr = errText(e);
+  }
+  s.modsBusy = false;
+  const r = d.r;
+  if (!s.mods) {
+    r.modsCount.textContent = '';
+    r.mods.innerHTML = listMessage(s.modsErr, 'mods');
+    return;
+  }
+  r.modsCount.textContent = String(s.mods.length);
+  if (!s.mods.length) {
+    r.mods.innerHTML = listMessage('No modules listed.');
+    return;
+  }
+  const shown = s.mods.slice(0, MAX_LIST_ITEMS);
+  let html = '<ul class="sec-items">';
+  for (const m of shown) {
+    const { name, dir } = splitPath(m.path);
+    html += `<li class="sec-item" title="${escapeHtml(m.path)}"><span class="sec-item-main">` +
+      `<span class="sec-item-name">${escapeHtml(name)}</span>` +
+      (dir ? `<span class="sec-item-sub">${escapeHtml(dir)}</span>` : '') +
+      `</span><span class="sec-item-side">${m.size ? bytes(m.size) : DASH}</span></li>`;
+  }
+  if (s.mods.length > shown.length) html += `<li class="sec-item sec-item--more">And ${s.mods.length - shown.length} more.</li>`;
+  r.mods.innerHTML = `${html}</ul>`;
+}
+
+async function loadEnvironment() {
+  const s = d.sec;
+  if (!s || s.env || s.envBusy || d.pid == null || d.exited) return;
+  const tok = d.token;
+  s.envBusy = true;
+  d.r.env.innerHTML = listMessage('Loading environment.');
+  try {
+    const list = await call('get_process_environment', { pid: d.pid });
+    if (tok !== d.token) return;
+    s.env = Array.isArray(list) ? list : [];
+    s.envErr = null;
+  } catch (e) {
+    if (tok !== d.token) return;
+    s.envErr = errText(e);
+  }
+  s.envBusy = false;
+  const r = d.r;
+  if (!s.env) {
+    r.envCount.textContent = '';
+    r.env.innerHTML = listMessage(s.envErr, 'env');
+    return;
+  }
+  r.envCount.textContent = String(s.env.length);
+  if (!s.env.length) {
+    r.env.innerHTML = listMessage('No environment variables.');
+    return;
+  }
+  let html = '<ul class="sec-items">';
+  s.env.slice(0, MAX_LIST_ITEMS).forEach((v, i) => {
+    const name = escapeHtml(v.name);
+    html += `<li class="sec-item"><span class="sec-item-main">` +
+      `<span class="sec-item-name">${name}</span>` +
+      `<span class="sec-item-sub sec-item-value">${v.value ? escapeHtml(v.value) : '(empty)'}</span>` +
+      `</span><button type="button" class="icon-btn dr-copy" data-env-copy="${i}" aria-label="Copy ${name}" title="Copy ${name}=value">${icon('i-copy')}</button></li>`;
+  });
+  r.env.innerHTML = `${html}</ul>`;
 }
 
 function fetchSoon() {
