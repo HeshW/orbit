@@ -1,24 +1,35 @@
 // 02 / Performance: live resource tiles on the left, the selected resource in detail
 // on the right (big 60-sample chart, facts, top consumers).
 //
+// Tiles: CPU, Memory, one per physical disk (Snapshot.disks; a single Disk tile when the
+// list is empty), one per network interface that has carried traffic (plus a total when
+// there are two or more), GPU (once counters were seen) and Battery (while
+// Snapshot.battery is not null). Several tiles of one kind share that kind's detail pane,
+// which shows the selected disk or interface.
+//
 // Rendering rules:
-// - Nothing is drawn while the view is hidden; onShow redraws from store.history at once.
-// - All DOM is built once. Per tick we only change text that actually changed and
-//   redraw canvases. History series are copied into reused buffers (no per-tick
-//   allocation for chart data).
+// - Nothing is drawn while the view is hidden; onShow redraws from history at once.
+//   Per-disk, per-interface and battery history is kept here (the store only keeps the
+//   totals) and is recorded on every snapshot, visible or not.
+// - The tile list is rebuilt only when the set of disks / interfaces / battery changes.
+//   Panes are built once. Per tick we only change text that actually changed and redraw
+//   canvases.
 
-import { store, on, setSettings, selectProcess } from '../store.js';
+import { store, on, setSettings, selectProcess, HISTORY_LEN } from '../store.js';
 import * as fmt from '../format.js';
 import { LineChart, sparkline } from '../charts.js';
 import { toast } from '../app.js';
 import { call } from '../api.js';
 
 const INTERVALS = [500, 1000, 2000, 5000];
-const ORDER = ['cpu', 'memory', 'disk', 'network', 'gpu'];
+const ORDER = ['cpu', 'memory', 'disk', 'network', 'gpu', 'battery'];
 const STORAGE_KEY = 'orbit.perf.resource';
-const IFACE_SAMPLES = 60;
+const SAMPLES = HISTORY_LEN || 60;
 const TOP_N = 5;
 const ALT_SERIES = '--ink-2'; // second series (write / send): neutral, distinct from every accent
+const BATTERY_STEP_MS = 60 * 1000; // one battery point a minute
+const BATTERY_POINTS = 120;        // two hours
+const MANY_TILES = 6;              // more than this: the tile column stops being sticky
 
 const RES = {
   cpu: { label: 'CPU', icon: 'i-cpu', color: '--chart-cpu', metric: 'CPU' },
@@ -26,6 +37,7 @@ const RES = {
   disk: { label: 'Disk', icon: 'i-disk', color: '--chart-disk', metric: 'disk' },
   network: { label: 'Network', icon: 'i-network', color: '--chart-net', metric: 'network' },
   gpu: { label: 'GPU', icon: 'i-gpu', color: '--chart-gpu', metric: 'GPU' },
+  battery: { label: 'Battery', icon: 'i-battery', color: '--ok', metric: 'battery' },
 };
 
 const FACTS = {
@@ -63,16 +75,25 @@ const FACTS = {
   gpu: [
     ['usage', 'Utilisation'],
     ['vram', 'Dedicated memory in use'],
+    ['engine', 'Busiest engine'],
     ['peak', 'Peak in window'],
     ['avg', 'Average in window'],
+  ],
+  battery: [
+    ['charge', 'Charge'],
+    ['status', 'Status'],
+    ['left', 'Time left'],
+    ['source', 'Power source'],
   ],
 };
 
 // ---------------------------------------------------------------- module state
 
 let root = null;
+let tilesEl = null;
 let visible = false;
-let selected = 'cpu';
+let wanted = 'cpu';       // the tile the user picked (kept even while it is missing)
+let selected = 'cpu';     // the tile shown now: wanted, or the first tile of its kind
 let gpuSeen = false;
 let rafId = 0;
 let uptimeTimer = 0;
@@ -82,17 +103,26 @@ let staticFetched = null;
 let staticFetching = false;
 
 const head = {};          // header refs
-const tiles = {};         // key -> { el, v, s, spark }
-const panes = {};         // key -> { el, refs, facts, topRows }
+let tileList = [];        // [{ key, kind, name, label, tag, el, v, s, spark }]
+let tileMap = new Map();  // key -> tile
+let layoutKey = null;
+const panes = {};         // kind -> { el, refs, topRows, spans }
 const charts = {};        // LineChart instances
 const buf = {
   cpu: [], mem: [], diskActive: [], diskRead: [], diskWrite: [], diskSum: [],
   rx: [], tx: [], net: [], gpu: [],
 };
 let cores = [];           // [{ cell, val, canvas, buf }]
-const ifaceHist = new Map();  // name -> number[] (rx + tx, last 60)
+const diskHist = new Map();   // disk name -> { active, read, write, sum } (last 60 each)
+const ifaceHist = new Map();  // interface name -> { rx, tx, sum } (last 60 each)
 let ifaceKey = '';
-let ifaceRows = new Map();    // name -> { rx, tx, tot, spark }
+let ifaceRows = new Map();    // name -> { row, rx, tx, tot, spark }
+let ifaceSel = null;
+let engineKey = null;
+let engineRows = [];          // [{ val, fill, last }]
+const batteryHist = [];       // percent, one point a minute, last one live
+let batteryAt = 0;
+let volumesFor = null;        // [staticInfo, letters] the volume list was built for
 
 const topP = new Array(TOP_N);
 const topV = new Float64Array(TOP_N);
@@ -136,6 +166,16 @@ function clean(src, dst, scale = 1) {
   return dst;
 }
 
+function num(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+// Push onto a fixed-length ring (null / NaN count as 0).
+function ring(arr, v, len = SAMPLES) {
+  if (arr.length >= len) arr.splice(0, arr.length - len + 1);
+  arr.push(num(v));
+}
+
 function maxOf(a, floor = 0) {
   let m = floor;
   for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i];
@@ -174,10 +214,16 @@ function totalMemory(snap) {
   return (snap && snap.memory && snap.memory.total) || (si && si.totalMemory) || 0;
 }
 
+function kindOf(key) {
+  if (key.startsWith('disk:')) return 'disk';
+  if (key.startsWith('net:')) return 'network';
+  return RES[key] ? key : 'cpu';
+}
+
 function loadSelected() {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    if (v && RES[v]) return v;
+    if (typeof v === 'string' && v) return v;
   } catch (_) { /* storage blocked */ }
   return 'cpu';
 }
@@ -187,9 +233,38 @@ function saveSelected(v) {
 }
 
 function schedule() {
-  // Minimised: the store keeps its history; the visibilitychange listener redraws.
+  // Minimised: history keeps being recorded; the visibilitychange listener redraws.
   if (!visible || rafId || document.hidden) return;
   rafId = requestAnimationFrame(render);
+}
+
+// PDH PhysicalDisk instance "0 C: E:" -> { label: "Disk 0", letters: ["C:", "E:"] }.
+function diskParts(name) {
+  const m = /^(\d+)\s*(.*)$/.exec(String(name || '').trim());
+  if (!m) return { label: String(name || 'Disk'), letters: [] };
+  const letters = m[2].split(/\s+/).filter((s) => /^[A-Za-z]:$/.test(s)).map((s) => s.toUpperCase());
+  return { label: `Disk ${m[1]}`, letters };
+}
+
+// Interfaces that carried traffic since boot, by name (a stable order for the tiles).
+function activeIfaces(snap) {
+  const list = (snap && snap.network && snap.network.interfaces) || [];
+  return list
+    .filter((it) => (it.totalRx || 0) + (it.totalTx || 0) > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function batteryStatus(b) {
+  if (b.charging) return 'Charging';
+  if (b.acOnline) return b.percent >= 100 ? 'Fully charged' : 'Plugged in';
+  return 'On battery';
+}
+
+function timeLeft(secs) {
+  const t = Math.max(0, Math.round(secs / 60));
+  const h = Math.floor(t / 60);
+  const m = t % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m} min`;
 }
 
 // ---------------------------------------------------------------- markup
@@ -198,14 +273,40 @@ function icon(id) {
   return `<svg class="icon" aria-hidden="true"><use href="#${id}"/></svg>`;
 }
 
-function tileHtml(key) {
-  const r = RES[key];
+function tileSpecs(snap) {
+  const specs = [
+    { key: 'cpu', kind: 'cpu', label: RES.cpu.label },
+    { key: 'memory', kind: 'memory', label: RES.memory.label },
+  ];
+  const disks = (snap && Array.isArray(snap.disks)) ? snap.disks : [];
+  if (disks.length) {
+    for (const d of disks) {
+      const p = diskParts(d.name);
+      specs.push({ key: `disk:${d.name}`, kind: 'disk', name: d.name, label: p.label, tag: p.letters.join(' ') });
+    }
+  } else {
+    specs.push({ key: 'disk', kind: 'disk', label: RES.disk.label });
+  }
+  const ifaces = activeIfaces(snap);
+  if (ifaces.length !== 1) {
+    specs.push({ key: 'network', kind: 'network', label: RES.network.label, tag: ifaces.length > 1 ? 'All' : '' });
+  }
+  for (const it of ifaces) specs.push({ key: `net:${it.name}`, kind: 'network', name: it.name, label: it.name });
+  if (gpuSeen) specs.push({ key: 'gpu', kind: 'gpu', label: RES.gpu.label });
+  if (snap && snap.battery) specs.push({ key: 'battery', kind: 'battery', label: RES.battery.label });
+  return specs;
+}
+
+function tileHtml(spec, i) {
+  const r = RES[spec.kind];
+  const full = spec.tag ? `${spec.label} ${spec.tag}` : spec.label;
   return `
-    <button type="button" class="tile perf-tile perf-tile--${key}" role="tab" id="perf-tab-${key}"
-      aria-controls="perf-pane-${key}" aria-selected="false" tabindex="-1" data-res="${key}"${key === 'gpu' ? ' hidden' : ''}>
+    <button type="button" class="tile perf-tile perf-tile--${spec.kind}" role="tab" id="perf-tab-${i}"
+      aria-controls="perf-pane-${spec.kind}" aria-selected="false" tabindex="-1"
+      data-key="${fmt.escapeHtml(spec.key)}" title="${fmt.escapeHtml(full)}">
       <span class="perf-tile__icon">${icon(r.icon)}</span>
       <span class="perf-tile__text">
-        <span class="perf-tile__name">${r.label}</span>
+        <span class="perf-tile__name">${fmt.escapeHtml(spec.label)}${spec.tag ? `<span class="perf-tile__tag">${fmt.escapeHtml(spec.tag)}</span>` : ''}</span>
         <span class="perf-tile__value" data-ref="v">–</span>
         <span class="perf-tile__sub" data-ref="s">Waiting for data</span>
       </span>
@@ -230,13 +331,15 @@ function paneHeadHtml(key, index, title) {
     </div>`;
 }
 
+// opts.span: a fixed span text (the chart does not follow the update speed).
 function chartHtml(ref, label, topLabel, opts = {}) {
   const legend = opts.legend || '';
   const size = opts.small ? ' perf-chart--small' : '';
+  const span = opts.span || '<span class="js-span">60 seconds</span>';
   return `
     <div class="perf-chart-block">
       <div class="perf-chart-head">
-        <p class="micro">${label} / <span class="js-span">60 seconds</span></p>
+        <p class="micro">${label} / ${span}</p>
         ${legend}
       </div>
       <div class="perf-chart${size}">
@@ -244,7 +347,7 @@ function chartHtml(ref, label, topLabel, opts = {}) {
         <canvas class="perf-chart__canvas" data-ref="${ref}" role="img" aria-label="${label}, recent history"></canvas>
         ${opts.note ? `<p class="perf-chart__note" data-ref="${ref}Note" hidden>${opts.note}</p>` : ''}
       </div>
-      <div class="perf-axis" aria-hidden="true"><span><span class="js-span">60 seconds</span> ago</span><span>Now</span></div>
+      <div class="perf-axis" aria-hidden="true"><span>${span} ago</span><span>Now</span></div>
     </div>`;
 }
 
@@ -266,8 +369,8 @@ function topHtml(key) {
     return `
       <div class="perf-block">
         <div class="perf-block__head"><p class="micro">Top consumers / Network</p></div>
-        <p class="perf-note">Per-app network use needs Windows event tracing, which Orbit does not
-        collect yet. It is planned for a later version. Totals for each network interface are shown here.</p>
+        <p class="perf-note">Per-app download and upload rates are in the Network view when Orbit
+        runs as administrator. Totals for each network interface are shown here.</p>
       </div>`;
   }
   const rows = Array.from({ length: TOP_N }, () => `
@@ -291,13 +394,18 @@ function topHtml(key) {
     </div>`;
 }
 
+function factsBlockHtml(key) {
+  return `
+    <div class="perf-block">
+      <div class="perf-block__head"><p class="micro">System facts / ${RES[key].label}</p></div>
+      ${factsHtml(key)}
+    </div>`;
+}
+
 function lowerHtml(key) {
   return `
     <div class="perf-lower">
-      <div class="perf-block">
-        <div class="perf-block__head"><p class="micro">System facts / ${RES[key].label}</p></div>
-        ${factsHtml(key)}
-      </div>
+      ${factsBlockHtml(key)}
       ${topHtml(key)}
     </div>`;
 }
@@ -347,7 +455,7 @@ function paneHtml(key) {
           legend: legendHtml([['perf-dot--disk', 'Read', 'lRead'], ['perf-dot--alt', 'Write', 'lWrite']]),
         })}
         <div class="perf-block perf-block--flush">
-          <div class="perf-block__head"><p class="micro">Volumes / Capacity</p></div>
+          <div class="perf-block__head"><p class="micro" data-ref="volHead">Volumes / Capacity</p></div>
           <ul class="perf-disks" data-ref="disks"></ul>
         </div>
         ${lowerHtml(key)}`;
@@ -380,14 +488,33 @@ function paneHtml(key) {
     case 'gpu':
       body = `
         ${paneHeadHtml(key, idx, 'Graphics')}
-        ${chartHtml('chart', 'Utilisation', '100%', { note: 'No GPU counters in the latest sample.' })}
+        <div class="perf-gpu-main">
+          ${chartHtml('chart', 'Utilisation', '100%', { note: 'No GPU counters in the latest sample.' })}
+          <div class="perf-engines">
+            <div class="perf-chart-head">
+              <p class="micro">Engines / <span data-ref="engineCount">0</span></p>
+            </div>
+            <ul class="perf-engine-list" data-ref="engines" aria-label="GPU engines"></ul>
+            <p class="perf-note" data-ref="enginesEmpty" hidden>No per-engine counters reported.</p>
+          </div>
+        </div>
         ${lowerHtml(key)}`;
+      break;
+    case 'battery':
+      body = `
+        ${paneHeadHtml(key, idx, 'Battery')}
+        ${chartHtml('chart', 'Charge', '100%', {
+          span: '2 hours',
+          note: 'The charge history starts after the first minute.',
+          legend: '<span class="perf-block__hint">One point a minute while Orbit runs</span>',
+        })}
+        ${factsBlockHtml(key)}`;
       break;
     default:
       break;
   }
   return `<section class="perf-pane perf-pane--${key}" id="perf-pane-${key}" role="tabpanel"
-    aria-labelledby="perf-tab-${key}" data-res="${key}" hidden>${body}</section>`;
+    data-res="${key}" hidden>${body}</section>`;
 }
 
 function viewHtml() {
@@ -409,9 +536,7 @@ function viewHtml() {
       </div>
     </header>
     <div class="perf-body">
-      <div class="perf-tiles" role="tablist" aria-orientation="vertical" aria-label="Resources" data-ref="tiles">
-        ${ORDER.map(tileHtml).join('')}
-      </div>
+      <div class="perf-tiles" role="tablist" aria-orientation="vertical" aria-label="Resources" data-ref="tiles"></div>
       <div class="panel perf-detail" data-ref="detail">
         ${ORDER.map(paneHtml).join('')}
       </div>
@@ -426,10 +551,9 @@ export function mount(rootEl) {
   root.innerHTML = viewHtml();
 
   Object.assign(head, collectRefs(root.querySelector('.perf-head')));
+  tilesEl = root.querySelector('.perf-tiles');
 
   for (const key of ORDER) {
-    const el = root.querySelector(`#perf-tab-${key}`);
-    tiles[key] = { el, ...collectRefs(el) };
     const pane = root.querySelector(`#perf-pane-${key}`);
     const refs = collectRefs(pane);
     const topRows = [];
@@ -463,20 +587,21 @@ export function mount(rootEl) {
     series: [{ color: RES.network.color, fill: true }, { color: ALT_SERIES, fill: false }], max: 'auto', grid: true,
   });
   charts.gpu = new LineChart(panes.gpu.refs.chart, { series: [{ color: RES.gpu.color, fill: true }], max: 100, grid: true });
+  charts.battery = new LineChart(panes.battery.refs.chart, {
+    series: [{ color: RES.battery.color, fill: true }], max: 100, grid: true, points: BATTERY_POINTS,
+  });
 
   bindEvents();
 
-  if (store.snapshot && store.snapshot.gpu && store.snapshot.gpu.usage != null) {
-    gpuSeen = true;
-    setHidden(tiles.gpu.el, false);
-  }
+  wanted = loadSelected();
   if (store.snapshot) {
+    if (store.snapshot.gpu && store.snapshot.gpu.usage != null) gpuSeen = true;
     snapAt = Date.now();
-    trackInterfaces(store.snapshot);
+    track(store.snapshot);
   }
+  buildTiles(store.snapshot);
 
   syncSettings(store.settings || {});
-  select(loadSelected(), false);
 
   on('snapshot', onSnapshotEvent);
   on('settings', (s) => {
@@ -489,7 +614,7 @@ export function mount(rootEl) {
   if (typeof ResizeObserver === 'function') {
     const ro = new ResizeObserver(() => schedule());
     ro.observe(root.querySelector('.perf-detail'));
-    ro.observe(root.querySelector('.perf-tiles'));
+    ro.observe(tilesEl);
   }
 }
 
@@ -509,16 +634,14 @@ export function onHide() {
 // ---------------------------------------------------------------- events
 
 function bindEvents() {
-  const tilesEl = root.querySelector('.perf-tiles');
-
   tilesEl.addEventListener('click', (e) => {
     const t = e.target.closest('.perf-tile');
-    if (t) select(t.dataset.res, false);
+    if (t) select(t.dataset.key, false);
   });
 
   tilesEl.addEventListener('keydown', (e) => {
     if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-    const list = ORDER.map((k) => tiles[k].el).filter((el) => !el.hidden);
+    const list = tileList.map((t) => t.el);
     const cur = list.indexOf(e.target.closest('.perf-tile'));
     if (cur < 0) return;
     let next = cur;
@@ -527,7 +650,7 @@ function bindEvents() {
     else if (e.key === 'Home') next = 0;
     else if (e.key === 'End') next = list.length - 1;
     e.preventDefault();
-    select(list[next].dataset.res, true);
+    select(list[next].dataset.key, true);
   });
 
   head.seg.addEventListener('click', (e) => {
@@ -582,19 +705,53 @@ function syncSettings(s) {
   for (const key of ORDER) panes[key].spans.forEach((n) => setText(n, span));
 }
 
-function select(res, focus) {
-  if (!RES[res] || (res === 'gpu' && !gpuSeen)) res = 'cpu';
-  selected = res;
-  for (const key of ORDER) {
-    const on = key === res;
-    const t = tiles[key].el;
-    t.setAttribute('aria-selected', on ? 'true' : 'false');
-    t.tabIndex = on ? 0 : -1;
-    t.classList.toggle('is-active', on);
-    setHidden(panes[key].el, !on);
+// The tile shown for a wanted key: itself, else the first tile of the same kind, else CPU.
+function resolve(key) {
+  if (tileMap.has(key)) return key;
+  const kind = kindOf(key);
+  for (const t of tileList) if (t.kind === kind) return t.key;
+  return 'cpu';
+}
+
+function applySelection(focusKey) {
+  selected = resolve(wanted);
+  const kind = kindOf(selected);
+  for (const t of tileList) {
+    const on = t.key === selected;
+    t.el.setAttribute('aria-selected', on ? 'true' : 'false');
+    t.el.tabIndex = on ? 0 : -1;
+    t.el.classList.toggle('is-active', on);
   }
-  saveSelected(res);
-  if (focus) tiles[res].el.focus();
+  for (const key of ORDER) setHidden(panes[key].el, key !== kind);
+  const tile = tileMap.get(selected);
+  if (tile) panes[kind].el.setAttribute('aria-labelledby', tile.el.id);
+  if (focusKey) {
+    const f = tileMap.get(focusKey) || tile;
+    if (f) f.el.focus();
+  }
+}
+
+// Rebuild the tile list when the set of tiles changed. Keeps keyboard focus on the same tile.
+function buildTiles(snap) {
+  const specs = tileSpecs(snap);
+  const key = specs.map((s) => s.key).join('\n');
+  if (key === layoutKey) return false;
+  layoutKey = key;
+  const active = document.activeElement;
+  const focusKey = active && tilesEl.contains(active) && active.dataset ? active.dataset.key : null;
+  tilesEl.innerHTML = specs.map(tileHtml).join('');
+  tileList = Array.from(tilesEl.children, (el, i) => ({ ...specs[i], el, ...collectRefs(el) }));
+  tileMap = new Map(tileList.map((t) => [t.key, t]));
+  tilesEl.classList.toggle('perf-tiles--many', tileList.length > MANY_TILES);
+  applySelection(focusKey);
+  return true;
+}
+
+function select(key, focus) {
+  if (!key) return;
+  wanted = key;
+  saveSelected(key);
+  applySelection(focus ? resolve(key) : null);
   if (visible) {
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
     render();
@@ -605,12 +762,36 @@ function onSnapshotEvent(snap) {
   snap = snap || store.snapshot;
   if (!snap) return;
   snapAt = Date.now();
-  if (!gpuSeen && snap.gpu && snap.gpu.usage != null) {
-    gpuSeen = true;
-    setHidden(tiles.gpu.el, false);
-  }
-  trackInterfaces(snap);
+  if (!gpuSeen && snap.gpu && snap.gpu.usage != null) gpuSeen = true;
+  track(snap);
   schedule();
+}
+
+// ---------------------------------------------------------------- history (this view's own)
+
+function track(snap) {
+  trackDisks(snap);
+  trackInterfaces(snap);
+  trackBattery(snap);
+}
+
+function trackDisks(snap) {
+  const list = Array.isArray(snap.disks) ? snap.disks : [];
+  for (let i = 0; i < list.length; i++) {
+    const d = list[i];
+    let h = diskHist.get(d.name);
+    if (!h) { h = { active: [], read: [], write: [], sum: [] }; diskHist.set(d.name, h); }
+    ring(h.active, d.activePct);
+    ring(h.read, d.readBps);
+    ring(h.write, d.writeBps);
+    ring(h.sum, num(d.readBps) + num(d.writeBps));
+  }
+  // An empty list (counters failed for a tick) keeps the history.
+  if (list.length && diskHist.size > list.length) {
+    for (const name of diskHist.keys()) {
+      if (!list.some((d) => d.name === name)) diskHist.delete(name);
+    }
+  }
 }
 
 function trackInterfaces(snap) {
@@ -618,9 +799,10 @@ function trackInterfaces(snap) {
   for (let i = 0; i < list.length; i++) {
     const it = list[i];
     let h = ifaceHist.get(it.name);
-    if (!h) { h = []; ifaceHist.set(it.name, h); }
-    if (h.length >= IFACE_SAMPLES) h.shift();
-    h.push((it.rxBps || 0) + (it.txBps || 0));
+    if (!h) { h = { rx: [], tx: [], sum: [] }; ifaceHist.set(it.name, h); }
+    ring(h.rx, it.rxBps);
+    ring(h.tx, it.txBps);
+    ring(h.sum, num(it.rxBps) + num(it.txBps));
   }
   if (ifaceHist.size > list.length) {
     for (const name of ifaceHist.keys()) {
@@ -629,8 +811,21 @@ function trackInterfaces(snap) {
   }
 }
 
+// One point a minute; the newest point follows the live value until the next minute starts.
+function trackBattery(snap) {
+  const b = snap.battery;
+  if (!b) return;
+  const now = Date.now();
+  if (!batteryHist.length || now - batteryAt >= BATTERY_STEP_MS) {
+    ring(batteryHist, b.percent, BATTERY_POINTS);
+    batteryAt = now;
+  } else {
+    batteryHist[batteryHist.length - 1] = num(b.percent);
+  }
+}
+
 function tickUptime() {
-  if (!visible || selected !== 'cpu') return;
+  if (!visible || kindOf(selected) !== 'cpu') return;
   const snap = store.snapshot;
   if (!snap || !snap.system) return;
   const secs = snap.system.uptimeSecs + Math.max(0, (Date.now() - snapAt) / 1000);
@@ -644,15 +839,17 @@ function render() {
   if (!visible) return;
   const snap = store.snapshot;
   if (!snap) return;
+  buildTiles(snap);
   applyStatic();
   fillBuffers(snap);
   renderTiles(snap);
-  switch (selected) {
+  switch (kindOf(selected)) {
     case 'cpu': renderCpu(snap); break;
     case 'memory': renderMemory(snap); break;
     case 'disk': renderDisk(snap); break;
     case 'network': renderNetwork(snap); break;
     case 'gpu': renderGpu(snap); break;
+    case 'battery': renderBattery(snap); break;
     default: break;
   }
 }
@@ -696,47 +893,95 @@ function diskSum(d) {
   return d.readBps == null || d.writeBps == null ? DASH : fmt.rate(d.readBps + d.writeBps);
 }
 
+// The disk a disk key stands for, with its history: a physical disk, or the system total.
+function diskSource(snap, key) {
+  if (key.startsWith('disk:')) {
+    const name = key.slice(5);
+    const d = (snap.disks || []).find((x) => x.name === name);
+    const h = diskHist.get(name);
+    if (d && h) return { d, h, name };
+  }
+  return { d: snap.disk || {}, h: { active: buf.diskActive, read: buf.diskRead, write: buf.diskWrite, sum: buf.diskSum }, name: null };
+}
+
+// The interface a network key stands for, with its history: one interface, or the total.
+function netSource(snap, key) {
+  const n = snap.network || {};
+  if (key.startsWith('net:')) {
+    const name = key.slice(4);
+    const it = (n.interfaces || []).find((x) => x.name === name);
+    const h = ifaceHist.get(name);
+    if (it && h) return { rxBps: num(it.rxBps), txBps: num(it.txBps), it, h };
+  }
+  return { rxBps: num(n.rxBps), txBps: num(n.txBps), it: null, h: { rx: buf.rx, tx: buf.tx, sum: buf.net } };
+}
+
 function renderTiles(snap) {
-  const { cpu, memory: m, disk, network: net, gpu } = snap;
-
-  const tc = tiles.cpu;
-  setText(tc.v, fmt.pct(cpu.usage, 0));
-  setText(tc.s, cpu.freqMhz > 0 ? ghz(cpu.freqMhz) : `${(cpu.perCore || []).length} logical processors`);
-  sparkline(tc.spark, buf.cpu, { color: RES.cpu.color, max: 100 });
-
-  const tm = tiles.memory;
-  setText(tm.v, fmt.pct(memPct(m), 0));
-  setText(tm.s, `${fmt.bytes(m.used)} / ${fmt.bytes(m.total)}`);
-  sparkline(tm.spark, buf.mem, { color: RES.memory.color, max: 100 });
-
-  const td = tiles.disk;
-  const rw = `R ${diskRate(disk.readBps)} · W ${diskRate(disk.writeBps)}`;
-  if (disk.activePct != null) {
-    setText(td.v, fmt.pct(disk.activePct, 0));
-    setText(td.s, rw);
-    sparkline(td.spark, buf.diskActive, { color: RES.disk.color, max: 100 });
-  } else {
-    setText(td.v, diskSum(disk));
-    setText(td.s, rw);
-    sparkline(td.spark, buf.diskSum, { color: RES.disk.color, max: maxOf(buf.diskSum, 1024) });
-  }
-
-  const tn = tiles.network;
-  setText(tn.v, fmt.rate(net.rxBps + net.txBps));
-  setText(tn.s, `R ${fmt.rate(net.rxBps)} · S ${fmt.rate(net.txBps)}`);
-  sparkline(tn.spark, buf.net, { color: RES.network.color, max: maxOf(buf.net, 1024) });
-
-  if (gpuSeen) {
-    const tg = tiles.gpu;
-    if (gpu && gpu.usage != null) {
-      setText(tg.v, fmt.pct(gpu.usage, 0));
-      setText(tg.s, gpu.dedicatedUsed != null ? `${fmt.bytes(gpu.dedicatedUsed)} dedicated` : 'Dedicated memory not reported');
-    } else {
-      setText(tg.v, 'No GPU counters');
-      setText(tg.s, 'Counters not reported');
+  for (let i = 0; i < tileList.length; i++) {
+    const t = tileList[i];
+    switch (t.kind) {
+      case 'cpu': renderCpuTile(t, snap); break;
+      case 'memory': renderMemoryTile(t, snap); break;
+      case 'disk': renderDiskTile(t, snap); break;
+      case 'network': renderNetTile(t, snap); break;
+      case 'gpu': renderGpuTile(t, snap); break;
+      case 'battery': renderBatteryTile(t, snap); break;
+      default: break;
     }
-    sparkline(tg.spark, buf.gpu, { color: RES.gpu.color, max: 100 });
   }
+}
+
+function renderCpuTile(t, snap) {
+  const cpu = snap.cpu;
+  setText(t.v, fmt.pct(cpu.usage, 0));
+  setText(t.s, cpu.freqMhz > 0 ? ghz(cpu.freqMhz) : `${(cpu.perCore || []).length} logical processors`);
+  sparkline(t.spark, buf.cpu, { color: RES.cpu.color, max: 100 });
+}
+
+function renderMemoryTile(t, snap) {
+  const m = snap.memory;
+  setText(t.v, fmt.pct(memPct(m), 0));
+  setText(t.s, `${fmt.bytes(m.used)} / ${fmt.bytes(m.total)}`);
+  sparkline(t.spark, buf.mem, { color: RES.memory.color, max: 100 });
+}
+
+function renderDiskTile(t, snap) {
+  const { d, h } = diskSource(snap, t.key);
+  setText(t.s, `R ${diskRate(d.readBps)} · W ${diskRate(d.writeBps)}`);
+  if (d.activePct != null) {
+    setText(t.v, fmt.pct(d.activePct, 0));
+    sparkline(t.spark, h.active, { color: RES.disk.color, max: 100 });
+  } else {
+    setText(t.v, diskSum(d));
+    sparkline(t.spark, h.sum, { color: RES.disk.color, max: maxOf(h.sum, 1024) });
+  }
+}
+
+function renderNetTile(t, snap) {
+  const s = netSource(snap, t.key);
+  setText(t.v, fmt.rate(s.rxBps + s.txBps));
+  setText(t.s, `R ${fmt.rate(s.rxBps)} · S ${fmt.rate(s.txBps)}`);
+  sparkline(t.spark, s.h.sum, { color: RES.network.color, max: maxOf(s.h.sum, 1024) });
+}
+
+function renderGpuTile(t, snap) {
+  const gpu = snap.gpu;
+  if (gpu && gpu.usage != null) {
+    setText(t.v, fmt.pct(gpu.usage, 0));
+    setText(t.s, gpu.dedicatedUsed != null ? `${fmt.bytes(gpu.dedicatedUsed)} dedicated` : 'Dedicated memory not reported');
+  } else {
+    setText(t.v, 'No GPU counters');
+    setText(t.s, 'Counters not reported');
+  }
+  sparkline(t.spark, buf.gpu, { color: RES.gpu.color, max: 100 });
+}
+
+function renderBatteryTile(t, snap) {
+  const b = snap.battery;
+  if (!b) return;
+  setText(t.v, fmt.pct(b.percent, 0));
+  setText(t.s, !b.acOnline && !b.charging && b.secondsLeft != null ? `${timeLeft(b.secondsLeft)} left` : batteryStatus(b));
+  sparkline(t.spark, batteryHist, { color: RES.battery.color, max: 100, points: BATTERY_POINTS });
 }
 
 function setFact(P, key, value) {
@@ -849,13 +1094,22 @@ function renderMemory(snap) {
 
 function renderDisk(snap) {
   const P = panes.disk;
-  const d = snap.disk;
+  const { d, h, name } = diskSource(snap, selected);
   const hasActive = d.activePct != null;
+  const si = currentStatic();
+  const vols = (si && si.disks) || [];
+  const parts = name != null ? diskParts(name) : null;
 
-  charts.diskActive.draw([buf.diskActive]);
+  if (parts) {
+    setText(P.refs.title, parts.letters.length ? `${parts.label} (${parts.letters.join(' ')})` : parts.label);
+  } else {
+    setText(P.refs.title, vols.length === 1 ? '1 volume' : `${vols.length} volumes`);
+  }
+
+  charts.diskActive.draw([h.active]);
   setHidden(P.refs.chartNote, hasActive);
-  charts.diskRate.draw([buf.diskRead, buf.diskWrite]);
-  setText(P.refs.rateChartTop, `Peak ${fmt.rate(Math.max(maxOf(buf.diskRead), maxOf(buf.diskWrite)))}`);
+  charts.diskRate.draw([h.read, h.write]);
+  setText(P.refs.rateChartTop, `Peak ${fmt.rate(Math.max(maxOf(h.read), maxOf(h.write)))}`);
   setText(P.refs.lRead, diskRate(d.readBps));
   setText(P.refs.lWrite, diskRate(d.writeBps));
 
@@ -867,17 +1121,27 @@ function renderDisk(snap) {
   setFact(P, 'read', diskRate(d.readBps));
   setFact(P, 'write', diskRate(d.writeBps));
   setFact(P, 'active', hasActive ? fmt.pct(d.activePct, 1) : 'Not available');
-  const si = currentStatic();
-  setFact(P, 'volumes', count(si && si.disks ? si.disks.length : null));
+  if (parts) setFact(P, 'volumes', parts.letters.length ? parts.letters.join(', ') : 'No drive letters');
+  else setFact(P, 'volumes', count(si && si.disks ? si.disks.length : null));
 
+  renderVolumes(si, parts ? parts.letters : null);
   renderTop(P, 'disk', snap);
 }
 
-function renderDisks(si) {
+// Capacity bars: the volumes on the selected disk (by drive letter), or every volume.
+function renderVolumes(si, letters) {
+  const lk = letters ? letters.join(' ') : null;
+  if (volumesFor && volumesFor[0] === si && volumesFor[1] === lk) return;
+  volumesFor = [si, lk];
   const P = panes.disk;
-  const disks = (si && si.disks) || [];
+  const all = (si && si.disks) || [];
+  const disks = letters
+    ? all.filter((d) => letters.includes(String(d.mount || '').slice(0, 2).toUpperCase()))
+    : all;
+  setText(P.refs.volHead, letters ? 'Volumes / On this disk' : 'Volumes / Capacity');
   if (!disks.length) {
-    P.refs.disks.innerHTML = '<li class="perf-note">No volumes reported.</li>';
+    P.refs.disks.innerHTML = `<li class="perf-note">${!si ? 'Loading volumes.'
+      : letters ? 'No volumes with a drive letter on this disk.' : 'No volumes reported.'}</li>`;
     return;
   }
   P.refs.disks.innerHTML = disks.map((d) => {
@@ -911,14 +1175,16 @@ function renderNetwork(snap) {
   const P = panes.network;
   const n = snap.network;
   const list = n.interfaces || [];
+  const s = netSource(snap, selected);
 
-  charts.network.draw([buf.rx, buf.tx]);
-  setText(P.refs.chartTop, `Peak ${fmt.rate(Math.max(maxOf(buf.rx), maxOf(buf.tx)))}`);
-  setText(P.refs.lRx, fmt.rate(n.rxBps));
-  setText(P.refs.lTx, fmt.rate(n.txBps));
+  setText(P.refs.title, s.it ? s.it.name : 'Network');
+  charts.network.draw([s.h.rx, s.h.tx]);
+  setText(P.refs.chartTop, `Peak ${fmt.rate(Math.max(maxOf(s.h.rx), maxOf(s.h.tx)))}`);
+  setText(P.refs.lRx, fmt.rate(s.rxBps));
+  setText(P.refs.lTx, fmt.rate(s.txBps));
 
-  setText(P.refs.headline, fmt.rate(n.rxBps));
-  setText(P.refs.headSub, `received · sent ${fmt.rate(n.txBps)}`);
+  setText(P.refs.headline, fmt.rate(s.rxBps));
+  setText(P.refs.headSub, `received · sent ${fmt.rate(s.txBps)}`);
 
   let totRx = 0;
   let totTx = 0;
@@ -928,21 +1194,22 @@ function renderNetwork(snap) {
     totTx += list[i].totalTx || 0;
     if ((list[i].totalRx || 0) + (list[i].totalTx || 0) > 0) active++;
   }
-  setFact(P, 'rx', fmt.rate(n.rxBps));
-  setFact(P, 'tx', fmt.rate(n.txBps));
-  setFact(P, 'totalRx', fmt.bytes(totRx));
-  setFact(P, 'totalTx', fmt.bytes(totTx));
+  setFact(P, 'rx', fmt.rate(s.rxBps));
+  setFact(P, 'tx', fmt.rate(s.txBps));
+  setFact(P, 'totalRx', fmt.bytes(s.it ? s.it.totalRx || 0 : totRx));
+  setFact(P, 'totalTx', fmt.bytes(s.it ? s.it.totalTx || 0 : totTx));
   setFact(P, 'ifaces', `${active} of ${list.length}`);
 
-  renderInterfaces(list);
+  renderInterfaces(list, s.it ? s.it.name : null);
 }
 
-function renderInterfaces(list) {
+function renderInterfaces(list, selName) {
   const P = panes.network;
   let key = '';
   for (let i = 0; i < list.length; i++) key += `${list[i].name}\n`;
   if (key !== ifaceKey) {
     ifaceKey = key;
+    ifaceSel = undefined;
     const sorted = list.slice().sort((a, b) =>
       ((b.totalRx || 0) + (b.totalTx || 0)) - ((a.totalRx || 0) + (a.totalTx || 0)) || a.name.localeCompare(b.name));
     P.refs.ifaces.innerHTML = sorted.map((it) => `
@@ -956,6 +1223,7 @@ function renderInterfaces(list) {
     ifaceRows = new Map();
     P.refs.ifaces.querySelectorAll('.perf-iface').forEach((row, i) => {
       ifaceRows.set(sorted[i].name, {
+        row,
         rx: row.querySelector('[data-k="rx"]'),
         tx: row.querySelector('[data-k="tx"]'),
         tot: row.querySelector('[data-k="tot"]'),
@@ -965,6 +1233,10 @@ function renderInterfaces(list) {
     setText(P.refs.ifaceCount, String(list.length));
     setHidden(P.refs.ifaceEmpty, list.length > 0);
   }
+  if (selName !== ifaceSel) {
+    ifaceSel = selName;
+    for (const [name, r] of ifaceRows) r.row.classList.toggle('is-selected', name === selName);
+  }
   for (let i = 0; i < list.length; i++) {
     const it = list[i];
     const r = ifaceRows.get(it.name);
@@ -973,7 +1245,7 @@ function renderInterfaces(list) {
     setText(r.tx, fmt.rate(it.txBps));
     setText(r.tot, `${fmt.bytes(it.totalRx)} / ${fmt.bytes(it.totalTx)}`);
     const h = ifaceHist.get(it.name);
-    if (h) sparkline(r.spark, h, { color: RES.network.color, max: maxOf(h, 1024) });
+    if (h) sparkline(r.spark, h.sum, { color: RES.network.color, max: maxOf(h.sum, 1024) });
   }
 }
 
@@ -983,18 +1255,76 @@ function renderGpu(snap) {
   const P = panes.gpu;
   const g = snap.gpu || {};
   const has = g.usage != null;
+  const engines = Array.isArray(snap.gpuEngines) ? snap.gpuEngines : [];
 
   charts.gpu.draw([buf.gpu]);
   setHidden(P.refs.chartNote, has);
   setText(P.refs.headline, has ? fmt.pct(g.usage, 0) : 'No GPU counters');
   setText(P.refs.headSub, g.dedicatedUsed != null ? `${fmt.bytes(g.dedicatedUsed)} dedicated memory` : 'Dedicated memory not reported');
 
+  renderEngines(engines);
+
+  let busy = null;
+  for (let i = 0; i < engines.length; i++) if (!busy || engines[i].usage > busy.usage) busy = engines[i];
   setFact(P, 'usage', has ? fmt.pct(g.usage, 1) : 'No GPU counters');
   setFact(P, 'vram', g.dedicatedUsed != null ? fmt.bytes(g.dedicatedUsed) : 'Not available');
+  setFact(P, 'engine', busy ? `${busy.name} · ${fmt.pct(busy.usage, 1)}` : 'Not available');
   setFact(P, 'peak', fmt.pct(maxOf(buf.gpu), 1));
   setFact(P, 'avg', fmt.pct(avgOf(buf.gpu), 1));
 
   renderTop(P, 'gpu', snap);
+}
+
+// Per-engine bars beside the main chart (the busiest engine of each type, 0-100).
+function renderEngines(engines) {
+  const P = panes.gpu;
+  let key = '';
+  for (let i = 0; i < engines.length; i++) key += `${engines[i].name}\n`;
+  if (key !== engineKey) {
+    engineKey = key;
+    P.refs.engines.innerHTML = engines.map((e) => `
+      <li class="perf-engine">
+        <span class="perf-engine__name" title="${fmt.escapeHtml(e.name)}">${fmt.escapeHtml(e.name)}</span>
+        <span class="perf-engine__bar" aria-hidden="true"><span class="perf-engine__fill"></span></span>
+        <span class="perf-engine__val"></span>
+      </li>`).join('');
+    engineRows = Array.from(P.refs.engines.children, (li) => ({
+      val: li.querySelector('.perf-engine__val'),
+      fill: li.querySelector('.perf-engine__fill'),
+      last: -1,
+    }));
+    setText(P.refs.engineCount, String(engines.length));
+    setHidden(P.refs.engines, !engines.length);
+    setHidden(P.refs.enginesEmpty, engines.length > 0);
+  }
+  for (let i = 0; i < engines.length; i++) {
+    const r = engineRows[i];
+    const v = Math.min(100, Math.max(0, num(engines[i].usage)));
+    setText(r.val, fmt.pct(v, 0));
+    const frac = Math.round(v * 10) / 1000;
+    if (frac !== r.last) { r.fill.style.transform = `scaleX(${frac})`; r.last = frac; }
+  }
+}
+
+// ---- Battery
+
+function renderBattery(snap) {
+  const P = panes.battery;
+  const b = snap.battery;
+  charts.battery.draw([batteryHist]);
+  setHidden(P.refs.chartNote, batteryHist.length > 1);
+  if (!b) return; // the tile is gone; the next render moves the selection
+  const status = batteryStatus(b);
+  const left = b.secondsLeft != null ? `${timeLeft(b.secondsLeft)} left` : null;
+
+  setText(P.refs.headline, fmt.pct(b.percent, 0));
+  setText(P.refs.headSub, left && !b.acOnline ? `${status.toLowerCase()} · ${left}` : status.toLowerCase());
+
+  setFact(P, 'charge', fmt.pct(b.percent, 0));
+  setFact(P, 'status', status);
+  setFact(P, 'left', b.secondsLeft != null ? timeLeft(b.secondsLeft)
+    : b.acOnline ? 'Plugged in' : 'Not estimated yet');
+  setFact(P, 'source', b.acOnline ? 'Power adapter' : 'Battery');
 }
 
 // ---- Top consumers
@@ -1091,7 +1421,7 @@ function renderTop(P, key, snap) {
   }
   for (let i = topN; i < TOP_N; i++) topP[i] = undefined;
 
-  if (P.refs.topHint) setText(P.refs.topHint, q ? `Matching "${q}"` : key === 'disk' ? 'By I/O rate' : `By ${RES[key].metric} use`);
+  if (P.refs.topHint) setText(P.refs.topHint, q ? `Matching "${q}"` : key === 'disk' ? 'By I/O rate, all disks' : `By ${RES[key].metric} use`);
   if (P.refs.topEmpty) {
     const empty = topN === 0;
     setHidden(P.refs.topEmpty, !empty);
@@ -1125,7 +1455,7 @@ function retryIcon(path) {
   if (n < ICON_TRIES) setTimeout(() => { if (iconCache.get(path) === '') iconCache.delete(path); }, ICON_RETRY_MS * n);
 }
 
-// ---- Static info (CPU brand, volumes)
+// ---- Static info (CPU brand; volumes are drawn by renderDisk)
 
 function applyStatic() {
   const si = currentStatic();
@@ -1139,7 +1469,4 @@ function applyStatic() {
   if (si === staticApplied) return;
   staticApplied = si;
   setText(panes.cpu.refs.title, si.cpuBrand || 'Processor');
-  const disks = si.disks || [];
-  setText(panes.disk.refs.title, disks.length === 1 ? '1 volume' : `${disks.length} volumes`);
-  renderDisks(si);
 }
