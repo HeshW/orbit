@@ -44,6 +44,7 @@ use windows::Win32::System::Memory::{
 };
 use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
 use windows::Win32::System::Variant::{VT_EMPTY, VT_NULL};
+use windows::Win32::UI::Shell::FOLDERID_ProgramFiles;
 
 use crate::health::{prop, variant_string, variant_u64, Wmi};
 
@@ -981,8 +982,8 @@ fn nvml_paths() -> Vec<PathBuf> {
     if n > 0 && n < buf.len() {
         out.push(PathBuf::from(String::from_utf16_lossy(&buf[..n])).join("nvml.dll"));
     }
-    if let Ok(pf) = std::env::var("ProgramW6432").or_else(|_| std::env::var("ProgramFiles")) {
-        out.push(PathBuf::from(pf).join(r"NVIDIA Corporation\NVSMI\nvml.dll"));
+    if let Some(pf) = crate::cleanup::known_folder(&FOLDERID_ProgramFiles) {
+        out.push(pf.join(r"NVIDIA Corporation\NVSMI\nvml.dll"));
     }
     out
 }

@@ -405,7 +405,7 @@ fn system_windows_dir() -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf16_lossy(&buf[..n])))
 }
 
-fn known_folder(id: &GUID) -> Option<PathBuf> {
+pub(crate) fn known_folder(id: &GUID) -> Option<PathBuf> {
     // SAFETY: SHGetKnownFolderPath allocates the string; it is freed below.
     unsafe {
         let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, HANDLE::default()).ok()?;

@@ -16,7 +16,7 @@ touched: `lib.rs` (module), `Cargo.toml` (`Wdk_Graphics_Direct3D`), `model.rs`
 
 | Part | Source | Admin | Notes |
 |---|---|---|---|
-| NVIDIA GPU | NVML (`nvml.dll` from System32, else `Program Files\NVIDIA Corporation\NVSMI`) | No | Loaded at run time with `LoadLibraryExW`; no link-time dependency. Missing DLL or a failed `nvmlInit_v2` = no GPU sensors, no error. |
+| NVIDIA GPU | NVML (`nvml.dll` from System32, else `Program Files\NVIDIA Corporation\NVSMI`, both from Windows' known folders, never an environment variable) | No | Loaded at run time with `LoadLibraryExW`; no link-time dependency. Missing DLL or a failed `nvmlInit_v2` = no GPU sensors, no error. |
 | AMD / Intel GPU | none yet | | "Temperature not available on this GPU" on the adapter line. ADL / ADLX and the Intel library could not be tested on the dev PC (NVIDIA), so they are not shipped. |
 | CPU | LibreHardwareMonitor or OpenHardwareMonitor WMI (`root\LibreHardwareMonitor`, `root\OpenHardwareMonitor`, class `Sensor`) | No | Only while the tool runs. |
 | CPU | HWiNFO shared memory `Global\HWiNFO_SENS_SM2` | No | Only with HWiNFO running and **Shared Memory Support** on (HWiNFO settings; the free version turns it off after 12 hours). |
