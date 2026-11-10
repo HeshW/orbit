@@ -214,6 +214,16 @@ function template() {
             ${GROUPINGS.map((g) => `<option value="${g.id}">${g.label}</option>`).join('')}
           </select>
         </div>
+        <div class="lv-field">
+          <div class="lv-field-text">
+            <label class="lv-label" id="set-temp-l" for="set-temp">Temperature</label>
+            <span class="lv-help">How Performance shows CPU and GPU temperatures.</span>
+          </div>
+          <select class="select lv-select" id="set-temp" data-temp-unit>
+            <option value="c">Celsius (°C)</option>
+            <option value="f">Fahrenheit (°F)</option>
+          </select>
+        </div>
       </section>
 
       <section class="panel lv-panel" data-panel="behavior"></section>
@@ -309,6 +319,8 @@ function syncControls() {
   els.motionHelp.textContent = OS_REDUCED_MOTION() && !s.reducedMotion ? MOTION_HELP_OS : MOTION_HELP;
   const grouping = s.grouping || 'grouped';
   if (els.grouping.value !== grouping) els.grouping.value = grouping;
+  const unit = s.tempUnit === 'f' ? 'f' : 'c';
+  if (els.tempUnit.value !== unit) els.tempUnit.value = unit;
   els.liveText.textContent = s.paused ? `Paused / ${secs(s.intervalMs || 1000)}` : `Live / ${secs(s.intervalMs || 1000)}`;
   els.live.classList.toggle('is-paused', Boolean(s.paused));
 }
@@ -506,7 +518,8 @@ export function mount(rootEl) {
   els.themes = root.querySelector('.lv-themes');
   els.seg = root.querySelector('[data-seg="interval"]');
   els.grouping = root.querySelector('[data-grouping]');
-  els.live = root.querySelector('[data-live]');
+  els.tempUnit = root.querySelector('[data-temp-unit]');
+  els.live =root.querySelector('[data-live]');
   els.liveText = root.querySelector('[data-live-text]');
   els.motionHelp = root.querySelector('[data-motion-help]');
   els.watch = root.querySelector('[data-watch]');
@@ -552,6 +565,9 @@ export function mount(rootEl) {
 
   els.grouping.addEventListener('change', () => {
     setSettings({ grouping: els.grouping.value });
+  });
+  els.tempUnit.addEventListener('change', () => {
+    setSettings({ tempUnit: els.tempUnit.value });
   });
 
   els.watch.addEventListener('click', (ev) => {

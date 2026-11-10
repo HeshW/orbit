@@ -122,6 +122,130 @@ async function gpuAdapters(page) {
   await page.click('#view-performance .perf-tile--cpu');
 }
 
+// Performance temperatures (0.7, 9b). In every theme: the CPU and GPU tiles show °C beside the
+// load, each temperature carries the temps.js level of its own number and is drawn in that
+// level's colour (--ok, --warn, --danger), and both Sensors blocks render with their source.
+async function sensorsTheme(page) {
+  await showView(page, 'performance');
+  await page.click('#view-performance .perf-tile--cpu');
+  await page.waitForFunction(() => {
+    const t = (k) => document.querySelector(`#view-performance .perf-tile--${k} [data-ref="t"]`);
+    return ['cpu', 'gpu'].every((k) => t(k) && !t(k).hidden && /^\d+°C$/.test(t(k).textContent));
+  }, null, { timeout: WAIT }).catch(() => {
+    throw new Error('CPU and GPU tiles show no temperature');
+  });
+  const bad = await page.evaluate(async () => {
+    const { tempLevel } = await import('/js/temps.js');
+    const colour = (v) => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${v})`;
+      document.querySelector('#view-performance').append(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    };
+    const want = { normal: colour('--ok'), warm: colour('--warn'), hot: colour('--danger') };
+    const out = [];
+    const els = [
+      ['cpu', '.perf-tile--cpu [data-ref="t"]'], ['gpu', '.perf-tile--gpu [data-ref="t"]'],
+      ['cpu', '#perf-pane-cpu [data-ref="sensTemp"]'], ['cpu', '#perf-pane-cpu .perf-sensor-core__temp'],
+    ];
+    for (const [kind, sel] of els) {
+      for (const el of document.querySelectorAll(`#view-performance ${sel}`)) {
+        const c = parseFloat(el.textContent);
+        const level = tempLevel(kind, c);
+        if (!el.classList.contains(`temp--${level}`)) out.push(`${sel} ${el.textContent} lacks temp--${level}`);
+        else if (el.getClientRects().length && getComputedStyle(el).color !== want[level]) out.push(`${sel} ${el.textContent} not in the ${level} colour`);
+      }
+    }
+    return out;
+  });
+  if (bad.length) throw new Error(bad.join('; '));
+  const cpu = await page.locator('#perf-pane-cpu .perf-sensors').innerText();
+  if (!/From LibreHardwareMonitor/.test(cpu) || !/PACKAGE POWER/i.test(cpu) || !/AVERAGE CLOCK/i.test(cpu)) throw new Error(`CPU Sensors block: ${cpu.replace(/\s+/g, ' ')}`);
+  const cells = await page.locator('#perf-pane-cpu .perf-sensor-core').allInnerTexts();
+  if (cells.length !== 6 || !cells.every((t) => /Core \d[\s\S]*\d+°C[\s\S]*GHz/i.test(t))) throw new Error(`per-core cells: ${cells.join(' | ').replace(/\s+/g, ' ')}`);
+  await page.click('#view-performance .perf-tile--gpu');
+  await page.waitForSelector('#perf-pane-gpu [data-ref="sensBody"]:not([hidden])', { timeout: WAIT }).catch(() => {
+    throw new Error('GPU Sensors block is hidden');
+  });
+  const gpu = await page.locator('#perf-pane-gpu .perf-sensors').innerText();
+  for (const want of ['From NVIDIA', 'PEAK IN WINDOW', 'SLOWS DOWN AT', 'FAN', 'POWER', 'CORE CLOCK', 'MEMORY CLOCK']) {
+    if (!gpu.toUpperCase().includes(want.toUpperCase())) throw new Error(`GPU Sensors block lacks "${want}": ${gpu.replace(/\s+/g, ' ')}`);
+  }
+  // The Intel card has no library Orbit reads: said once, on its own adapter line.
+  await page.waitForSelector('#perf-pane-gpu .perf-adapter__note:not([hidden])', { timeout: WAIT }).catch(() => {});
+  const notes = await page.locator('#perf-pane-gpu .perf-adapter__note:not([hidden])').allInnerTexts();
+  if (notes.length !== 1 || !/not available on this GPU/.test(notes[0])) throw new Error(`adapter notes: ${notes.join(' | ')}`);
+  await page.click('#view-performance .perf-tile--cpu');
+}
+
+// Thresholds and text (temps.js), °F from Settings, no CPU source (hint with both links,
+// which open through open_url), and a hot PC (?hot) in the danger colour.
+async function sensors(page, base, watch) {
+  const bad = await page.evaluate(async () => {
+    const { tempLevel, tempText, TEMP_LIMITS } = await import('/js/temps.js');
+    const cases = [
+      [tempLevel('cpu', 79.9), 'normal'], [tempLevel('cpu', 80), 'warm'], [tempLevel('cpu', 89.9), 'warm'],
+      [tempLevel('cpu', 90), 'hot'], [tempLevel('gpu', 86.9), 'warm'], [tempLevel('gpu', 87), 'hot'],
+      [tempLevel('gpu', null), null], [tempLevel('cpu', NaN), null],
+      [tempText(62), '62°C'], [tempText(100, 'f'), '212°F'], [tempText(null), '–'], [tempText(61.25, 'c', 1), '61.3°C'],
+      [TEMP_LIMITS.cpu.hot, 90], [TEMP_LIMITS.gpu.warm, 80],
+    ];
+    return cases.map(([got, want], i) => (got === want ? null : `case ${i}: ${got} !== ${want}`)).filter(Boolean);
+  });
+  if (bad.length) throw new Error(bad.join('; '));
+
+  await showView(page, 'settings');
+  await page.selectOption('#set-temp', 'f');
+  await showView(page, 'performance');
+  await page.waitForFunction(() => /^\d+°F$/.test(document.querySelector('#view-performance .perf-tile--cpu [data-ref="t"]')?.textContent || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('°F setting does not reach the CPU tile');
+  });
+  await showView(page, 'settings');
+  await page.selectOption('#set-temp', 'c');
+
+  const other = await page.context().newPage();
+  watch(other);
+  try {
+    await other.goto(`${base}?nocputemp`, { waitUntil: 'load' });
+    await showView(other, 'performance');
+    await other.click('#view-performance .perf-tile--cpu');
+    await other.waitForSelector('#perf-pane-cpu [data-ref="sensEmpty"]:not([hidden])', { timeout: WAIT }).catch(() => {
+      throw new Error('?nocputemp: no hint in the CPU Sensors block');
+    });
+    const hint = await other.locator('#perf-pane-cpu [data-ref="sensEmpty"]').innerText();
+    if (!/Windows doesn't report CPU temperature/.test(hint)) throw new Error(`?nocputemp hint: ${hint}`);
+    const links = await other.locator('#perf-pane-cpu [data-ref="sensEmpty"] a[data-url]').evaluateAll((as) => as.map((a) => a.dataset.url));
+    if (links.join(' ') !== 'https://www.hwinfo.com/ https://github.com/LibreHardwareMonitor/LibreHardwareMonitor') throw new Error(`?nocputemp links: ${links.join(' ')}`);
+    if (!await other.locator('#perf-pane-cpu [data-ref="sensBody"]').isHidden()) throw new Error('?nocputemp: Sensors body still shown');
+    if (!await other.locator('#view-performance .perf-tile--cpu [data-ref="t"]').isHidden()) throw new Error('?nocputemp: CPU tile still shows a temperature');
+    const url = other.url();
+    await other.click('#perf-pane-cpu [data-ref="sensEmpty"] a[data-url*="hwinfo"]');
+    await other.waitForTimeout(200);
+    if (other.url() !== url) throw new Error('the HWiNFO link navigated the window instead of opening the browser');
+
+    await other.goto(`${base}?hot`, { waitUntil: 'load' });
+    await showView(other, 'performance');
+    await other.click('#view-performance .perf-tile--cpu');
+    await other.waitForSelector('#view-performance .perf-tile--cpu [data-ref="t"].temp--hot', { timeout: WAIT }).catch(() => {
+      throw new Error('?hot: the CPU tile is not hot');
+    });
+    const red = await other.evaluate(() => {
+      const el = document.querySelector('#perf-pane-cpu [data-ref="sensTemp"]');
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--danger)';
+      el.after(probe);
+      const same = getComputedStyle(el).color === getComputedStyle(probe).color;
+      probe.remove();
+      return same && el.classList.contains('temp--hot');
+    });
+    if (!red) throw new Error('?hot: the package temperature is not in the danger colour');
+  } finally {
+    await other.close();
+  }
+}
+
 async function menuLabels(page) {
   await page.waitForSelector('#context-menu:not([hidden]) .menu-item', { timeout: WAIT });
   return page.locator('#context-menu .menu-item__label').allInnerTexts();
@@ -651,8 +775,10 @@ try {
     await check(`${theme}: optimize tabs`, () => optimizeTabs(page));
     await check(`${theme}: palette`, () => palette(page));
     await check(`${theme}: details drawer`, () => drawer(page));
+    await check(`${theme}: temperatures`, () => sensorsTheme(page));
   }
   await check('gpu adapters', () => gpuAdapters(page));
+  await check('temperatures', () => sensors(page, base, watch));
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
   await check('debloat', () => debloat(page));
@@ -673,4 +799,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, no console errors.`);

@@ -893,6 +893,51 @@ DebloatUndoAllResult { undone: DebloatChange[], failed: { id, name, error }[],
   `handleSnapshot` while the window shows; sets the `lt-pulse` animation's playbackRate) and
   `pulseRate(cpu)` (1 at 0% to 3 at 100%, 0.25 steps).
 - `tests/ui-smoke.mjs` "<theme>: logo" and "logo".
+- CPU and GPU temperatures (9b, `sensors.rs`, details in `docs/features/sensors.md`). No new
+  command or event: `Snapshot.sensors` (and `SnapshotDelta.sensors`, same object) carries the
+  latest reading, taken on the `orbit-sensors` thread at most once a second while the sampler
+  ticks (`sensors::SensorHub::poll`, never waits; a reading older than 5 s is dropped).
+
+```ts
+Snapshot.sensors: Sensors { cpu: CpuSensors|null /*no source*/, gpus: GpuSensors[] }
+CpuSensors { source: "LibreHardwareMonitor"|"OpenHardwareMonitor"|"HWiNFO"|"ACPI",
+  approximate: boolean /*true for ACPI: motherboard zone*/, package: number|null /*°C*/,
+  cores: Reading[] /*°C, "Core 1"|"P-core 0"|"E-core 4"|"CCD 1"*/, power: number|null /*W*/,
+  clocks: Reading[] /*MHz per core*/ }
+Reading { name: string, value: number }
+GpuSensors { luid: string|null /*DXGI adapter, gpu::luid_key*/, name: string, source: "NVML",
+  temp, memoryTemp, slowdownTemp /*°C*/, fanPct /*0-100*/, powerW, powerLimitW,
+  coreMhz, memoryMhz: number|null }
+```
+- Sources: NVML loaded at run time (System32, else NVSMI); CPU from LibreHardwareMonitor /
+  OpenHardwareMonitor WMI `Sensor`, HWiNFO shared memory `Global\HWiNFO_SENS_SM2`, else (elevated
+  only, once its value moved) ACPI `MSAcpi_ThermalZoneTemperature`. No kernel driver. A value a
+  source does not give is null; temperatures outside 0-150 °C count as missing.
+- Cargo: `windows` feature `Wdk_Graphics_Direct3D` (D3DKMT adapter address, to match NVML's PCI
+  bus to a DXGI LUID). `health.rs`: `Wmi::query_timeout(wql, row_ms)` (`query` = 10 s per row).
+- Settings: `settings.tempUnit` `'c'|'f'` (default `'c'`), Settings > Display "Temperature"
+  (`select#set-temp[data-temp-unit]`). Readings stay °C; only the text changes.
+- `js/temps.js` exports `TEMP_LIMITS` (`cpu` warm 80 / hot 90, `gpu` warm 80 / hot 87, °C),
+  `SOURCE_NAMES`, `tempLevel(kind, c)` -> `'normal'|'warm'|'hot'|null`, `tempText(c, unit?, dp?)`
+  ("62°C", "144°F", "–"), `setLevel(el, level)` (class `temp--normal|warm|hot`).
+- `motion.js` exports `enterBlock(el)`: the `.enter-up` fade and rise for a block that appears
+  after its view showed (the Sensors body when a reading arrives); nothing when `motionOn()` is false.
+- `views/performance.js`: CPU and GPU tiles hold `.perf-tile__line` > `.perf-tile__value` +
+  `.perf-tile__temp[data-ref="t"]` (hidden without a reading). CPU and GPU panes: block
+  `.perf-sensors` (refs `sens`, `sensHead`, `sensSource`, `sensBody`, `sensTemp`, `sensLabel`,
+  `tempChart`, `tempChartTop`, `sensPeak`, `sensFacts`, `sensCores` (CPU), `sensEmpty`), placed
+  before the facts / top consumers. CPU cells `.perf-sensor-core` (`__name`, `__temp`, `__clock`).
+  Adapter lines gain `.perf-adapter__temp` and `.perf-adapter__note` ("Temperature not available
+  on this GPU"). Links `a.perf-link[data-url]` open through `open_url`. The "not available"
+  texts wait for 3 snapshots. Temperature history (60 readings, real ones only) lives in the view.
+- CSS (performance.css): `.temp--normal` (`--ok`), `.temp--warm` (`--warn`), `.temp--hot`
+  (`--danger`), `.perf-tile__line`, `.perf-tile__temp`, `.perf-sensors__body|now|temp|label|
+  facts|cores|empty|source`, `.perf-sensor-core*`, `.perf-adapter__temp`, `.perf-adapter__note`,
+  `.perf-link`.
+- New mock module `mock/sensors.js` (`sensorsFor(snap)`, called by `mock/data.js`): CPU from
+  LibreHardwareMonitor with 6 cores, NVIDIA with every sensor, the Intel card without one;
+  `?nocputemp` (cpu null), `?hot` (past the hot thresholds), `?nogpu` (gpus []).
+  `tests/ui-smoke.mjs` "<theme>: temperatures" and "temperatures".
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

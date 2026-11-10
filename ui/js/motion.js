@@ -53,6 +53,21 @@ export function enterView(view) {
   }
 }
 
+/** A block that appears after its view has shown (new data, such as the Sensors block when
+ *  a reading arrives): the same fade and rise, by itself. */
+export function enterBlock(el) {
+  if (!el || !motionOn()) return;
+  if (!el.__enterBound) {
+    el.addEventListener('animationend', entered);
+    el.addEventListener('animationcancel', entered);
+    el.__enterBound = true;
+  }
+  el.classList.remove('enter-up');
+  el.style.setProperty('--enter-i', '0');
+  void el.offsetWidth; // restart the animation if it was mid-way
+  el.classList.add('enter-up');
+}
+
 // ------------------------------------------------------------------ count-up
 
 /** Text that reads as a number to count: "45%", "32 GB", "14 / 20", "1.5 TB", "3 good". */

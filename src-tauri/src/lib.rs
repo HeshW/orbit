@@ -18,6 +18,7 @@ pub mod pdh;
 pub mod rig;
 pub mod sampler;
 pub mod security;
+pub mod sensors;
 pub mod services;
 pub mod shell;
 pub mod startup;

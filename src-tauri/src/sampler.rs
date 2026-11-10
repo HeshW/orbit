@@ -343,6 +343,7 @@ fn build_delta<'a>(snapshot: &'a Snapshot, emitted: &HashMap<u32, u64>) -> Snaps
         disks: &snapshot.disks,
         gpu_engines: &snapshot.gpu_engines,
         battery: snapshot.battery.as_ref(),
+        sensors: &snapshot.sensors,
         added: snapshot
             .processes
             .iter()
@@ -418,6 +419,8 @@ struct Sampler {
     tick: u64,
     /// Lowercase "%SystemRoot%\" prefix.
     system_root: String,
+    /// Temperatures, fan, power, clocks: read on their own thread (sensors.rs).
+    sensors: crate::sensors::SensorHub,
 }
 
 /// Per-tick refresh. exe, cmd and user are never re-read here: values already
@@ -501,6 +504,7 @@ impl Sampler {
             last_refresh,
             tick: 0,
             system_root,
+            sensors: crate::sensors::SensorHub::default(),
         }
     }
 
@@ -625,6 +629,7 @@ impl Sampler {
             disks: std::mem::take(&mut pdh.disks),
             gpu_engines: std::mem::take(&mut pdh.gpu_engines),
             battery: winenum::battery_status(),
+            sensors: self.sensors.poll(),
             processes,
         }
     }

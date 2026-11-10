@@ -10,6 +10,11 @@
 // GPU: names, video memory and driver come from get_gpu_info (gpu.rs, read once); each
 // adapter's live load is matched by LUID from snap.gpu.adapters. One line per adapter.
 //
+// Temperatures (0.7): snap.sensors (sensors.rs) in °C. The CPU and GPU tiles show the
+// temperature beside the load, coloured by temps.js thresholds; the CPU and GPU panes have a
+// Sensors block (60-second graph, peak, whatever else the source reports, and the source).
+// Without a CPU source the block says how to get one. Temperature history is kept here.
+//
 // Rendering rules:
 // - Nothing is drawn while the view is hidden; onShow redraws from history at once.
 //   Per-disk, per-interface and battery history is kept here (the store only keeps the
@@ -23,6 +28,8 @@ import * as fmt from '../format.js';
 import { LineChart, sparkline } from '../charts.js';
 import { toast } from '../app.js';
 import { call } from '../api.js';
+import { tempLevel, tempText, setLevel, SOURCE_NAMES } from '../temps.js';
+import { enterBlock } from '../motion.js';
 
 const INTERVALS = [500, 1000, 2000, 5000];
 const ORDER = ['cpu', 'memory', 'disk', 'network', 'gpu', 'battery'];
@@ -33,6 +40,11 @@ const ALT_SERIES = '--ink-2'; // second series (write / send): neutral, distinct
 const BATTERY_STEP_MS = 60 * 1000; // one battery point a minute
 const BATTERY_POINTS = 120;        // two hours
 const MANY_TILES = 6;              // more than this: the tile column stops being sticky
+const TOOL_URLS = {
+  hwinfo: 'https://www.hwinfo.com/',
+  lhm: 'https://github.com/LibreHardwareMonitor/LibreHardwareMonitor',
+};
+const NO_GPU_SENSOR = 'Temperature not available on this GPU';
 
 const RES = {
   cpu: { label: 'CPU', icon: 'i-cpu', color: '--chart-cpu', metric: 'CPU' },
@@ -129,7 +141,12 @@ let volumesFor = null;        // [staticInfo, letters] the volume list was built
 let gpuInfo = null;           // GpuAdapter[] from get_gpu_info, null until loaded
 let gpuInfoAsked = false;
 let adapterKey = null;
-let adapterRows = [];         // [{ luid, val, fill, used }]
+let adapterRows = [];         // [{ luid, val, fill, used, temp, note }]
+// °C history (last 60 readings): CPU package, and per GPU (luid, else name).
+const tempHist = { cpu: [], cpuSource: null, gpu: new Map() };
+const sens = { cpu: {}, gpu: {} };  // per pane: { shown, factKey, facts, coreKey, cores }
+const SENSOR_SETTLE = 3;      // snapshots before "not available" is believed
+let sensorSnaps = 0;
 
 const topP = new Array(TOP_N);
 const topV = new Float64Array(TOP_N);
@@ -307,6 +324,11 @@ function tileSpecs(snap) {
 function tileHtml(spec, i) {
   const r = RES[spec.kind];
   const full = spec.tag ? `${spec.label} ${spec.tag}` : spec.label;
+  // CPU and GPU: the temperature sits beside the load (outside .perf-tile__value, which
+  // motion.js counts up as plain text).
+  const value = spec.kind === 'cpu' || spec.kind === 'gpu'
+    ? `<span class="perf-tile__line"><span class="perf-tile__value" data-ref="v">–</span><span class="perf-tile__temp" data-ref="t" hidden></span></span>`
+    : '<span class="perf-tile__value" data-ref="v">–</span>';
   return `
     <button type="button" class="tile perf-tile perf-tile--${spec.kind}" role="tab" id="perf-tab-${i}"
       aria-controls="perf-pane-${spec.kind}" aria-selected="false" tabindex="-1"
@@ -314,7 +336,7 @@ function tileHtml(spec, i) {
       <span class="perf-tile__icon">${icon(r.icon)}</span>
       <span class="perf-tile__text">
         <span class="perf-tile__name">${fmt.escapeHtml(spec.label)}${spec.tag ? `<span class="perf-tile__tag">${fmt.escapeHtml(spec.tag)}</span>` : ''}</span>
-        <span class="perf-tile__value" data-ref="v">–</span>
+        ${value}
         <span class="perf-tile__sub" data-ref="s">Waiting for data</span>
       </span>
       <canvas class="perf-tile__spark" data-ref="spark" aria-hidden="true"></canvas>
@@ -409,6 +431,33 @@ function factsBlockHtml(key) {
     </div>`;
 }
 
+// Sensors block (CPU and GPU panes): the temperature now, its 60-second graph with the peak,
+// rows for whatever else the source reports, and the source. sensEmpty says why not.
+function sensorsHtml(key) {
+  const dot = key === 'cpu' ? 'perf-dot--cpu' : 'perf-dot--gpu';
+  return `
+    <div class="perf-block perf-sensors" data-ref="sens">
+      <div class="perf-block__head">
+        <p class="micro" data-ref="sensHead">Sensors / Temperature</p>
+        <span class="perf-block__hint perf-sensors__source" data-ref="sensSource"></span>
+      </div>
+      <div class="perf-sensors__body" data-ref="sensBody" hidden>
+        <div class="perf-sensors__now">
+          <span class="perf-sensors__temp" data-ref="sensTemp">–</span>
+          <span class="perf-sensors__label" data-ref="sensLabel"></span>
+        </div>
+        ${chartHtml('tempChart', 'Temperature', '100°C', { small: true, legend: legendHtml([[dot, 'Peak', 'sensPeak']]) })}
+        <dl class="perf-facts perf-sensors__facts" data-ref="sensFacts"></dl>
+        ${key === 'cpu' ? '<div class="perf-sensors__cores" data-ref="sensCores" aria-label="Per-core temperatures and clocks"></div>' : ''}
+      </div>
+      <p class="perf-note perf-sensors__empty" data-ref="sensEmpty" hidden>${key === 'cpu'
+    ? `Windows doesn't report CPU temperature on its own. Run
+        <a class="perf-link" href="${TOOL_URLS.hwinfo}" data-url="${TOOL_URLS.hwinfo}">HWiNFO</a> (with Shared Memory Support on) or
+        <a class="perf-link" href="${TOOL_URLS.lhm}" data-url="${TOOL_URLS.lhm}">LibreHardwareMonitor</a> and Orbit will show it.`
+    : 'Temperature isn\'t available for this GPU. Orbit reads it from NVIDIA cards for now.'}</p>
+    </div>`;
+}
+
 function lowerHtml(key) {
   return `
     <div class="perf-lower">
@@ -432,6 +481,7 @@ function paneHtml(key) {
           </div>
           <div class="grid-cores perf-cores" data-ref="cores"></div>
         </div>
+        ${sensorsHtml(key)}
         ${lowerHtml(key)}`;
       break;
     case 'memory':
@@ -511,6 +561,7 @@ function paneHtml(key) {
             <li class="perf-note">Reading the graphics adapters.</li>
           </ul>
         </div>
+        ${sensorsHtml(key)}
         ${lowerHtml(key)}`;
       break;
     case 'battery':
@@ -600,6 +651,8 @@ export function mount(rootEl) {
     series: [{ color: RES.network.color, fill: true }, { color: ALT_SERIES, fill: false }], max: 'auto', grid: true,
   });
   charts.gpu = new LineChart(panes.gpu.refs.chart, { series: [{ color: RES.gpu.color, fill: true }], max: 100, grid: true });
+  charts.cpuTemp = new LineChart(panes.cpu.refs.tempChart, { series: [{ color: RES.cpu.color, fill: true }], max: 100, grid: true });
+  charts.gpuTemp = new LineChart(panes.gpu.refs.tempChart, { series: [{ color: RES.gpu.color, fill: true }], max: 100, grid: true });
   charts.battery = new LineChart(panes.battery.refs.chart, {
     series: [{ color: RES.battery.color, fill: true }], max: 100, grid: true, points: BATTERY_POINTS,
   });
@@ -679,6 +732,14 @@ function bindEvents() {
   });
 
   root.querySelector('.perf-detail').addEventListener('click', (e) => {
+    const link = e.target.closest('a[data-url]');
+    if (link) {
+      e.preventDefault();
+      call('open_url', { url: link.dataset.url }).catch((err) => {
+        toast(typeof err === 'string' ? err : 'Could not open the link.', 'error');
+      });
+      return;
+    }
     const row = e.target.closest('.perf-top__row');
     if (!row || !row.dataset.pid) return;
     selectProcess(Number(row.dataset.pid));
@@ -786,6 +847,31 @@ function track(snap) {
   trackDisks(snap);
   trackInterfaces(snap);
   trackBattery(snap);
+  trackTemps(snap);
+}
+
+// Real readings only: a missing one adds no point (never a made-up 0). A new CPU source, or
+// none, starts the CPU graph over.
+function trackTemps(snap) {
+  if (sensorSnaps < SENSOR_SETTLE) sensorSnaps++;
+  const s = snap.sensors || {};
+  const cpu = s.cpu;
+  const pkg = cpu && typeof cpu.package === 'number' ? cpu.package : null;
+  const source = pkg == null ? null : cpu.source;
+  if (source !== tempHist.cpuSource) {
+    tempHist.cpu.length = 0;
+    tempHist.cpuSource = source;
+  }
+  if (pkg != null) ring(tempHist.cpu, pkg);
+  const gpus = Array.isArray(s.gpus) ? s.gpus : [];
+  for (let i = 0; i < gpus.length; i++) {
+    const g = gpus[i];
+    if (typeof g.temp !== 'number') continue;
+    const key = g.luid || g.name;
+    let h = tempHist.gpu.get(key);
+    if (!h) { h = []; tempHist.gpu.set(key, h); }
+    ring(h, g.temp);
+  }
 }
 
 function trackDisks(snap) {
@@ -948,7 +1034,203 @@ function renderCpuTile(t, snap) {
   const cpu = snap.cpu;
   setText(t.v, fmt.pct(cpu.usage, 0));
   setText(t.s, cpu.freqMhz > 0 ? ghz(cpu.freqMhz) : `${(cpu.perCore || []).length} logical processors`);
+  setTileTemp(t, 'cpu', cpuSensor(snap) ? cpuSensor(snap).package : null);
   sparkline(t.spark, buf.cpu, { color: RES.cpu.color, max: 100 });
+}
+
+// ---- temperatures
+
+function unit() {
+  return store.settings && store.settings.tempUnit === 'f' ? 'f' : 'c';
+}
+
+function temp(c, dp = 0) {
+  return tempText(c, unit(), dp);
+}
+
+function cpuSensor(snap) {
+  const c = snap && snap.sensors ? snap.sensors.cpu : null;
+  return c && typeof c.package === 'number' ? c : null;
+}
+
+function gpuSensors(snap) {
+  const list = snap && snap.sensors && Array.isArray(snap.sensors.gpus) ? snap.sensors.gpus : [];
+  return list;
+}
+
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+// The reading for one adapter: by LUID, else the one reading with its name.
+function sensorFor(snap, adapter) {
+  const list = gpuSensors(snap);
+  const byLuid = list.find((g) => g.luid && g.luid === adapter.luid);
+  if (byLuid) return byLuid;
+  const named = list.filter((g) => sameName(g.name, adapter.name));
+  return named.length === 1 ? named[0] : null;
+}
+
+// The GPU the tile and the Sensors block show: the first adapter's, else the first reading.
+function primaryGpu(snap) {
+  const list = gpuSensors(snap);
+  if (gpuInfo && gpuInfo.length) {
+    const s = sensorFor(snap, gpuInfo[0]);
+    if (s) return s;
+  }
+  return list[0] || null;
+}
+
+function setTileTemp(t, kind, c) {
+  if (!t.t) return;
+  const has = typeof c === 'number';
+  setHidden(t.t, !has);
+  if (!has) return;
+  setText(t.t, temp(c));
+  setLevel(t.t, tempLevel(kind, c));
+}
+
+function watts(w) {
+  return `${w >= 100 ? Math.round(w) : w.toFixed(1)} W`;
+}
+
+function mhz(v) {
+  return `${Math.round(v).toLocaleString()} MHz`;
+}
+
+// Facts list whose rows come and go with the source: rebuilt when the labels change,
+// otherwise only the text (and level) of each value.
+function renderFacts(st, el, rows) {
+  const key = rows.map((r) => r[0]).join('\n');
+  if (key !== st.factKey) {
+    st.factKey = key;
+    el.innerHTML = rows.map(([label]) => `<div class="perf-fact"><dt>${fmt.escapeHtml(label)}</dt><dd></dd></div>`).join('');
+    st.facts = Array.from(el.querySelectorAll('dd'));
+  }
+  for (let i = 0; i < rows.length; i++) {
+    setText(st.facts[i], rows[i][1]);
+    if (rows[i].length > 2) setLevel(st.facts[i], rows[i][2]);
+  }
+}
+
+// Show or hide the block's body; a body that appears after the pane was drawn fades in.
+// The "not available" line waits for a few snapshots: the backend's first one has no
+// reading yet.
+function showSensors(P, st, on) {
+  const was = st.shown;
+  st.shown = on;
+  setHidden(P.refs.sensBody, !on);
+  setHidden(P.refs.sensEmpty, on || sensorSnaps < SENSOR_SETTLE);
+  if (on && was === false) enterBlock(P.refs.sensBody);
+  return on || sensorSnaps >= SENSOR_SETTLE;
+}
+
+function drawTempChart(P, chart, hist) {
+  const peak = maxOf(hist);
+  chart.max = peak > 95 ? 110 : 100;
+  chart.draw([hist]);
+  setText(P.refs.tempChartTop, temp(chart.max));
+  setText(P.refs.sensPeak, hist.length ? temp(peak) : '–');
+  return peak;
+}
+
+function renderCpuSensors(snap) {
+  const P = panes.cpu;
+  const st = sens.cpu;
+  const c = cpuSensor(snap);
+  const settled = showSensors(P, st, !!c);
+  if (!c) {
+    setText(P.refs.sensSource, settled ? 'No source' : 'Reading sensors');
+    return;
+  }
+  const level = tempLevel('cpu', c.package);
+  setText(P.refs.sensTemp, temp(c.package));
+  setLevel(P.refs.sensTemp, level);
+  setText(P.refs.sensLabel, c.approximate ? 'Approximate (motherboard zone)' : 'Package');
+  setText(P.refs.sensSource, `From ${SOURCE_NAMES[c.source] || c.source}`);
+  const peak = drawTempChart(P, charts.cpuTemp, tempHist.cpu);
+
+  const cores = Array.isArray(c.cores) ? c.cores : [];
+  const clocks = Array.isArray(c.clocks) ? c.clocks : [];
+  const rows = [];
+  if (cores.length) {
+    const hottest = cores.reduce((m, r) => (r.value > m.value ? r : m), cores[0]);
+    rows.push(['Hottest core', `${temp(hottest.value)} · ${hottest.name}`, tempLevel('cpu', hottest.value)]);
+  }
+  rows.push(['Peak in window', tempHist.cpu.length ? temp(peak) : '–', tempLevel('cpu', tempHist.cpu.length ? peak : null)]);
+  if (typeof c.power === 'number') rows.push(['Package power', watts(c.power)]);
+  if (clocks.length) {
+    const avg = clocks.reduce((s, r) => s + r.value, 0) / clocks.length;
+    rows.push(['Average clock', ghz(avg)]);
+  } else {
+    rows.push(['Speed', ghz(snap.cpu.freqMhz)]);
+  }
+  renderFacts(st, P.refs.sensFacts, rows);
+  renderSensorCores(st, P.refs.sensCores, cores, clocks);
+}
+
+// One cell per core (or CCD): its temperature and, when the source has it, its clock.
+function renderSensorCores(st, el, cores, clocks) {
+  const names = [];
+  for (const r of cores) if (!names.includes(r.name)) names.push(r.name);
+  for (const r of clocks) if (!names.includes(r.name)) names.push(r.name);
+  const key = names.join('\n');
+  if (key !== st.coreKey) {
+    st.coreKey = key;
+    el.innerHTML = names.map((n) => `
+      <div class="perf-sensor-core">
+        <span class="perf-sensor-core__name">${fmt.escapeHtml(n)}</span>
+        <span class="perf-sensor-core__temp"></span>
+        <span class="perf-sensor-core__clock"></span>
+      </div>`).join('');
+    st.cores = new Map(Array.from(el.children, (cell, i) => [names[i], {
+      temp: cell.querySelector('.perf-sensor-core__temp'),
+      clock: cell.querySelector('.perf-sensor-core__clock'),
+    }]));
+    setHidden(el, !names.length);
+  }
+  const t = new Map(cores.map((r) => [r.name, r.value]));
+  const k = new Map(clocks.map((r) => [r.name, r.value]));
+  for (const [name, cell] of st.cores) {
+    const v = t.get(name);
+    setText(cell.temp, v == null ? '' : temp(v));
+    setLevel(cell.temp, tempLevel('cpu', v));
+    const f = k.get(name);
+    setText(cell.clock, f == null ? '' : ghz(f));
+  }
+}
+
+function renderGpuSensors(snap) {
+  const P = panes.gpu;
+  const st = sens.gpu;
+  const g = primaryGpu(snap);
+  const has = !!g && typeof g.temp === 'number';
+  const settled = showSensors(P, st, has);
+  if (!has) {
+    setText(P.refs.sensSource, settled ? 'No source' : 'Reading sensors');
+    setText(P.refs.sensHead, 'Sensors / Temperature');
+    return;
+  }
+  const many = gpuInfo && gpuInfo.length > 1;
+  setText(P.refs.sensHead, many ? `Sensors / ${g.name}` : 'Sensors / Temperature');
+  const level = tempLevel('gpu', g.temp);
+  setText(P.refs.sensTemp, temp(g.temp));
+  setLevel(P.refs.sensTemp, level);
+  setText(P.refs.sensLabel, 'GPU core');
+  setText(P.refs.sensSource, `From ${SOURCE_NAMES[g.source] || g.source}`);
+  const hist = tempHist.gpu.get(g.luid || g.name) || [];
+  const peak = drawTempChart(P, charts.gpuTemp, hist);
+
+  const rows = [['Peak in window', hist.length ? temp(peak) : '–', tempLevel('gpu', hist.length ? peak : null)]];
+  if (typeof g.memoryTemp === 'number') rows.push(['Memory temp', temp(g.memoryTemp)]);
+  if (typeof g.slowdownTemp === 'number') rows.push(['Slows down at', temp(g.slowdownTemp)]);
+  if (typeof g.fanPct === 'number') rows.push(['Fan', fmt.pct(g.fanPct, 0)]);
+  if (typeof g.powerW === 'number') {
+    rows.push(['Power', typeof g.powerLimitW === 'number' ? `${watts(g.powerW)} of ${watts(g.powerLimitW)}` : watts(g.powerW)]);
+  } else if (typeof g.powerLimitW === 'number') {
+    rows.push(['Power limit', watts(g.powerLimitW)]);
+  }
+  if (typeof g.coreMhz === 'number') rows.push(['Core clock', mhz(g.coreMhz)]);
+  if (typeof g.memoryMhz === 'number') rows.push(['Memory clock', mhz(g.memoryMhz)]);
+  renderFacts(st, P.refs.sensFacts, rows);
 }
 
 function renderMemoryTile(t, snap) {
@@ -986,6 +1268,8 @@ function renderGpuTile(t, snap) {
     setText(t.v, 'No GPU counters');
     setText(t.s, 'Counters not reported');
   }
+  const g = primaryGpu(snap);
+  setTileTemp(t, 'gpu', g ? g.temp : null);
   sparkline(t.spark, buf.gpu, { color: RES.gpu.color, max: 100 });
 }
 
@@ -1014,6 +1298,7 @@ function renderCpu(snap) {
   setText(P.refs.headSub, `${ghz(cpu.freqMhz)} · ${count(system.processCount)} processes`);
 
   renderCores(perCore);
+  renderCpuSensors(snap);
 
   setFact(P, 'brand', (si && si.cpuBrand) || 'Not available');
   setFact(P, 'speed', ghz(cpu.freqMhz));
@@ -1276,7 +1561,8 @@ function renderGpu(snap) {
   setText(P.refs.headSub, g.dedicatedUsed != null ? `${fmt.bytes(g.dedicatedUsed)} dedicated memory` : 'Dedicated memory not reported');
 
   renderEngines(engines);
-  renderAdapters(g);
+  renderAdapters(g, snap);
+  renderGpuSensors(snap);
 
   let busy = null;
   for (let i = 0; i < engines.length; i++) if (!busy || engines[i].usage > busy.usage) busy = engines[i];
@@ -1316,7 +1602,7 @@ function adapterMeta(a) {
 }
 
 // One line per adapter: name, VRAM and driver, plus its live load (matched by LUID).
-function renderAdapters(g) {
+function renderAdapters(g, snap) {
   const P = panes.gpu;
   if (!gpuInfo) {
     loadGpuInfo();
@@ -1337,6 +1623,7 @@ function renderAdapters(g) {
         <li class="perf-disk perf-adapter">
           <div class="perf-disk__head">
             <span class="perf-adapter__name" title="${fmt.escapeHtml(a.name)}">${fmt.escapeHtml(a.name)}</span>
+            <span class="perf-adapter__temp" title="GPU temperature" hidden></span>
             <span class="perf-adapter__val">${DASH}</span>
           </div>
           <div class="perf-bar" aria-hidden="true"><span class="perf-bar__fill"></span></div>
@@ -1344,12 +1631,16 @@ function renderAdapters(g) {
             <span>${fmt.escapeHtml(adapterMeta(a))}</span>
             <span class="perf-adapter__used"></span>
           </div>
+          <p class="perf-adapter__note" hidden>${NO_GPU_SENSOR}</p>
         </li>`).join('');
       adapterRows = Array.from(P.refs.adapters.children, (li, i) => ({
+        adapter: gpuInfo[i],
         luid: gpuInfo[i].luid,
         val: li.querySelector('.perf-adapter__val'),
         fill: li.querySelector('.perf-bar__fill'),
         used: li.querySelector('.perf-adapter__used'),
+        temp: li.querySelector('.perf-adapter__temp'),
+        note: li.querySelector('.perf-adapter__note'),
         last: -1,
       }));
     }
@@ -1368,6 +1659,15 @@ function renderAdapters(g) {
       row.last = frac;
     }
     setText(row.used, load && load.dedicatedUsed != null ? `${fmt.bytes(load.dedicatedUsed)} in use` : '');
+    // Temperature beside the load; a card with no library Orbit can read says so once.
+    const s = sensorFor(snap, row.adapter);
+    const c = s && typeof s.temp === 'number' ? s.temp : null;
+    setHidden(row.temp, c == null);
+    if (c != null) {
+      setText(row.temp, temp(c));
+      setLevel(row.temp, tempLevel('gpu', c));
+    }
+    setHidden(row.note, !!s || sensorSnaps < SENSOR_SETTLE);
   }
 }
 

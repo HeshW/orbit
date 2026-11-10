@@ -42,6 +42,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   boostAuto: false,
   boostPause: false,
   boostPower: true,
+  // v0.7 Performance temperatures: 'c' or 'f' (readings stay °C, only the text changes)
+  tempUnit: 'c',
 });
 
 function sanitize(raw) {
@@ -54,6 +56,7 @@ function sanitize(raw) {
   if (typeof raw.compact === 'boolean') s.compact = raw.compact;
   if (typeof raw.reducedMotion === 'boolean') s.reducedMotion = raw.reducedMotion;
   if (GROUPINGS.includes(raw.grouping)) s.grouping = raw.grouping;
+  if (raw.tempUnit === 'c' || raw.tempUnit === 'f') s.tempUnit = raw.tempUnit;
   if (typeof raw.alwaysOnTop === 'boolean') s.alwaysOnTop = raw.alwaysOnTop;
   if (typeof raw.autoUpdate === 'boolean') s.autoUpdate = raw.autoUpdate;
   for (const k of ['showTray', 'closeToTray', 'startWithWindows', 'startMinimized', 'hotkeyEnabled', 'historyEnabled', 'boostAuto', 'boostPause', 'boostPower']) {

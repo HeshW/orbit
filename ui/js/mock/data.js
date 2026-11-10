@@ -9,6 +9,7 @@
 // battery is null, as on most desktops).
 
 import { ADAPTERS } from './gpu.js';
+import { sensorsFor } from './sensors.js';
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const round2 = (v) => Math.round(v * 100) / 100;
@@ -92,6 +93,9 @@ export function decorateSnapshot(snap, admin = false) {
       secondsLeft: battery.charging ? null : Math.round(pctLeft * 108),
     };
   }
+
+  // v0.7: temperatures, fan, power and clocks (mock/sensors.js).
+  snap.sensors = sensorsFor(snap);
 
   // Same text as mock/network.js per_app_network_status.
   if (snap.network) snap.network.perApp = admin ? { ...AVAILABLE } : { ...UNAVAILABLE };

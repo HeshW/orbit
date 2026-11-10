@@ -34,6 +34,10 @@ pub struct Snapshot {
     pub gpu_engines: Vec<GpuEngine>,
     /// `None` on a PC without a battery.
     pub battery: Option<BatteryStats>,
+    /// CPU and GPU temperatures, fan, power and clocks (sensors.rs, 0.7).
+    /// `{ cpu: null, gpus: [] }` when no source reports them.
+    #[serde(default)]
+    pub sensors: crate::sensors::Sensors,
     pub processes: Vec<ProcessRow>,
 }
 
@@ -289,6 +293,7 @@ pub struct SnapshotDelta<'a> {
     pub disks: &'a [DiskActivity],
     pub gpu_engines: &'a [GpuEngine],
     pub battery: Option<&'a BatteryStats>,
+    pub sensors: &'a crate::sensors::Sensors,
     pub added: Vec<&'a ProcessRow>,
     pub removed: Vec<u32>,
     pub rows: Vec<DynRow<'a>>,

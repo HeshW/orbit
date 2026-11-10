@@ -845,6 +845,7 @@ mod tests {
             disks: vec![],
             gpu_engines: vec![],
             battery: None,
+            sensors: Default::default(),
             processes,
         }
     }

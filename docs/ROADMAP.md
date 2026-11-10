@@ -593,6 +593,16 @@ WinRing0 as a vulnerable driver, and a bad driver can crash the PC.
 **Risks:** wrong numbers. Show where each reading comes from, and hide a sensor rather than
 show a made-up value.
 
+**Done (0.7):** the CPU and GPU tiles show the temperature beside the load (normal / warm /
+hot: CPU 80 / 90 °C, GPU 80 / 87 °C), and the CPU and GPU panes have a Sensors block (60-second
+graph, peak, per-core temperatures and clocks, package power, fan, power and limit, clocks, and
+the source). GPU: NVIDIA through NVML loaded at run time, matched to its DXGI adapter by PCI
+address; AMD and Intel say "Temperature not available on this GPU" (no vendor library yet).
+CPU: routes 1 (LibreHardwareMonitor / OpenHardwareMonitor WMI, HWiNFO shared memory) and 2
+(ACPI, elevated, only once it moves, marked approximate); without them a one-line hint links to
+HWiNFO and LibreHardwareMonitor. Route 3 not taken: no driver of any kind. Settings > Display
+has °C / °F. Details in `docs/features/sensors.md`.
+
 ### Order
 
 1. **Animated logo (9a):** small and self-contained.

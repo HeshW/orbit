@@ -511,6 +511,12 @@ impl Wmi {
     }
 
     pub(crate) fn query(&self, wql: &str) -> windows::core::Result<Vec<IWbemClassObject>> {
+        // 10 s per row is plenty; a hung provider then ends the list.
+        self.query_timeout(wql, 10_000)
+    }
+
+    /// `query` with its own wait per row (ms); sensors.rs reads every second.
+    pub(crate) fn query_timeout(&self, wql: &str, row_ms: i32) -> windows::core::Result<Vec<IWbemClassObject>> {
         let rows = unsafe {
             self.svc.ExecQuery(
                 &BSTR::from("WQL"),
@@ -523,8 +529,7 @@ impl Wmi {
         loop {
             let mut objs = [None];
             let mut returned = 0u32;
-            // 10 s per row is plenty; a hung provider then ends the list.
-            let hr = unsafe { rows.Next(10_000, &mut objs, &mut returned) };
+            let hr = unsafe { rows.Next(row_ms, &mut objs, &mut returned) };
             if returned == 0 {
                 hr.ok()?;
                 break;

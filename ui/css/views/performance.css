@@ -925,6 +925,129 @@
   .perf-readout__value { font-size: 26px; }
 }
 
+/* ---------------------------------------------------------------- temperatures (0.7) */
+
+/* Levels from js/temps.js (TEMP_LIMITS): normal, warm, hot. */
+.perf .temp--normal { color: var(--ok); }
+.perf .temp--warm { color: var(--warn); }
+.perf .temp--hot { color: var(--danger); }
+
+.perf-tile__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.perf-tile__line .perf-tile__value { flex: 0 1 auto; min-width: 0; }
+
+.perf-tile__temp {
+  flex: none;
+  font: 500 12px/1.25 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.perf-sensors__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px 24px;
+  min-width: 0;
+}
+
+@container perf-detail (min-width: 640px) {
+  .perf-sensors__body { grid-template-columns: minmax(130px, 170px) minmax(0, 1fr); }
+  .perf-sensors__facts,
+  .perf-sensors__cores { grid-column: 1 / -1; }
+}
+
+.perf-sensors__now {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.perf-sensors__temp {
+  font: 500 34px/1 var(--font-display);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.perf-sensors__label {
+  font: 500 11px/1.3 var(--font-display);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.perf-sensors__cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 6px;
+}
+
+.perf-sensor-core {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+}
+
+.perf-sensor-core__name {
+  font: 500 10.5px/1.2 var(--font-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-sensor-core__temp {
+  font: 500 13px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.perf-sensor-core__clock {
+  grid-column: 1 / -1;
+  font: 400 11.5px/1.3 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.perf-sensor-core__clock:empty { display: none; }
+
+.perf-adapter__temp {
+  flex: none;
+  font: 500 12.5px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.perf-adapter__note {
+  margin: 0;
+  font: 400 12px/1.35 var(--font-body);
+  color: var(--muted);
+}
+
+.perf-link {
+  color: var(--cyan-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.perf-link:hover { color: var(--ink); }
+
 /* ---------------------------------------------------------------- narrow window */
 
 @container perf-view (max-width: 860px) {
@@ -948,6 +1071,7 @@
   .perf-tile__name { letter-spacing: 0.1em; }
   .perf-tile__tag { margin-left: 0.4em; letter-spacing: 0.04em; }
   .perf-tile__value { font-size: 15px; }
+  .perf-tile__line { gap: 6px; }
 }
 
 /* ---------------------------------------------------------------- reduced motion */
