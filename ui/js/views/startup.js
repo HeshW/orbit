@@ -584,6 +584,7 @@ function renderTabs() {
   }
   els.appsPane.hidden = tab !== 'apps';
   els.arPane.hidden = tab === 'apps';
+  if (tab !== 'apps') els.arPane.setAttribute('aria-labelledby', `ar-tab-${tab}`);
   els.stats.hidden = tab !== 'apps';
 }
 
@@ -882,7 +883,7 @@ export function mount(rootEl) {
       </div>
     </div>
     </div>
-    <div class="ar-pane" id="ar-pane-auto" role="tabpanel" data-pane="auto" hidden>
+    <div class="ar-pane" id="ar-pane-auto" role="tabpanel" aria-labelledby="ar-tab-tasks" data-pane="auto" hidden>
       <div class="toolbar lv-toolbar">
         <p class="ar-help" data-ar-help></p>
         <span class="micro lv-count" data-ar-count aria-live="polite"></span>

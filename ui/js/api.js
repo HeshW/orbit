@@ -501,7 +501,7 @@ const mock = (() => {
       netRxBps: null,
       netTxBps: null,
     };
-    return mockRegistry.decorateRow(row, p);
+    return mockRegistry.decorateRow(row, p, state.isAdmin);
   }
 
   function sample() {
@@ -622,7 +622,7 @@ const mock = (() => {
       battery: null,
       processes: rows,
     };
-    mockRegistry.decorateSnapshot(snap);
+    mockRegistry.decorateSnapshot(snap, state.isAdmin);
     state.last = snap;
     return snap;
   }

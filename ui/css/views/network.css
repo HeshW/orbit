@@ -349,11 +349,50 @@
 }
 
 @media (max-width: 1180px) {
+  /* Side by side keeps the table on screen in short windows. */
+  .net-top {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .net-table .c-proc { width: 16%; }
+  .net-table .c-pid { width: 64px; }
+  .net-table .c-proto { width: 96px; padding: 0 6px; }
+  .net-table .c-state { width: 110px; }
+  .net-table .c-actions { width: 120px; }
+  .net-table td.c-actions { padding: 0 4px; }
+  .net-table .net-actions { gap: 0; }
+}
+
+/* Narrow windows: the PID column goes (it stays in the process name's tooltip and the
+   details drawer) so a full IPv4:port and every header fit. */
+@media (max-width: 1040px) {
+  .net-table .c-proc { width: 14%; }
+  .net-table .c-pid { display: none; }
+  .net-table .c-state { width: 100px; }
+  .net-table .c-actions { width: 104px; }
+  .net-table .net-actions .lv-more { width: 24px; height: 24px; }
+  .net-table .c-local,
+  .net-table .c-remote,
+  .net-table td.c-state { padding: 0 6px; }
+}
+
+/* Stack the two panels only when there is height to spare. */
+@media (max-width: 1180px) and (min-height: 821px) {
   .net-top {
     grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .net-table .c-proc { width: 20%; }
-  .net-table .c-state { width: 118px; }
+/* A long Find port result must not push the table off a short window. */
+@media (max-height: 700px) {
+  .net-hits { max-height: 88px; }
+}
+
+/* Short windows: the table keeps about 8 rows and the view scrolls to it, instead of the
+   table being cut off below the fold. */
+@media (max-height: 760px) {
+  .view--fill.is-active:has(> .net) { overflow-y: auto; }
+  .net { flex: 1 0 auto; min-height: auto; }
+  .net .lv-table-panel { flex: 1 0 300px; min-height: 0; }
 }
 

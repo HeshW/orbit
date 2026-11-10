@@ -131,11 +131,14 @@ function keyOf(c) {
   return `${c.protocol}|${c.family}|${c.localAddress}|${c.localPort}|${c.remoteAddress}|${c.remotePort}|${c.pid}`;
 }
 
-/** The port number in "3000", ":3000", "port 3000", "localhost:3000"; null if empty, NaN if not a port. */
+/**
+ * The port number in "3000", ":3000", "port 3000", "localhost:3000", "[::1]:3000";
+ * null if empty, NaN if not a port (a bare address such as "127.0.0.1" is not one).
+ */
 function parsePort(s) {
   const t = String(s || '').trim();
   if (!t) return null;
-  const m = t.match(/(\d{1,6})\s*$/);
+  const m = t.match(/^(?:port\s+|\[[^\]]*\]:|[^:\s[\]]*:)?(\d{1,6})$/i);
   if (!m) return NaN;
   const n = Number(m[1]);
   return n >= 1 && n <= 65535 ? n : NaN;
@@ -435,26 +438,43 @@ function renderApps() {
   }
   els.apps.classList.remove('is-off');
   const top = topTalkers();
-  const sig = `on|${top.map((r) => `${r.pid}:${Math.round(r.rx)}:${Math.round(r.tx)}:${icons.get(r.exe) ? 1 : 0}`).join(',')}`;
-  if (sig === lastAppsSig) return;
+  const max = Math.max(...top.map((r) => r.rx + r.tx), 1);
+  const width = (r) => Math.max(2, Math.round(((r.rx + r.tx) / max) * 100));
+  // Rebuild only when the list itself changes; rates and bars update in place, so a
+  // focused or half-clicked name button survives the next snapshot.
+  const sig = `on|${top.map((r) => `${r.pid}:${r.name}:${icons.get(r.exe) ? 1 : 0}`).join(',')}`;
+  if (sig === lastAppsSig) {
+    for (const r of top) {
+      const li = els.appsBody.querySelector(`li[data-pid="${r.pid}"]`);
+      if (!li) continue;
+      const bar = li.querySelector('.net-talker-bar > span');
+      if (bar) bar.style.width = `${width(r)}%`;
+      const nums = li.querySelectorAll('.net-rate .lv-num');
+      if (nums[0]) nums[0].textContent = rate(r.rx);
+      if (nums[1]) nums[1].textContent = rate(r.tx);
+    }
+    return;
+  }
   lastAppsSig = sig;
+  const active = document.activeElement;
+  const focusPid = active && els.appsBody.contains(active) ? active.dataset.talker : undefined;
   if (!top.length) {
     els.appsBody.innerHTML = '<p class="net-find-hint">No app is sending or receiving right now.</p>';
     return;
   }
-  const max = Math.max(...top.map((r) => r.rx + r.tx), 1);
-  els.appsBody.innerHTML = `<ol class="net-talkers">${top.map((r) => {
-    const w = Math.max(2, Math.round(((r.rx + r.tx) / max) * 100));
-    return `<li class="net-talker">
+  els.appsBody.innerHTML = `<ol class="net-talkers">${top.map((r) => `<li class="net-talker" data-pid="${r.pid}">
       ${iconCell(r.exe)}
       <div class="net-talker-main">
         <span class="net-talker-name"><button type="button" class="lv-link" data-talker="${r.pid}" title="Details for ${text(r.name)}">${text(r.name)}</button><span class="lv-faint lv-num">${r.pid}</span></span>
-        <span class="net-talker-bar" aria-hidden="true"><span style="width:${w}%"></span></span>
+        <span class="net-talker-bar" aria-hidden="true"><span style="width:${width(r)}%"></span></span>
       </div>
       <span class="net-rate" title="Download">${icon('i-arrow-down')}<span class="lv-num">${rate(r.rx)}</span></span>
       <span class="net-rate" title="Upload">${icon('i-arrow-up')}<span class="lv-num">${rate(r.tx)}</span></span>
-    </li>`;
-  }).join('')}</ol>`;
+    </li>`).join('')}</ol>`;
+  if (focusPid !== undefined) {
+    const again = els.appsBody.querySelector(`[data-talker="${focusPid}"]`);
+    if (again) again.focus({ preventScroll: true });
+  }
 }
 
 // ------------------------------------------------------------------ render: table
@@ -483,7 +503,7 @@ function rowHtml(c, i, procs, hitPort, own) {
   const copyWhat = c.remoteAddress ? 'remote' : 'local';
   const fam = c.family === 'ipv6' ? '<span class="net-fam">v6</span>' : '';
   return `<tr class="row net-row${hit ? ' is-hit' : ''}${row ? '' : ' is-dim'}" data-i="${i}">
-    <td class="c-proc"><div class="lv-namecell">${iconCell(row && row.exe)}<span class="lv-primary" title="${text(row && row.exe ? row.exe : name)}">${text(name)}</span></div></td>
+    <td class="c-proc"><div class="lv-namecell">${iconCell(row && row.exe)}<span class="lv-primary" title="${text(`${row && row.exe ? row.exe : name} (PID ${c.pid})`)}">${text(name)}</span></div></td>
     <td class="c-pid cell-num"><span class="lv-num">${c.pid}</span></td>
     <td class="c-proto"><span class="net-proto">${c.protocol.toUpperCase()}</span>${fam}</td>
     <td class="c-local">${addrCell(c.localAddress, c.localPort, c.family, hit)}</td>

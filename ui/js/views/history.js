@@ -296,6 +296,7 @@ function renderControls() {
   els.days.max = String(max);
   if (document.activeElement !== els.days) els.days.value = String(customDays());
   els.daysMax.textContent = `of ${max}`;
+  if (document.activeElement !== els.keepDays) els.keepDays.value = String(max);
 
   const enabled = store.settings.historyEnabled !== false;
   els.recSwitch.setAttribute('aria-checked', enabled ? 'true' : 'false');
@@ -350,7 +351,7 @@ function renderTable() {
   if (!list.length) {
     els.tbody.innerHTML = '';
     const q = (store.query || '').trim();
-    if (rows.length) showEmpty(`No apps match ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“${q}ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â.`, 'Clear the search to see every app.');
+    if (rows.length) showEmpty(`No apps match “${q}”.`, 'Clear the search to see every app.');
     else if (store.settings.historyEnabled === false) {
       showEmpty('Recording is off.', `Nothing was recorded ${rangeText()}. Turn on Record app history to start.`, { id: 'enable', label: 'Turn on recording' });
     } else showEmpty(`Nothing recorded ${rangeText()} yet.`, 'Orbit adds up what each app uses while it runs. Leave it open for a while, then look again.');
@@ -401,6 +402,13 @@ function applyCustomDays() {
   const v = Number.isFinite(n) && n >= 1 ? Math.min(maxDays(), n) : customDays();
   els.days.value = String(v);
   setSettings({ historyCustomDays: v });
+}
+
+function applyKeepDays() {
+  const n = Math.round(Number(els.keepDays.value));
+  const v = Number.isFinite(n) && n >= 1 ? Math.min(90, n) : maxDays();
+  els.keepDays.value = String(v);
+  setSettings({ historyDays: v });
 }
 
 // ------------------------------------------------------------------ palette
@@ -463,6 +471,10 @@ export function mount(rootEl) {
         <span>days</span>
         <span class="micro hist-days-max"></span>
       </label>
+      <label class="hist-custom">
+        <span>Days of history</span>
+        <input class="input hist-days" type="number" min="1" max="90" step="1" inputmode="numeric" data-keep-days>
+      </label>
       <span class="lv-toolbar-spacer"></span>
       <span class="micro lv-count" data-count aria-live="polite"></span>
       <div class="hist-rec">
@@ -504,6 +516,7 @@ export function mount(rootEl) {
   els.custom = root.querySelector('.hist-custom');
   els.days = root.querySelector('.hist-days');
   els.daysMax = root.querySelector('.hist-days-max');
+  els.keepDays = root.querySelector('[data-keep-days]');
   els.recSwitch = root.querySelector('[data-rec]');
   els.note = root.querySelector('.hist-note');
   els.noteText = root.querySelector('[data-note-text]');
@@ -523,6 +536,13 @@ export function mount(rootEl) {
     if (e.key === 'Enter') {
       e.preventDefault();
       applyCustomDays();
+    }
+  });
+  els.keepDays.addEventListener('change', applyKeepDays);
+  els.keepDays.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyKeepDays();
     }
   });
   els.recSwitch.addEventListener('click', () => setRecording(store.settings.historyEnabled === false));

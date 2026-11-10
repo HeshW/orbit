@@ -153,9 +153,15 @@
 }
 
 @media (max-width: 1180px) {
-  .ar-table .c-trig { width: 150px; }
-  .ar-table .c-pub { width: 160px; }
+  .ar-table .c-name { width: 20%; }
+  .ar-table .c-trig { width: 130px; }
+  .ar-table .c-pub { width: 130px; }
   .ar-table .c-start { width: 120px; }
+}
+
+/* Scheduled tasks need the room for Command; Publisher stays on the other tabs. */
+@media (max-width: 1040px) {
+  .ar-table--tasks .c-pub { display: none; }
 }
 
 /* ------------------------------------------------------------ logon */

@@ -218,6 +218,7 @@ function rowHtml(f, i) {
     <td class="c-name"><div class="lv-namecell">${iconCell(f.exe)}<div class="sec-namebox">
       <span class="lv-primary" title="${name}">${name}</span>
       ${f.exe ? `<span class="lv-mono sec-path" title="${text(f.exe)}">${text(f.exe)}</span>` : ''}
+      <span class="sec-pub--inline">${publisherCell(f)}</span>
     </div></div></td>
     <td class="c-pid cell-num">${pid}</td>
     <td class="c-pub">${publisherCell(f)}</td>

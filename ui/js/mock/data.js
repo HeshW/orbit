@@ -22,20 +22,34 @@ const SESSION_1_CSRSS_PARENT = 4 * 131;
 
 const battery = { percent: 84, charging: false };
 
-/** Fill the v0.4 ProcessRow fields of a mock row. */
-export function decorateRow(row) {
+// Elevated per-app network: base receive/send rates (bytes/s) for the few apps that
+// talk; every other process reads 0, as ETW reports.
+const TALKERS = { 'chrome.exe': [180000, 24000], 'Discord.exe': [42000, 9000], 'steam.exe': [260000, 6000] };
+const AVAILABLE = { available: true, reason: null };
+const UNAVAILABLE = { available: false, reason: 'Needs administrator rights. Use Run as admin.' };
+
+// Each process gets its own share of the base rate and drifts a little around it, so the
+// Top apps order stays mostly steady between snapshots, as on a real PC.
+function drift(base, pid) {
+  const share = 0.3 + ((Number(pid) || 0) % 13) / 13;
+  return Math.max(0, Math.round(base * share * (0.92 + Math.random() * 0.16)));
+}
+
+/** Fill the v0.4 ProcessRow fields of a mock row. `admin` is the mock's elevation. */
+export function decorateRow(row, _p, admin = false) {
   const session1 = SESSION_1_USERS.test(row.user || '')
     || row.name === 'winlogon.exe'
     || (row.name === 'csrss.exe' && row.parentPid === SESSION_1_CSRSS_PARENT);
   row.sessionId = session1 ? 1 : 0;
   // Per-app network needs administrator rights (ETW): null in the unelevated preview.
-  row.netRxBps = null;
-  row.netTxBps = null;
+  const talk = admin ? TALKERS[row.name] : null;
+  row.netRxBps = admin ? (talk ? drift(talk[0], row.pid) : 0) : null;
+  row.netTxBps = admin ? (talk ? drift(talk[1], row.pid) : 0) : null;
   return row;
 }
 
 /** Fill the v0.4 Snapshot fields: per-disk activity, GPU engines, battery, per-app status. */
-export function decorateSnapshot(snap) {
+export function decorateSnapshot(snap, admin = false) {
   const disk = snap.disk || {};
   const read = disk.readBps || 0;
   const write = disk.writeBps || 0;
@@ -70,7 +84,8 @@ export function decorateSnapshot(snap) {
     };
   }
 
-  if (snap.network) snap.network.perApp = { available: false, reason: 'Needs administrator rights. Use Run as admin.' };
+  // Same text as mock/network.js per_app_network_status.
+  if (snap.network) snap.network.perApp = admin ? { ...AVAILABLE } : { ...UNAVAILABLE };
   return snap;
 }
 

@@ -1,6 +1,8 @@
 // What's new: the five newest GitHub releases, fetched in the visitor's browser.
-// Release notes are markdown from release.yml: "- " lines become list items, other lines
-// paragraphs, **bold** stays bold. Everything else is shown as plain text.
+// Only the change list is shown, not the installer text release.yml adds after it: the part
+// between "<!-- notes -->" and "<!-- /notes -->" when the body has those markers, otherwise
+// just its "- " lines. "- " lines become list items, other lines paragraphs, **bold** stays
+// bold. Everything else is shown as plain text.
 (function () {
   var API = 'https://api.github.com/repos/HeshW/orbit/releases?per_page=5';
   var RELEASES = 'https://github.com/HeshW/orbit/releases';
@@ -17,6 +19,17 @@
     return esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   }
 
+  function changes(body) {
+    var text = String(body || '');
+    var start = text.indexOf('<!-- notes -->');
+    if (start >= 0) {
+      text = text.slice(start + '<!-- notes -->'.length);
+      var end = text.indexOf('<!-- /notes -->');
+      return end >= 0 ? text.slice(0, end) : text;
+    }
+    return text.split(/\r?\n/).filter(function (line) { return /^\s*[-*]\s+/.test(line); }).join('\n');
+  }
+
   function notes(body) {
     var out = [];
     var items = [];
@@ -24,7 +37,7 @@
       if (items.length) out.push('<ul>' + items.join('') + '</ul>');
       items = [];
     }
-    String(body || '').split(/\r?\n/).forEach(function (raw) {
+    changes(body).split(/\r?\n/).forEach(function (raw) {
       var line = raw.trim();
       var m = /^[-*]\s+(.*)$/.exec(line);
       if (m) { items.push('<li>' + inline(m[1]) + '</li>'); return; }

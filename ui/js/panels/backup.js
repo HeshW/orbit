@@ -10,6 +10,7 @@
 import { call } from '../api.js';
 import { store, setSettings } from '../store.js';
 import { toast, confirmDialog } from '../app.js';
+import { refreshShellState } from '../shell.js';
 
 const MAX_FILE_BYTES = 512 * 1024;
 const THEMES = ['night', 'void', 'signal', 'daylight'];
@@ -230,6 +231,29 @@ async function importFile(file) {
   if (!ok) return;
   const patch = {};
   for (const c of changes) for (const k of c.keys) patch[k] = result.patch[k];
+  // Start with Windows lives in the registry, so it goes through set_autostart like the
+  // Behavior switch; only a value Windows accepted is kept in settings.
+  let applied = n;
+  let note = '';
+  const sw = patch.startWithWindows;
+  delete patch.startWithWindows;
   setSettings(patch);
-  toast(n === 1 ? 'Imported 1 setting.' : `Imported ${n} settings.`, 'success');
+  if (sw !== undefined) {
+    const isAdmin = Boolean(store.staticInfo && store.staticInfo.isAdmin);
+    if (sw && isAdmin) {
+      applied--;
+      note = ' Start with Windows was not imported: Orbit is running as administrator. Open it normally to turn this on.';
+    } else {
+      try {
+        await call('set_autostart', { enabled: sw });
+        setSettings({ startWithWindows: sw });
+      } catch (err) {
+        applied--;
+        toast(`Couldn't change Start with Windows: ${errText(err)}`, 'error');
+      }
+      await refreshShellState();
+    }
+  }
+  if (applied) toast(`${applied === 1 ? 'Imported 1 setting.' : `Imported ${applied} settings.`}${note}`, 'success');
+  else if (note) toast(note.trim(), 'info');
 }

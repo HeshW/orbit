@@ -110,9 +110,19 @@
   color: var(--ok);
 }
 
+/* Below 1240px the publisher moves under the name to give the reasons room. */
+.sec-pub--inline {
+  display: none;
+}
+
 @media (max-width: 1240px) {
-  .sec-table .c-pub { width: 13%; }
+  .sec-table .c-pub { display: none; }
+  .sec-table .c-pid { width: 64px; }
   .sec-table .c-sev { width: 84px; }
+  .sec-table .c-actions { width: 120px; }
+  .sec-table td.c-actions { padding-left: 4px; padding-right: 4px; }
+  .sec-table .sec-actions { gap: 0; }
+  .sec-pub--inline { display: block; }
 }
 
 /* ============================================================ details drawer: signature */
