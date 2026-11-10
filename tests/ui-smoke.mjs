@@ -164,7 +164,7 @@ async function sensorsTheme(page) {
   const cpu = await page.locator('#perf-pane-cpu .perf-sensors').innerText();
   if (!/From LibreHardwareMonitor/.test(cpu) || !/PACKAGE POWER/i.test(cpu) || !/AVERAGE CLOCK/i.test(cpu)) throw new Error(`CPU Sensors block: ${cpu.replace(/\s+/g, ' ')}`);
   const cells = await page.locator('#perf-pane-cpu .perf-sensor-core').allInnerTexts();
-  if (cells.length !== 6 || !cells.every((t) => /Core \d[\s\S]*\d+°C[\s\S]*GHz/i.test(t))) throw new Error(`per-core cells: ${cells.join(' | ').replace(/\s+/g, ' ')}`);
+  if (cells.length !== 4 || !cells.every((t) => /Core \d[\s\S]*\d+°C[\s\S]*GHz/i.test(t))) throw new Error(`per-core cells: ${cells.join(' | ').replace(/\s+/g, ' ')}`);
   await page.click('#view-performance .perf-tile--gpu');
   await page.waitForSelector('#perf-pane-gpu [data-ref="sensBody"]:not([hidden])', { timeout: WAIT }).catch(() => {
     throw new Error('GPU Sensors block is hidden');

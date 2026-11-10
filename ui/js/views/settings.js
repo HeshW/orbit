@@ -519,7 +519,7 @@ export function mount(rootEl) {
   els.seg = root.querySelector('[data-seg="interval"]');
   els.grouping = root.querySelector('[data-grouping]');
   els.tempUnit = root.querySelector('[data-temp-unit]');
-  els.live =root.querySelector('[data-live]');
+  els.live = root.querySelector('[data-live]');
   els.liveText = root.querySelector('[data-live-text]');
   els.motionHelp = root.querySelector('[data-motion-help]');
   els.watch = root.querySelector('[data-watch]');

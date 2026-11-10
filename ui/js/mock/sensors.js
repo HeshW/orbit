@@ -1,8 +1,8 @@
 // Orbit / mock/sensors: Snapshot.sensors for the browser preview (sensors.rs, docs/CONTRACT.md
-// "v0.7"). The CPU reads like LibreHardwareMonitor on a 6-core chip (package, six cores, power
-// and clocks); the NVIDIA card has every NVML sensor; the Intel card has no library Orbit can
-// read, so it is not in the list (as on a real PC). Temperatures follow the load, so a busy
-// mock PC turns warm.
+// "v0.7"). The CPU reads like LibreHardwareMonitor on the mock's 4-core i7-7700K (package,
+// four cores, power and clocks); the NVIDIA card has every NVML sensor; the Intel card has no
+// library Orbit can read, so it is not in the list (as on a real PC). Temperatures follow the
+// load, so a busy mock PC turns warm.
 // URL flags: ?nocputemp (no tool running: cpu is null), ?hot (CPU and GPU past the hot
 // thresholds), ?nogpu (no GPU sensors either).
 
@@ -12,7 +12,7 @@ const params = typeof location !== 'undefined' ? new URLSearchParams(location.se
 const NO_CPU = !!params && params.has('nocputemp');
 const NO_GPU = !!params && params.has('nogpu');
 const HOT = !!params && params.has('hot');
-const CORES = 6;
+const CORES = 4; // physical cores, as get_static_info reports (api.js PHYSICAL)
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const r1 = (v) => Math.round(v * 10) / 10;
