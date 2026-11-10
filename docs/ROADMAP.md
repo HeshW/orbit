@@ -12,6 +12,7 @@
 | 6 | v1 gaps | Per-process network done (#3). The rest are Windows limits, unchanged. |
 | 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
+| 9 | **0.7 list** | Planned: animated logo in the sidebar, CPU and GPU temperatures. See section 9. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -542,3 +543,53 @@ tasks are offered only when on the reviewed list. See `docs/features/debloat.md`
 3. **Motion (8d):** a UI pass across all views.
 4. **Defender scan (8e).**
 5. **Guided debloat (8f):** last, it needs the most care.
+
+---
+
+## 9. Next release (planned for 0.7)
+
+The owner's list after 0.6.0. Planning only; API names are **(unverified)** until built.
+
+### 9a. Animated logo in the sidebar — S
+
+- The pixel L from the logo kit, in the empty space under Settings.
+- It assembles block by block when Orbit opens, then the cyan signal pixel pulses slowly.
+- Optional: the pulse speeds up with CPU load, so it doubles as a live signal.
+- Follows the **Animations** switch and the Windows setting. Stops while Orbit is hidden in the tray.
+- CSS and SVG only, no image files.
+
+### 9b. CPU and GPU temperatures in Performance — M–L
+
+**What it does.** Live temperatures on the CPU and GPU cards and panes, with a 60-second
+graph, the peak in the window, and a warning colour when hot. A compact sensor panel in the
+spirit of Quick CPU: per-core temps where available, package temp, GPU hot spot, fan speed
+and power draw where the hardware reports them.
+
+**GPU (the easy part).**
+- NVIDIA: NVML (`nvml.dll`, installed with the driver): temperature, fan, power, clocks. No admin.
+- AMD: ADLX. Intel: the Intel graphics control library.
+- No supported library: show no temperature rather than a guess.
+
+**CPU (the hard part).** Windows has no official API for CPU temperature. Apps like Quick CPU,
+HWiNFO and LibreHardwareMonitor read it from the processor through their own kernel driver.
+The options, safest first:
+1. **Read it from a tool that's already running.** LibreHardwareMonitor and HWiNFO can share
+   their sensors (WMI or shared memory). Orbit reads them if present. No driver, no admin.
+2. **The ACPI thermal zone** (`MSAcpi_ThermalZoneTemperature`): needs admin, and on many
+   desktops it's the motherboard's zone, not the CPU, or never changes. Shown as
+   "approximate" only if it actually moves.
+3. **A signed sensor driver** (for example PawnIO, which newer LibreHardwareMonitor uses):
+   only an existing, signed, maintained one, installed by the user, never bundled silently.
+
+**Not doing:** shipping WinRing0 or any unsigned or old driver. Windows Defender blocks
+WinRing0 as a vulnerable driver, and a bad driver can crash the PC.
+
+**Admin:** GPU, no. CPU depends on the route (1: no, 2: yes, 3: the driver install only).
+**Risks:** wrong numbers. Show where each reading comes from, and hide a sensor rather than
+show a made-up value.
+
+### Order
+
+1. **Animated logo (9a):** small and self-contained.
+2. **GPU temperatures (9b, GPU part).**
+3. **CPU temperatures (9b, CPU part):** route 1 first, then decide on 2 and 3.
