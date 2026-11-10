@@ -874,6 +874,26 @@ DebloatUndoAllResult { undone: DebloatChange[], failed: { id, name, error }[],
   every group; a removed app's Undo counts as reinstalled on the next list). `mock/health.js`
   mirrors the Health link. `tests/ui-smoke.mjs` "debloat".
 
+**v0.7**
+- Sidebar logo (9a, UI only, details in `docs/features/logo.md`). No new commands, events or
+  settings; it follows `settings.reducedMotion`, `prefers-reduced-motion` and `document.hidden`
+  through `motion.js` `motionOn()`.
+- DOM: in `#sidebar` between `.nav-list` and `#mini-readout`, `.sidebar-logo-slot` (flex 1 1 0,
+  `container-type: size`, margin-top -12px) holding `button#sidebar-logo.sidebar-logo`
+  (`aria-label="LegacyTech"`, 76px, margin-top 12px; starts with `.is-assembling`): an `svg.lt-ring` (gradient
+  `#lt-ring-fade`) and `span.lt-mark` with seven `.lt-px` (sixth `.lt-px--blue`, seventh
+  `.lt-px--cyan` holding `.lt-sig`). `@container (max-height: 100px)` hides the button. Click:
+  `navigate('settings')` and scroll `.lv-about` into view.
+- Tokens (`tokens.css`, every theme): `--logo-ink`, `--logo-blue`, `--logo-cyan` (logo kit
+  color-dark in Night, Void, Signal; color-light in Daylight).
+- CSS animations: `lt-assemble` (`.is-assembling .lt-px`, stagger `--lt-i` x 110ms),
+  `lt-ring-in`, `lt-pulse` (`.is-pulsing .lt-sig`, 3.2 s, 1.1 s delay, infinite).
+- `js/logo.js` exports `initLogo()` (called in `boot()` after the settings listener; toggles
+  `.is-pulsing`, drops `.is-assembling` after 1.5 s), `logoTick(snap)` (called from
+  `handleSnapshot` while the window shows; sets the `lt-pulse` animation's playbackRate) and
+  `pulseRate(cpu)` (1 at 0% to 3 at 100%, 0.25 steps).
+- `tests/ui-smoke.mjs` "<theme>: logo" and "logo".
+
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`
   (masks are decimal u64 strings, bit n = CPU n; JS uses BigInt). `StartupEntry` gains

@@ -4,6 +4,7 @@ import { isTauri, call, onSnapshot, win } from './api.js';
 import { store, on, emit, setSettings, setQuery, pushSnapshot, applyDelta, isDelta, isPidPinned } from './store.js';
 import { pct, bytes, escapeHtml } from './format.js';
 import { enterView, countIn } from './motion.js';
+import { initLogo, logoTick } from './logo.js';
 
 export const views = {};
 
@@ -837,6 +838,7 @@ function handleSnapshot(payload) {
   if (!document.hidden) {
     updateMini(snap);
     beatSignal();
+    logoTick(snap);
   }
   checkWatchlist(snap);
 }
@@ -944,6 +946,14 @@ function wireSidebar() {
   });
   const mini = $('mini-readout');
   if (mini) mini.addEventListener('click', () => navigate('performance'));
+  // The LegacyTech mark opens Settings at About.
+  const logo = $('sidebar-logo');
+  if (logo) {
+    logo.addEventListener('click', () => {
+      navigate('settings');
+      document.querySelector('#view-settings .lv-about')?.scrollIntoView({ block: 'start' });
+    });
+  }
 }
 
 function syncMaxIcon() {
@@ -1109,6 +1119,7 @@ async function boot() {
     applySampling();
     applyAlwaysOnTop();
   });
+  initLogo(); // after the settings listener above, so it sees html.reduce-motion already set
   // Hidden (minimised): snapshots still update the store, but the titlebar readout waits.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && store.snapshot) updateMini(store.snapshot);

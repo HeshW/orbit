@@ -558,6 +558,11 @@ The owner's list after 0.6.0. Planning only; API names are **(unverified)** unti
 - Follows the **Animations** switch and the Windows setting. Stops while Orbit is hidden in the tray.
 - CSS and SVG only, no image files.
 
+**Done (0.7):** the mark sits in a thin ring between the nav and the Live / System card and is
+left out when the window is too short for it. Blocks assemble in about a second; the cyan
+pixel pulses every 3.2 s at idle, up to about once a second at 100% CPU. Clicking it opens
+Settings at About. Details in `docs/features/logo.md`.
+
 ### 9b. CPU and GPU temperatures in Performance — M–L
 
 **What it does.** Live temperatures on the CPU and GPU cards and panes, with a 60-second

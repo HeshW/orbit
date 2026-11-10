@@ -436,6 +436,156 @@ async function motion(page) {
   if (!animOff(s)) throw new Error(`motion still on under prefers-reduced-motion: ${JSON.stringify(s)}`);
 }
 
+// LegacyTech mark in the sidebar (0.7, 9a): drawn in the logo kit's colours for the theme
+// (color-dark in Night, Void and Signal, color-light in Daylight), between the nav and the
+// Live / System card without touching either.
+const LOGO_COLOURS = {
+  dark: ['rgb(242, 245, 255)', 'rgb(79, 140, 255)', 'rgb(56, 213, 240)'],
+  light: ['rgb(10, 15, 31)', 'rgb(47, 111, 235)', 'rgb(11, 141, 184)'],
+};
+
+async function logoTheme(page, theme) {
+  const s = await page.evaluate(() => {
+    const logo = document.getElementById('sidebar-logo');
+    if (!logo) return null;
+    const bg = (sel) => getComputedStyle(logo.querySelector(sel)).backgroundColor;
+    const r = logo.getBoundingClientRect();
+    const nav = [...document.querySelectorAll('#sidebar .nav-item')].pop().getBoundingClientRect();
+    const foot = document.getElementById('mini-readout').getBoundingClientRect();
+    return {
+      label: logo.getAttribute('aria-label'),
+      shown: logo.getClientRects().length > 0,
+      blocks: logo.querySelectorAll('.lt-px').length,
+      colours: [bg('.lt-px'), bg('.lt-px--blue'), bg('.lt-sig')],
+      clear: r.top >= nav.bottom && r.bottom <= foot.top,
+    };
+  });
+  if (!s) throw new Error('no #sidebar-logo');
+  if (s.label !== 'LegacyTech') throw new Error(`logo label is "${s.label}"`);
+  if (!s.shown || s.blocks !== 7) throw new Error(`logo not drawn at 900px high (${s.blocks} blocks)`);
+  if (!s.clear) throw new Error('logo overlaps the nav or the Live / System card');
+  const want = LOGO_COLOURS[theme === 'daylight' ? 'light' : 'dark'];
+  if (s.colours.join('|') !== want.join('|')) throw new Error(`logo colours ${s.colours.join(', ')}, want ${want.join(', ')}`);
+}
+
+// The mark's motion: the cyan pixel pulses while animations are allowed and the window shows,
+// faster with CPU load; nothing animates with the switch off, under prefers-reduced-motion or
+// while hidden. A short window hides it; a click opens Settings at About; Tab moves past it.
+async function logoState(page) {
+  return page.evaluate(() => {
+    const logo = document.getElementById('sidebar-logo');
+    return {
+      pulsing: logo.classList.contains('is-pulsing'),
+      anims: logo.getAnimations({ subtree: true }).map((a) => a.animationName),
+      dim: [...logo.querySelectorAll('.lt-px, .lt-sig')].filter((el) => getComputedStyle(el).opacity !== '1').length,
+    };
+  });
+}
+
+const logoStill = (s) => !s.pulsing && !s.anims.length && !s.dim;
+
+async function logo(page) {
+  await showView(page, 'processes');
+  await page.waitForFunction(() => document.getElementById('sidebar-logo')?.getAnimations({ subtree: true })
+    .some((a) => a.animationName === 'lt-pulse'), null, { timeout: WAIT }).catch(() => {
+    throw new Error('the signal pixel does not pulse with animations on');
+  });
+  if ((await logoState(page)).anims.includes('lt-assemble')) throw new Error('assembly still running long after start');
+
+  // CPU load sets the pulse rate (updates paused so the mock's ticks do not race).
+  const rates = await page.evaluate(async () => {
+    const { setSettings } = await import('/js/store.js');
+    const { logoTick, pulseRate } = await import('/js/logo.js');
+    setSettings({ paused: true });
+    const anim = document.querySelector('#sidebar-logo .lt-sig').getAnimations()[0];
+    const at = async (usage) => {
+      logoTick({ cpu: { usage } });
+      await anim.ready;
+      return anim.playbackRate;
+    };
+    const out = [await at(100), await at(0), await at(50), pulseRate(0), pulseRate(100)];
+    setSettings({ paused: false });
+    return out;
+  });
+  if (rates.join(',') !== '3,1,2,1,3') throw new Error(`pulse rates at 100/0/50% CPU: ${rates.join(', ')}`);
+
+  // Window hidden (tray, minimised): no animation at all; back again when shown.
+  const hidden = await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    const el = document.getElementById('sidebar-logo');
+    const s = { pulsing: el.classList.contains('is-pulsing'), anims: el.getAnimations({ subtree: true }).length };
+    delete document.hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+    s.back = el.classList.contains('is-pulsing');
+    return s;
+  });
+  if (hidden.pulsing || hidden.anims || !hidden.back) throw new Error(`hidden window: ${JSON.stringify(hidden)}`);
+
+  // Animations switch off, then Windows' setting: the finished mark, nothing moving.
+  const sw = '#view-settings [data-switch="reducedMotion"]';
+  await showView(page, 'settings');
+  await page.click(sw);
+  await page.waitForFunction(() => document.documentElement.classList.contains('reduce-motion'), null, { timeout: WAIT });
+  let s = await logoState(page);
+  await page.click(sw);
+  await page.waitForFunction(() => !document.documentElement.classList.contains('reduce-motion'), null, { timeout: WAIT });
+  if (!logoStill(s)) throw new Error(`logo animates with Animations off: ${JSON.stringify(s)}`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // The media query's change event lands on the next frame.
+  await page.waitForFunction(() => !document.getElementById('sidebar-logo').classList.contains('is-pulsing'), null, { timeout: WAIT }).catch(() => {});
+  s = await logoState(page);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  if (!logoStill(s)) throw new Error(`logo animates under prefers-reduced-motion: ${JSON.stringify(s)}`);
+
+  // A fresh start with the switch off: no assembly either.
+  const fresh = await page.context().newPage();
+  try {
+    await fresh.addInitScript(() => {
+      const saved = JSON.parse(localStorage.getItem('orbit.settings') || '{}') || {};
+      localStorage.setItem('orbit.settings', JSON.stringify({ ...saved, reducedMotion: true }));
+    });
+    await fresh.goto(page.url(), { waitUntil: 'load' });
+    await fresh.waitForSelector('#view-processes.is-active, .view.is-active', { timeout: WAIT });
+    s = await logoState(fresh);
+    if (!logoStill(s)) throw new Error(`logo animates at start with Animations off: ${JSON.stringify(s)}`);
+  } finally {
+    await fresh.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('orbit.settings') || '{}') || {};
+      localStorage.setItem('orbit.settings', JSON.stringify({ ...saved, reducedMotion: false }));
+    }).catch(() => {});
+    await fresh.close();
+  }
+
+  // Too short for it: not drawn (so not focusable either); the card sits right under the nav.
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: size.width, height: 620 });
+  const short = await page.evaluate(() => {
+    const nav = [...document.querySelectorAll('#sidebar .nav-item')].pop().getBoundingClientRect();
+    const foot = document.getElementById('mini-readout').getBoundingClientRect();
+    return { shown: document.getElementById('sidebar-logo').getClientRects().length > 0, gap: Math.round(foot.top - nav.bottom) };
+  });
+  await page.setViewportSize(size);
+  if (short.shown) throw new Error('logo still drawn in a 620px window');
+  if (short.gap !== 12) throw new Error(`card is ${short.gap}px under the nav in a short window, want 12`);
+
+  // Click: Settings at About. Keyboard: Tab goes on to the Live / System card.
+  await showView(page, 'processes');
+  await page.click('#sidebar-logo');
+  await page.waitForSelector('#view-settings.is-active', { timeout: WAIT }).catch(() => {
+    throw new Error('clicking the logo does not open Settings');
+  });
+  const about = await page.evaluate(() => {
+    const r = document.querySelector('#view-settings .lv-about').getBoundingClientRect();
+    const m = document.getElementById('main').getBoundingClientRect();
+    return r.top < m.bottom && r.bottom > m.top;
+  });
+  if (!about) throw new Error('clicking the logo does not show About');
+  await page.focus('#sidebar-logo');
+  await page.keyboard.press('Tab');
+  if (await page.evaluate(() => document.activeElement?.id) !== 'mini-readout') throw new Error('Tab from the logo does not reach the Live / System card');
+}
+
 async function setTheme(page, theme) {
   await showView(page, 'settings');
   await page.click(`#view-settings .lv-theme[data-pick="${theme}"]`);
@@ -494,6 +644,7 @@ try {
 
   for (const theme of THEMES) {
     await check(`${theme}: theme`, () => setTheme(page, theme));
+    await check(`${theme}: logo`, () => logoTheme(page, theme));
     for (const view of VIEWS) {
       await check(`${theme}: ${view}`, () => showView(page, view));
     }
@@ -507,6 +658,7 @@ try {
   await check('debloat', () => debloat(page));
   await check('my rig', () => myRig(page));
   await check('motion', () => motion(page));
+  await check('logo', () => logo(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
   step = 'idle';
   await page.waitForTimeout(1500);
@@ -521,4 +673,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, no console errors.`);

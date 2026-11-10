@@ -307,6 +307,26 @@
       </button>
     </div>
 
+    <!-- LegacyTech mark (roadmap 0.7, 9a): fills the free space under Settings, hidden when
+         there is none. Blocks assemble once (.is-assembling), then logo.js pulses the cyan pixel. -->
+    <div class="sidebar-logo-slot">
+      <button type="button" class="sidebar-logo is-assembling" id="sidebar-logo" aria-label="LegacyTech" title="About Orbit">
+        <svg class="lt-ring" viewBox="0 0 76 76" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="lt-ring-fade" x1="0.15" y1="0" x2="0.85" y2="1">
+              <stop offset="0" class="lt-ring-stop"/>
+              <stop offset="1" class="lt-ring-stop lt-ring-stop--end"/>
+            </linearGradient>
+          </defs>
+          <circle cx="38" cy="38" r="37.5" fill="none" stroke="url(#lt-ring-fade)" stroke-width="1"/>
+        </svg>
+        <span class="lt-mark" aria-hidden="true">
+          <span class="lt-px"></span><span class="lt-px"></span><span class="lt-px"></span><span class="lt-px"></span>
+          <span class="lt-px"></span><span class="lt-px lt-px--blue"></span><span class="lt-px lt-px--cyan"><span class="lt-sig"></span></span>
+        </span>
+      </button>
+    </div>
+
     <button type="button" class="sidebar-foot" id="mini-readout" title="Open Performance">
       <span class="micro">Live / System</span>
       <span class="mini-meter">

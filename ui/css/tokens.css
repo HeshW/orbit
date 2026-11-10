@@ -84,6 +84,11 @@
   --blue-soft: #8db4ff;
   --edge: #d6e6ff;
 
+  /* LegacyTech mark (logo kit, color-dark); never recoloured per theme */
+  --logo-ink: #f2f5ff;
+  --logo-blue: #4f8cff;
+  --logo-cyan: #38d5f0;
+
   --line: rgba(141, 180, 255, 0.12);
   --line-soft: rgba(141, 180, 255, 0.07);
   --line-strong: rgba(141, 180, 255, 0.26);
@@ -138,6 +143,11 @@
   --blue-soft: #8db4ff;
   --edge: #d6e6ff;
 
+  /* LegacyTech mark (logo kit, color-dark); never recoloured per theme */
+  --logo-ink: #f2f5ff;
+  --logo-blue: #4f8cff;
+  --logo-cyan: #38d5f0;
+
   --line: rgba(141, 180, 255, 0.11);
   --line-soft: rgba(141, 180, 255, 0.06);
   --line-strong: rgba(141, 180, 255, 0.24);
@@ -191,6 +201,11 @@
   --blue-soft: #adc9ff;
   --edge: #ffffff;
 
+  /* LegacyTech mark (logo kit, color-dark); never recoloured per theme */
+  --logo-ink: #f2f5ff;
+  --logo-blue: #4f8cff;
+  --logo-cyan: #38d5f0;
+
   --line: rgba(190, 215, 255, 0.42);
   --line-soft: rgba(190, 215, 255, 0.26);
   --line-strong: rgba(214, 230, 255, 0.72);
@@ -243,6 +258,11 @@
   --cyan-ink: #08739a;
   --blue-soft: #2a5fd0;
   --edge: #ffffff;
+
+  /* LegacyTech mark (logo kit, color-light) */
+  --logo-ink: #0a0f1f;
+  --logo-blue: #2f6feb;
+  --logo-cyan: #0b8db8;
 
   --line: rgba(10, 15, 31, 0.11);
   --line-soft: rgba(10, 15, 31, 0.065);
