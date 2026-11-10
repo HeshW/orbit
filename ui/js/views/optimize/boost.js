@@ -190,7 +190,10 @@ function heroHtml() {
     const what = [];
     if (s.boostApps.length) what.push(`${s.boostPause ? 'pauses' : 'lowers'} ${plural(s.boostApps.length, 'app')} on your list${s.boostPause ? '' : ' to Below normal'}`);
     if (s.boostPower && p.target && p.current?.guid !== p.target.guid) what.push(`switches to ${p.target.name}`);
-    const line = what.length ? `Boost ${what.join(' and ')}.` : 'Add apps below, or leave the power plan switch on, so Boost has something to do.';
+    const planNote = s.boostPower && p.target && p.current?.guid === p.target.guid ? ` The power plan is already ${p.target.name}.` : '';
+    const line = what.length ? `Boost ${what.join(' and ')}.`
+      : s.boostPower ? `Add apps below so Boost has something to do.${planNote}`
+      : 'Add apps below, or turn on the power plan switch, so Boost has something to do.';
     const auto = s.boostAuto && s.boostGames.length ? `<p class="bo-line">${icon('i-play')}Turns on by itself when ${text(s.boostGames.slice(0, 3).join(', '))}${s.boostGames.length > 3 ? ' or another listed game' : ''} starts.</p>` : '';
     const last = st.lastRestore ? `<p class="bo-line bo-line--muted">Last turned off at ${text(time(st.lastRestore.at))}: ${text(restoreLine(st.lastRestore))}</p>` : '';
     return `<div class="bo-hero-mark" aria-hidden="true">${icon('i-bolt')}</div>
