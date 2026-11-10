@@ -36,10 +36,16 @@ const DEFAULT_SETTINGS = Object.freeze({
   historyCustomDays: 14,
   watchlist: [],
   watchNames: [],
+  // v0.5 Optimize > Boost (sent to Rust with boost_configure; docs/features/boost.md)
+  boostGames: [],
+  boostApps: [],
+  boostAuto: false,
+  boostPause: false,
+  boostPower: true,
 });
 
 function sanitize(raw) {
-  const s = { ...DEFAULT_SETTINGS, watchlist: [], watchNames: [] };
+  const s = { ...DEFAULT_SETTINGS, watchlist: [], watchNames: [], boostGames: [], boostApps: [] };
   if (!raw || typeof raw !== 'object') return s;
   if (THEMES.includes(raw.theme)) s.theme = raw.theme;
   const iv = Number(raw.intervalMs);
@@ -50,7 +56,7 @@ function sanitize(raw) {
   if (GROUPINGS.includes(raw.grouping)) s.grouping = raw.grouping;
   if (typeof raw.alwaysOnTop === 'boolean') s.alwaysOnTop = raw.alwaysOnTop;
   if (typeof raw.autoUpdate === 'boolean') s.autoUpdate = raw.autoUpdate;
-  for (const k of ['showTray', 'closeToTray', 'startWithWindows', 'startMinimized', 'hotkeyEnabled', 'historyEnabled']) {
+  for (const k of ['showTray', 'closeToTray', 'startWithWindows', 'startMinimized', 'hotkeyEnabled', 'historyEnabled', 'boostAuto', 'boostPause', 'boostPower']) {
     if (typeof raw[k] === 'boolean') s[k] = raw[k];
   }
   const days = Number(raw.historyDays);
@@ -72,6 +78,11 @@ function sanitize(raw) {
   }
   if (Array.isArray(raw.watchNames)) {
     s.watchNames = [...new Set(raw.watchNames.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim()))];
+  }
+  for (const k of ['boostGames', 'boostApps']) {
+    if (!Array.isArray(raw[k])) continue;
+    const seen = new Set();
+    s[k] = raw[k].filter((n) => typeof n === 'string' && n.trim() && !seen.has(n.trim().toLowerCase()) && seen.add(n.trim().toLowerCase())).map((n) => n.trim()).slice(0, 64);
   }
   // Keep any extra keys other modules store, as long as they are plain JSON values.
   for (const [k, v] of Object.entries(raw)) {

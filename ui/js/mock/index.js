@@ -18,8 +18,9 @@ import tools from './tools.js';
 import shell from './shell.js';
 import health from './health.js';
 import cleanup from './cleanup.js';
+import boost from './boost.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

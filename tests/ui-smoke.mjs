@@ -98,6 +98,10 @@ async function optimizeTabs(page) {
   await page.waitForSelector('#op-pane-cleanup .cl-cat', { timeout: WAIT }).catch(() => {
     throw new Error('Optimize > Cleanup shows no categories');
   });
+  await page.click('#view-optimize .op-tabs [data-tab="boost"]');
+  await page.waitForFunction(() => /Boost is (off|on)/.test(document.querySelector('#op-pane-boost .bo-state')?.textContent || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('Optimize > Boost shows no status');
+  });
   await page.click('#view-optimize .op-tabs [data-tab="health"]');
   await page.waitForSelector('#op-pane-health .hl-item', { timeout: WAIT }).catch(() => {
     throw new Error('Optimize > Health shows no checks');

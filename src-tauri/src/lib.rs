@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod autoruns;
+pub mod boost;
 pub mod cleanup;
 pub mod health;
 pub mod history;
@@ -114,9 +115,18 @@ pub fn run() {
             cleanup::cleanup_cancel,
             cleanup::cleanup_drives,
             cleanup::cleanup_folder_sizes,
+            // optimize: boost (v0.5)
+            boost::boost_status,
+            boost::boost_configure,
+            boost::boost_start,
+            boost::boost_stop,
+            boost::boost_suggestions,
+            boost::boost_pick_exe,
         ])
         .setup(|app| {
             history::init(app.handle());
+            // Before the sampler: restores a boost a crash left on.
+            boost::init(app.handle());
             sampler::start(app.handle().clone());
             shell::setup(app.handle());
             if let Some(window) = app.get_webview_window("main") {
@@ -136,12 +146,14 @@ pub fn run() {
 }
 
 /// What has to happen before the process goes: save the shell prefs and
-/// take the tray icon down, wake whatever Orbit suspended, stop the network
+/// take the tray icon down, undo Boost (priorities, paused apps, power plan),
+/// wake whatever Orbit suspended, stop the network
 /// trace session (it outlives the process otherwise) and write pending app
 /// history. Runs on RunEvent::Exit and right before an update's installer
 /// ends the process (no RunEvent::Exit then). Every step is safe to repeat.
 pub(crate) fn exit_cleanup(app: &AppHandle) {
     shell::on_exit(app);
+    boost::on_exit(app);
     actions::resume_all(app);
     network::shutdown();
     history::flush();

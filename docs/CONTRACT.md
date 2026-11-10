@@ -472,7 +472,7 @@ What the code has beyond the sections above. These are part of the contract now.
   Security, Settings; keys 1-9), new snapshot fields, commands, settings keys, palette
   and mock registries: see `docs/V04-CONTRACT.md`, including its "Integration notes".
 
-**v0.5: Optimize view (health report, startup suggestions, disk cleanup; boost, drivers to come)**
+**v0.5: Optimize view (health report, startup suggestions, disk cleanup, game boost; drivers to come)**
 - Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
   Security and Settings. It has no number key: `app.js` keeps keys 1-9 on the 0.4 views
   (`KEY_VIEWS` = `VIEW_NAMES` without `'optimize'`). The palette "Go to" group lists it, and the
@@ -485,7 +485,7 @@ What the code has beyond the sections above. These are part of the contract now.
   count). CSS: `css/views/optimize.css` (frame, `op-`, shared `.op-soon` placeholder card) and
   `css/views/optimize/<id>.css` per sub-tab (prefixes `hl-`, `sg-`, `cl-`, `bo-`, `dr-`),
   all linked in `index.html`. Backend: one module per sub-tab (`health.rs` now; `cleanup.rs`,
-  `boost.rs`, `drivers.rs` later), registered in `lib.rs`. To add a sub-tab, see
+  `boost.rs` now; `drivers.rs` later), registered in `lib.rs`. To add a sub-tab, see
   `docs/features/health.md` "Adding a sub-tab".
 - Commands (`health.rs`):
 
@@ -563,6 +563,50 @@ Progress { job: "scan"|"clean"|"folders", label: string, step: number, steps: nu
 - `api.js`: `onEvent(name, cb)` subscribes to any backend event and returns an unsubscribe
   function. Mock modules get `ctx.emit(name, payload)` to reach it. New mock module
   `mock/cleanup.js`.
+- Boost (7d, `boost.rs`, details in `docs/features/boost.md`). Lowers the listed apps to Below
+  normal (or pauses them) and switches to Ultimate / High performance; turning off restores
+  each process's priority, resumes what it paused and restores the plan. The "before" state is
+  saved to `boost-state.json` before any change and restored on the next start after a crash
+  (`boost::init` in setup) and on exit (`boost::on_exit` in `exit_cleanup`). Auto mode runs from
+  the sampler (`boost::on_snapshot` after each tick). The tray tooltip adds " · Boost on".
+
+| command | args | returns |
+|---|---|---|
+| `boost_status` | – | `Result<BoostStatus, String>` (async) |
+| `boost_configure` | `config: BoostConfig` | `Result<BoostStatus, String>` (async; saved to `boost-config.json`, used from the next boost) |
+| `boost_start` | – | `Result<BoostStatus, String>` (async; no-op when already on) |
+| `boost_stop` | – | `Result<BoostStatus, String>` (async; an auto boost stopped by hand stays off until the games exit) |
+| `boost_suggestions` | – | `Result<Suggestion[], String>` (async; from the latest snapshot) |
+| `boost_pick_exe` | – | `Result<string\|null, String>` (async; Windows file picker for an .exe, null when cancelled) |
+
+```ts
+BoostConfig { games: string[] /*exe names*/, apps: string[], auto: boolean, pause: boolean,
+  power: boolean /*default true*/ }   // names: file name only, case kept, matched ignoring case
+BoostStatus { active: boolean, reason: "manual"|"auto"|null, trigger: string|null /*game*/,
+  since: number|null, config: BoostConfig, power: PowerStatus, changed: Changed[],
+  skipped: ProcNote[], runningGames: string[], lastRestore: RestoreReport|null,
+  recovered: RestoreReport|null /*this start undid a boost a crash left on*/ }
+PowerStatus { current: Plan|null, target: Plan|null /*Ultimate, else High performance*/,
+  before: Plan|null /*while on, the plan to restore*/, note: string|null }
+Plan { guid: string /*lowercase, hyphenated*/, name: string }
+Changed { pid: number, name: string, action: "lowered"|"paused", before: string|null /*priority*/ }
+ProcNote { pid: number, name: string, reason: string }
+RestoreReport { at: number, restored: number, exited: number, leftAlone: number /*user changed
+  the priority during Boost*/, failed: ProcNote[], power: "none"|"restored"|"left"|"failed",
+  powerNote: string|null }
+Suggestion { name: string, exe: string|null, cpu: number, memory: number, count: number,
+  hasWindow: boolean }
+// event orbit://boost: BoostStatus (on/off, config change, running games change)
+```
+- `store.js` settings: `boostGames: string[]`, `boostApps: string[]`, `boostAuto` (false),
+  `boostPause` (false), `boostPower` (true). The Boost tab sends them with `boost_configure`
+  when it mounts and on every change. `ORBIT_BOOST_DIR` overrides the folder (tests).
+- `actions.rs`: `guard_pid`, `verify_identity`, `refuse_critical_suspend`, `priority_name`,
+  `filetime_to_unix`, `lock_suspended`, `describe`, `describe_ntstatus`, `EXITED` and the
+  `NtSuspendProcess` / `NtResumeProcess` imports are now `pub(crate)` for `boost.rs`.
+  Processes Boost pauses are added to `SuspendedSet`, so the Processes view shows them.
+- New mock module `mock/boost.js` (uses the built-in `set_priority` / `suspend_process`).
+- `tests/ui-smoke.mjs` checks that Boost shows its status.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

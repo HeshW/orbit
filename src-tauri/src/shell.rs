@@ -463,11 +463,14 @@ fn tooltip_text(app: &AppHandle) -> String {
             };
             (s.cpu.usage, mem)
         });
-    format_tooltip(numbers, shell().paused.load(Ordering::Relaxed))
+    format_tooltip(numbers, shell().paused.load(Ordering::Relaxed), crate::boost::is_active())
 }
 
-fn format_tooltip(numbers: Option<(f64, f64)>, paused: bool) -> String {
+fn format_tooltip(numbers: Option<(f64, f64)>, paused: bool, boost: bool) -> String {
     let mut out = String::from("Orbit");
+    if boost {
+        out.push_str(" · Boost on");
+    }
     if paused {
         out.push_str(" · Paused");
     }
@@ -940,9 +943,10 @@ mod tests {
 
     #[test]
     fn tooltip_text() {
-        assert_eq!(format_tooltip(Some((23.4, 61.2)), false), "Orbit · CPU 23% · Memory 61%");
-        assert_eq!(format_tooltip(Some((0.0, 100.4)), true), "Orbit · Paused · CPU 0% · Memory 100%");
-        assert_eq!(format_tooltip(None, false), "Orbit");
+        assert_eq!(format_tooltip(Some((23.4, 61.2)), false, false), "Orbit · CPU 23% · Memory 61%");
+        assert_eq!(format_tooltip(Some((0.0, 100.4)), true, false), "Orbit · Paused · CPU 0% · Memory 100%");
+        assert_eq!(format_tooltip(None, false, false), "Orbit");
+        assert_eq!(format_tooltip(Some((5.0, 40.0)), false, true), "Orbit · Boost on · CPU 5% · Memory 40%");
     }
 
     #[test]

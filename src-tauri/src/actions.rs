@@ -59,7 +59,7 @@ use crate::sampler::{join_command_line, AppState};
 use crate::winenum::ImagePaths;
 
 const ACCESS_DENIED: &str = "Access denied. Try Restart as administrator.";
-const EXITED: &str = "That process has exited.";
+pub(crate) const EXITED: &str = "That process has exited.";
 const PART_OF_ORBIT: &str = "That process is part of Orbit.";
 const UNVERIFIED: &str = "Could not confirm which process that is. Refresh and try again.";
 
@@ -107,8 +107,8 @@ const WINDOWS_CRITICAL: &[&str] = &[
 // are declared here.
 #[link(name = "ntdll")]
 extern "system" {
-    fn NtSuspendProcess(process_handle: HANDLE) -> i32;
-    fn NtResumeProcess(process_handle: HANDLE) -> i32;
+    pub(crate) fn NtSuspendProcess(process_handle: HANDLE) -> i32;
+    pub(crate) fn NtResumeProcess(process_handle: HANDLE) -> i32;
     fn NtQueryInformationProcess(
         process_handle: HANDLE,
         class: u32,
@@ -143,7 +143,7 @@ fn win32_hresult(code: u32) -> HRESULT {
 }
 
 /// Turns a Windows error into a short, human message.
-fn describe(err: &windows::core::Error, action: &str) -> String {
+pub(crate) fn describe(err: &windows::core::Error, action: &str) -> String {
     let code = err.code();
     if code == win32_hresult(ERROR_ACCESS_DENIED.0) {
         return ACCESS_DENIED.to_string();
@@ -160,7 +160,7 @@ fn describe(err: &windows::core::Error, action: &str) -> String {
     }
 }
 
-fn describe_ntstatus(status: i32, action: &str) -> String {
+pub(crate) fn describe_ntstatus(status: i32, action: &str) -> String {
     match status {
         STATUS_ACCESS_DENIED => ACCESS_DENIED.to_string(),
         STATUS_PROCESS_IS_TERMINATING => EXITED.to_string(),
@@ -175,7 +175,7 @@ fn is_protected(pid: u32) -> bool {
 /// Refuses actions on the idle process, the System process, Orbit itself
 /// and Orbit's own helpers (its WebView2 processes). Resuming stays allowed
 /// for Orbit's helpers, so one that got suspended somehow can be woken.
-fn guard_pid(pid: u32, verb: &str) -> Result<(), String> {
+pub(crate) fn guard_pid(pid: u32, verb: &str) -> Result<(), String> {
     if pid == 0 {
         return Err(format!(
             "The System Idle Process only counts unused CPU time, so it can't be {verb}."
@@ -213,7 +213,7 @@ fn wide_to_string(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..end])
 }
 
-fn lock_suspended(set: &SuspendedSet) -> std::sync::MutexGuard<'_, HashMap<u32, u64>> {
+pub(crate) fn lock_suspended(set: &SuspendedSet) -> std::sync::MutexGuard<'_, HashMap<u32, u64>> {
     set.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
@@ -278,7 +278,7 @@ pub(crate) fn handle_creation_filetime(handle: HANDLE) -> Option<u64> {
 
 /// FILETIME ticks to Unix seconds, the same conversion sysinfo uses for
 /// `ProcessRow::start_time`.
-fn filetime_to_unix(ticks: u64) -> u64 {
+pub(crate) fn filetime_to_unix(ticks: u64) -> u64 {
     (ticks / 10_000_000).saturating_sub(11_644_473_600)
 }
 
@@ -350,7 +350,7 @@ fn orbit_subtree() -> HashSet<u32> {
 /// seconds, as the UI saw it in the snapshot). `None` or 0 (unknown) skips
 /// the check. A different start time means the pid now belongs to another
 /// process, so the original one has exited.
-fn verify_identity(handle: HANDLE, expected: Option<u64>) -> Result<(), String> {
+pub(crate) fn verify_identity(handle: HANDLE, expected: Option<u64>) -> Result<(), String> {
     let Some(expected) = expected.filter(|&t| t != 0) else {
         return Ok(());
     };
@@ -510,7 +510,7 @@ fn has_exited(pid: u32) -> bool {
 
 /// Exit state read from the handle itself; `None` if the handle lacks the
 /// query right.
-fn handle_has_exited(handle: HANDLE) -> Option<bool> {
+pub(crate) fn handle_has_exited(handle: HANDLE) -> Option<bool> {
     let mut code = 0u32;
     unsafe { GetExitCodeProcess(handle, &mut code) }.ok()?;
     Some(code != STILL_ACTIVE)
@@ -730,7 +730,7 @@ fn is_critical_process(handle: HANDLE) -> bool {
 /// Refuses to suspend processes the desktop needs: suspending one leaves no
 /// way to click Resume. Names only match Windows' own copies in System32.
 /// Without a handle only the names are checked.
-fn refuse_critical_suspend(pid: u32, handle: Option<HANDLE>) -> Result<(), String> {
+pub(crate) fn refuse_critical_suspend(pid: u32, handle: Option<HANDLE>) -> Result<(), String> {
     let name = toolhelp_name(pid).or_else(|| handle.and_then(image_file_name));
     if let Some(name) = system_image_name(DESKTOP_CRITICAL, pid, handle, name.clone()) {
         return Err(format!(
@@ -850,7 +850,7 @@ pub fn resume_all(app: &AppHandle) {
 // Priority
 // ---------------------------------------------------------------------------
 
-fn priority_name(class: u32) -> Option<&'static str> {
+pub(crate) fn priority_name(class: u32) -> Option<&'static str> {
     match class {
         c if c == IDLE_PRIORITY_CLASS.0 => Some("idle"),
         c if c == BELOW_NORMAL_PRIORITY_CLASS.0 => Some("belowNormal"),

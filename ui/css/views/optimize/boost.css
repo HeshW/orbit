@@ -1,3 +1,354 @@
-/* Orbit / optimize/boost.css: Optimize > Boost (feature 7d).
-   Used by ui/js/views/optimize/boost.js. Prefix new classes with bo-. Until the
-   feature is built the tab shows the shared .op-soon card from optimize.css. */
+/* Orbit / optimize/boost.css: Optimize > Boost (feature 7d), game and focus boost.
+   Used by ui/js/views/optimize/boost.js. Prefix: bo-. */
+
+#op-pane-boost {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+#op-pane-boost[hidden] {
+  display: none;
+}
+
+.bo-toolbar {
+  margin-bottom: 0;
+}
+
+.bo-lede {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ hero */
+
+.bo-hero {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  padding: 18px 20px;
+  border-radius: var(--radius-pass);
+}
+
+.bo-hero.is-on {
+  border-color: color-mix(in srgb, var(--cyan) 45%, transparent);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--bg-raised));
+}
+
+.bo-hero-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-tile);
+  color: var(--muted);
+}
+
+.bo-hero-mark .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.bo-hero-mark.is-on {
+  border-color: color-mix(in srgb, var(--cyan) 55%, transparent);
+  color: var(--cyan-ink);
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
+}
+
+.bo-hero-text {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bo-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.bo-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.bo-line .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  color: var(--cyan-ink);
+}
+
+.bo-line--muted {
+  color: var(--muted);
+}
+
+.bo-go {
+  flex: none;
+  align-self: center;
+}
+
+.bo-did-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.bo-did-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.bo-did-list li > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bo-did {
+  margin-left: auto;
+  color: var(--ink-2);
+}
+
+.bo-skipped {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bo-skipped summary {
+  cursor: pointer;
+}
+
+.bo-skipped ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  margin: 6px 0 0;
+  padding: 0 0 0 14px;
+  overflow: auto;
+}
+
+.bo-recovered {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--warn) 8%, var(--bg-raised));
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.bo-recovered[hidden] {
+  display: none;
+}
+
+.bo-recovered > .icon {
+  flex: none;
+  color: var(--warn);
+}
+
+.bo-recovered p {
+  flex: 1;
+  margin: 0;
+}
+
+.bo-active-note {
+  margin: -6px 0 0 4px;
+}
+
+/* ------------------------------------------------------------ panels */
+
+.bo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.bo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bo-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bo-panel-title {
+  flex: 1;
+  margin: 0;
+}
+
+.bo-field--wrap {
+  flex-wrap: wrap;
+}
+
+.bo-panel-head + .bo-field {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.bo-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.bo-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bo-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 3px 3px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.bo-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bo-remove {
+  width: 22px;
+  height: 22px;
+}
+
+.bo-remove .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.bo-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bo-add-select {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.bo-sub-title {
+  margin: 10px 0 6px;
+}
+
+.bo-suggest-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bo-suggest-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 72px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+
+.bo-suggest-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.bo-suggest-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.bo-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.bo-warn[hidden] {
+  display: none;
+}
+
+.bo-warn .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--warn);
+}
+
+@media (max-width: 560px) {
+  .bo-suggest-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .bo-suggest-num {
+    display: none;
+  }
+}
