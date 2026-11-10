@@ -528,6 +528,12 @@ pre {
   height: 5px;
   background: var(--cyan);
   box-shadow: 0 0 8px color-mix(in srgb, var(--cyan) 70%, transparent);
+  animation: orbit-dot-in var(--dur-2) var(--ease);
+}
+
+/* The active marker slides in from the left and settles once per switch. */
+@keyframes orbit-dot-in {
+  from { opacity: 0; transform: translateX(-8px) scale(0.4); }
 }
 
 .nav-item:focus-visible {
@@ -546,10 +552,11 @@ pre {
   background: var(--panel);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 8%, transparent);
   text-align: left;
-  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+  transition: transform var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 
 .sidebar-foot:hover {
+  transform: translateY(var(--lift));
   border-color: var(--line-strong);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 10%, transparent), var(--glow);
 }
@@ -635,6 +642,18 @@ pre {
 .view.is-active {
   display: flex;
   flex-direction: column;
+}
+
+/* View entrance (motion.js enterView): the main blocks of a view fade and rise in, 70 ms
+   apart. "backwards" only: once done the block keeps no transform, and with animations
+   off the rule is dropped, so the content is always in its final place. */
+.enter-up {
+  animation: orbit-enter var(--dur-2) var(--ease) backwards;
+  animation-delay: calc(var(--enter-i, 0) * var(--stagger));
+}
+
+@keyframes orbit-enter {
+  from { opacity: 0; transform: translateY(var(--enter-y)); }
 }
 
 /* A view that runs its own internal scroller can add .view--fill. */
@@ -806,6 +825,7 @@ pre {
 }
 
 .panel--hover:hover {
+  transform: translateY(var(--lift));
   border-color: var(--line-strong);
   box-shadow: var(--shadow-soft), var(--glow);
 }
@@ -852,12 +872,28 @@ pre {
   text-transform: uppercase;
   white-space: nowrap;
   user-select: none;
+  overflow: hidden; /* clips the hover sweep to the button's shape */
   transition:
     transform var(--dur-1) var(--ease),
     box-shadow var(--dur-1) var(--ease),
     background-color var(--dur-1) var(--ease),
     border-color var(--dur-1) var(--ease),
     color var(--dur-1) var(--ease);
+}
+
+/* Hover sweep: a band of light crosses the button once, then snaps back unseen. */
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, color-mix(in srgb, var(--edge) 20%, transparent) 50%, transparent 70%);
+  transform: translateX(-101%);
+}
+
+.btn:hover:not(:disabled):not([aria-disabled="true"])::after {
+  transform: translateX(101%);
+  transition: transform var(--dur-3) var(--ease);
 }
 
 .btn .icon {
@@ -867,8 +903,13 @@ pre {
   transition: transform var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
 
+/* A trailing arrow turns to point up and out (legacytech.me buttons). */
+.btn:hover:not(:disabled):not([aria-disabled="true"]) > .icon:last-child:has(> use[href="#i-arrow-right"]) {
+  transform: rotate(-45deg);
+}
+
 .btn:hover:not(:disabled):not([aria-disabled="true"]) {
-  transform: translateY(-2px);
+  transform: translateY(var(--lift));
   border-color: color-mix(in srgb, var(--blue-soft) 55%, transparent);
   background-color: color-mix(in srgb, var(--blue) 15%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge) 18%, transparent), var(--glow);
@@ -1983,8 +2024,14 @@ html.reduce-motion *::after {
 
 /* !important: the hover lift selector (0,4,0) outranks these (0,3,1). */
 html.reduce-motion .btn:hover,
-html.reduce-motion .btn:active {
+html.reduce-motion .btn:active,
+html.reduce-motion .btn > .icon:has(> use[href="#i-arrow-right"]) {
   transform: none !important;
+}
+
+/* No sweep layer at all: nothing to paint or composite. */
+html.reduce-motion .btn::after {
+  content: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1997,7 +2044,12 @@ html.reduce-motion .btn:active {
   }
 
   .btn:hover,
-  .btn:active {
+  .btn:active,
+  .btn > .icon:has(> use[href="#i-arrow-right"]) {
     transform: none !important;
+  }
+
+  .btn::after {
+    content: none;
   }
 }

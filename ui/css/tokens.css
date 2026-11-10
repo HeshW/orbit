@@ -41,6 +41,12 @@
   --dur-2: 0.45s;
   --dur-3: 0.9s;
 
+  /* motion (legacytech.me): hover lift, view entrance rise and stagger. Reduced motion
+     sets the lift to 0 below; the animations themselves stop in app.css. */
+  --lift: -3px;
+  --enter-y: 22px;
+  --stagger: 70ms;
+
   /* layout */
   --titlebar-h: 48px;
   --sidebar-w: 208px;
@@ -273,4 +279,15 @@
 /* Compact rows */
 html.compact {
   --row-h: 26px;
+}
+
+/* Animations off (Settings > Display, or Windows asks for less motion): nothing lifts. */
+html.reduce-motion {
+  --lift: 0px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lift: 0px;
+  }
 }

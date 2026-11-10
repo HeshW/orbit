@@ -150,10 +150,10 @@ function actionItems() {
   });
   items.push({
     group: 'Actions',
-    label: s.reducedMotion ? 'Allow motion' : 'Reduce motion',
-    search: 'reduce motion animation accessibility',
+    label: s.reducedMotion ? 'Turn animations on' : 'Turn animations off',
+    search: 'animations motion reduce effects hover accessibility',
     icon: 'i-bolt',
-    hint: s.reducedMotion ? 'On' : 'Off',
+    hint: s.reducedMotion ? 'Off' : 'On',
     run: () => setSettings({ reducedMotion: !store.settings.reducedMotion }),
   });
   for (const [id, label, ic] of [['grouped', 'Group processes by type', 'i-grid'], ['tree', 'Show processes as a tree', 'i-tree'], ['flat', 'Show processes as a flat list', 'i-list']]) {

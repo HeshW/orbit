@@ -202,6 +202,84 @@ async function myRig(page) {
   });
 }
 
+// Motion: what a sample button, card and view do with Animations on, with the Settings
+// switch off, and with Windows asking for less motion. Content must end fully visible.
+async function motionState(page, view) {
+  await showView(page, view);
+  return page.evaluate(async () => {
+    const v = document.querySelector('.view.is-active');
+    const blocks = [...v.querySelectorAll('.view-head, .panel')].filter((el) => el.getClientRects().length);
+    const entering = [...v.querySelectorAll('.enter-up')].map((el) => getComputedStyle(el));
+    const btn = v.querySelector('.btn') || document.querySelector('.btn');
+    const card = document.querySelector('.panel--hover, .lv-theme');
+    const { countUp } = await import('/js/motion.js');
+    const n = document.createElement('span');
+    n.textContent = '32 GB';
+    document.body.append(n);
+    countUp(n);
+    const counting = n.textContent;
+    n.remove();
+    return {
+      lift: getComputedStyle(document.documentElement).getPropertyValue('--lift').trim(),
+      btnTransition: getComputedStyle(btn).transitionDuration,
+      sweep: getComputedStyle(btn, '::after').content,
+      cardTransition: card ? getComputedStyle(card).transitionDuration : 'none',
+      entering: entering.length,
+      enterAnim: entering.map((s) => `${s.animationName} ${s.animationDuration}`)[0] || '',
+      counting,
+      blocks: blocks.length,
+    };
+  });
+}
+
+async function settledOpacity(page) {
+  await page.waitForFunction(() => !document.querySelector('.view.is-active .enter-up'), null, { timeout: WAIT }).catch(() => {
+    throw new Error('view blocks are still mid-entrance after 8 s');
+  });
+  return page.evaluate(() => [...document.querySelectorAll('.view.is-active .view-head, .view.is-active .panel')]
+    .filter((el) => el.getClientRects().length)
+    .map((el) => getComputedStyle(el).opacity)
+    .filter((o) => o !== '1').length);
+}
+
+const animOff = (s) => /^(0s,?\s*)+$/.test(`${s.btnTransition}`) && /^(0s,?\s*)+$/.test(`${s.cardTransition}`)
+  && s.lift === '0px' && s.sweep === 'none' && s.entering === 0 && s.counting === '32 GB';
+
+async function motion(page) {
+  const sw = '#view-settings [data-switch="reducedMotion"]';
+  await showView(page, 'settings');
+  if (await page.getAttribute(sw, 'aria-checked') !== 'true') throw new Error('Animations switch is not on by default');
+  if (await page.evaluate(() => document.documentElement.classList.contains('reduce-motion'))) throw new Error('reduce-motion is set by default');
+
+  // On: buttons and cards transition, the view's blocks rise in, numbers count from zero.
+  let s = await motionState(page, 'rig');
+  if (s.lift !== '-3px') throw new Error(`--lift is "${s.lift}", want -3px`);
+  if (!/0\.25s/.test(s.btnTransition) || !/0\.25s/.test(s.cardTransition)) throw new Error(`no hover transition: button ${s.btnTransition}, card ${s.cardTransition}`);
+  if (s.sweep === 'none') throw new Error('button has no hover sweep');
+  if (!s.entering || !/^orbit-enter 0\.45s/.test(s.enterAnim)) throw new Error(`view switch did not animate: ${s.entering} blocks, "${s.enterAnim}"`);
+  if (s.counting === '32 GB') throw new Error('countUp did not start from zero');
+  const hidden = await settledOpacity(page);
+  if (hidden) throw new Error(`${hidden} block(s) not at opacity 1 after the entrance`);
+
+  // Settings switch off: every transition, lift, sweep, entrance and count-up stops.
+  await showView(page, 'settings');
+  await page.click(sw);
+  await page.waitForFunction(() => document.documentElement.classList.contains('reduce-motion'), null, { timeout: WAIT });
+  if (await page.getAttribute(sw, 'aria-checked') !== 'false') throw new Error('Animations switch did not turn off');
+  s = await motionState(page, 'rig');
+  if (!animOff(s)) throw new Error(`motion still on with Animations off: ${JSON.stringify(s)}`);
+  if (await settledOpacity(page)) throw new Error('blocks not at opacity 1 with Animations off');
+  await showView(page, 'settings');
+  await page.click(sw);
+  await page.waitForFunction(() => !document.documentElement.classList.contains('reduce-motion'), null, { timeout: WAIT });
+
+  // Windows "show animations" off does the same with the switch on.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  s = await motionState(page, 'performance');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  if (!animOff(s)) throw new Error(`motion still on under prefers-reduced-motion: ${JSON.stringify(s)}`);
+}
+
 async function setTheme(page, theme) {
   await showView(page, 'settings');
   await page.click(`#view-settings .lv-theme[data-pick="${theme}"]`);
@@ -267,6 +345,7 @@ try {
   await check('gpu adapters', () => gpuAdapters(page));
   await check('history menu', () => historyMenu(page));
   await check('my rig', () => myRig(page));
+  await check('motion', () => motion(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
   step = 'idle';
   await page.waitForTimeout(1500);
@@ -281,4 +360,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, My Rig, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, My Rig, motion on and off, no console errors.`);

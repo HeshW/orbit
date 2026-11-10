@@ -3,6 +3,7 @@
 import { isTauri, call, onSnapshot, win } from './api.js';
 import { store, on, emit, setSettings, setQuery, pushSnapshot, applyDelta, isDelta, isPidPinned } from './store.js';
 import { pct, bytes, escapeHtml } from './format.js';
+import { enterView, countIn } from './motion.js';
 
 export const views = {};
 
@@ -604,11 +605,17 @@ function initialView() {
   return 'processes';
 }
 
+const NOOP = () => {};
+const countedViews = new Set();
+let stopCount = NOOP;
+
 /** Show a view by name: one of VIEW_NAMES (processes ... settings). */
 export function navigate(view) {
   if (!VIEW_NAMES.includes(view) || view === currentView) return;
   const main = $('main');
   const prev = currentView;
+  stopCount();
+  stopCount = NOOP;
   if (prev) {
     scrollPos[prev] = main.scrollTop;
     const prevEl = $(`view-${prev}`);
@@ -635,6 +642,12 @@ export function navigate(view) {
     views[view]?.onShow?.();
   } catch (err) {
     console.error(`[orbit] ${view}.onShow failed`, err);
+  }
+  // Motion (motion.js): blocks rise in on every switch; numbers count up on the first show only.
+  enterView(el);
+  if (el && !countedViews.has(view)) {
+    countedViews.add(view);
+    stopCount = countIn(el);
   }
   try {
     localStorage.setItem(VIEW_KEY, view);

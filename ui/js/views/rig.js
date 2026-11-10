@@ -172,7 +172,7 @@ function fact(label, value) {
 
 function card(id, label, ic, body) {
   return `
-    <section class="panel rig-card rig-card--${id}" aria-labelledby="rig-h-${id}">
+    <section class="panel panel--hover rig-card rig-card--${id}" aria-labelledby="rig-h-${id}">
       <div class="rig-card__head">
         <span class="rig-card__icon">${icon(ic)}</span>
         <h2 class="micro micro--bright rig-card__label" id="rig-h-${id}">${text(label)}</h2>

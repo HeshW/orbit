@@ -154,8 +154,8 @@
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition: border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease),
-    box-shadow var(--dur-1) var(--ease);
+  transition: transform var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 
 .perf .perf-tile--cpu { --tile-accent: var(--chart-cpu); }
@@ -178,6 +178,7 @@
 }
 
 .perf .perf-tile:hover {
+  transform: translateY(var(--lift));
   border-color: var(--line-strong);
   box-shadow: var(--glow);
 }

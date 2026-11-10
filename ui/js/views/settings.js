@@ -37,6 +37,11 @@ const SHORTCUTS = [
 
 const WATCH_NOTE = 'Orbit warns when a pinned process stays above 50% CPU for 10 seconds.';
 
+const MOTION_HELP = 'Buttons and cards lift on hover, views slide in and numbers count up.';
+const MOTION_HELP_OS = 'Windows is set to show fewer animations, so Orbit keeps them off.';
+const OS_REDUCED_MOTION = () => typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 let root = null;
 const els = {};
 let visible = false;
@@ -72,8 +77,9 @@ function secs(ms) {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-function switchHtml(key, labelId) {
-  return `<button type="button" class="switch" role="switch" data-switch="${key}" aria-checked="false" aria-labelledby="${labelId}"><span class="switch-thumb" aria-hidden="true"></span></button>`;
+// invert: the switch shows the opposite of the setting (Animations on = reducedMotion false).
+function switchHtml(key, labelId, invert = false) {
+  return `<button type="button" class="switch" role="switch" data-switch="${key}"${invert ? ' data-invert' : ''} aria-checked="false" aria-labelledby="${labelId}"><span class="switch-thumb" aria-hidden="true"></span></button>`;
 }
 
 function kbd(keys, range) {
@@ -187,10 +193,10 @@ function template() {
         </div>
         <div class="lv-field">
           <div class="lv-field-text">
-            <span class="lv-label" id="set-motion-l">Reduced motion</span>
-            <span class="lv-help">Stop hover lifts, transitions and the pulsing signal.</span>
+            <span class="lv-label" id="set-motion-l">Animations</span>
+            <span class="lv-help" data-motion-help>${MOTION_HELP}</span>
           </div>
-          ${switchHtml('reducedMotion', 'set-motion-l')}
+          ${switchHtml('reducedMotion', 'set-motion-l', true)}
         </div>
         <div class="lv-field">
           <div class="lv-field-text">
@@ -297,8 +303,10 @@ function syncControls() {
   syncRadios(els.themes, 'data-pick', s.theme || 'night');
   syncRadios(els.seg, 'data-interval', s.intervalMs || 1000);
   for (const sw of root.querySelectorAll('[data-switch]')) {
-    sw.setAttribute('aria-checked', s[sw.dataset.switch] ? 'true' : 'false');
+    const on = Boolean(s[sw.dataset.switch]) !== sw.hasAttribute('data-invert');
+    sw.setAttribute('aria-checked', on ? 'true' : 'false');
   }
+  els.motionHelp.textContent = OS_REDUCED_MOTION() && !s.reducedMotion ? MOTION_HELP_OS : MOTION_HELP;
   const grouping = s.grouping || 'grouped';
   if (els.grouping.value !== grouping) els.grouping.value = grouping;
   els.liveText.textContent = s.paused ? `Paused / ${secs(s.intervalMs || 1000)}` : `Live / ${secs(s.intervalMs || 1000)}`;
@@ -500,6 +508,7 @@ export function mount(rootEl) {
   els.grouping = root.querySelector('[data-grouping]');
   els.live = root.querySelector('[data-live]');
   els.liveText = root.querySelector('[data-live-text]');
+  els.motionHelp = root.querySelector('[data-motion-help]');
   els.watch = root.querySelector('[data-watch]');
   els.watchCount = root.querySelector('[data-watch-count]');
   els.permChip = root.querySelector('[data-perm-chip]');

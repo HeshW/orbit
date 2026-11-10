@@ -726,6 +726,34 @@ WindowsSpec { edition: string|null /*"Windows 11 Pro": ProductName, fixed for bu
   `moduleText`, `specsText(specs)` (the Copy specs text). CSS `css/views/rig.css` (prefix
   `rig-`). New mock module `mock/rig.js` (`?rigfail` throws). `tests/ui-smoke.mjs` visits My Rig
   in every theme and checks the cards, Copy specs, key 0 and Ctrl+,.
+- Motion (8d, UI only, details in `docs/features/motion.md`). No new commands, events or
+  settings: the existing `settings.reducedMotion` (`html.reduce-motion`) is the one switch,
+  shown in Settings > Display as **Animations** (on = `reducedMotion: false`, the default;
+  `switchHtml(key, id, invert)` / `data-invert`). Palette: "Turn animations off / on".
+  `prefers-reduced-motion: reduce` stops the same things with the switch on.
+- Tokens (`tokens.css`): `--ease`, `--dur-1/2/3` (0.25 / 0.45 / 0.9 s) as before, plus
+  `--lift` (-3px; 0px under `.reduce-motion` and `prefers-reduced-motion`), `--enter-y` (22px),
+  `--stagger` (70ms). Hover lifts use `translateY(var(--lift))`.
+- CSS: `.btn` lifts 3px, gets an `::after` light sweep (`overflow: hidden` on `.btn`) and turns
+  a trailing `i-arrow-right` icon -45deg; `.panel--hover` (now on My Rig cards), `.perf-tile`,
+  `.lv-theme` and `.sidebar-foot` lift and glow; `.dr-link` draws its underline in (scaleX);
+  process rows fade their hover tint only; the active sidebar marker slides in
+  (`orbit-dot-in`). View entrance: `.enter-up` + `--enter-i` (`orbit-enter`, fill `backwards`
+  only, so no transform is left behind). All transform/opacity; the global reduce-motion rules
+  in `app.css` drop every transition, animation and the sweep layer.
+- `js/motion.js` exports `motionOn()`, `enterView(viewEl)` (top-level `.view-head, .toolbar,
+  .panel, .pass, .op-tabs, .perf-tiles, .proc-panel, .empty` blocks, stagger capped at 6),
+  `countable(text)`, `countUp(el, ms = 450)` (every number in the text from 0, ease-out; stops
+  when the view writes a newer value; skips `[aria-live]`), `countIn(viewEl)` (first show:
+  `.stat-value, .perf-readout__value, .perf-tile__value, .hl-summary-chips .chip,
+  .cl-foot-total strong` as they first get a number, for 6 s; returns a stop function).
+  `app.js` `navigate()` calls `enterView` on every switch and `countIn` once per view.
+  Nothing starts while `document.hidden`; nothing runs continuously.
+- `tests/ui-smoke.mjs` "motion": Animations on by default; with it on, a button and card have
+  0.25 s transitions and a sweep, a view switch animates `orbit-enter 0.45s`, `countUp` starts
+  from 0, and every block ends at opacity 1; with the switch off and under
+  `prefers-reduced-motion`, transitions are 0s, `--lift` is 0px, no sweep, no entrance, no
+  count-up.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

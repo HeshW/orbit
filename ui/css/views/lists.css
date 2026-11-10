@@ -736,7 +736,7 @@
 }
 
 .lv-theme:hover {
-  transform: translateY(-3px);
+  transform: translateY(var(--lift));
   box-shadow: var(--shadow-soft), var(--glow);
 }
 

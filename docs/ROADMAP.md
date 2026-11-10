@@ -480,7 +480,7 @@ palette and Ctrl+,).
 - Cards lift and glow on hover.
 - Views fade and rise in with a short stagger; numbers count up on first show.
 - On by default. The existing **Reduce motion** setting (and the Windows setting) turns all
-  of it off.
+  of it off. **Done:** it now reads **Animations** (on/off) in Settings > Display.
 - CSS first, matching the design system's easing and durations. Must not cost CPU when
   Orbit sits in the tray.
 
