@@ -9,7 +9,8 @@
 //
 // Right-click (or Shift+F10 / the context-menu key on the focused row; arrows move between
 // rows) opens a menu with the Processes view's actions where they make sense: Search
-// online, Open file location, Properties, Copy name / path, and, while the app runs, Show
+// online, Open file location, Properties, Scan with Defender (views/defender.js), Copy
+// name / path, and, while the app runs, Show
 // in Processes and End task (processes.js endTask: same confirm and critical-process
 // guard). "Remove from history" deletes that app from Orbit's own history files.
 
@@ -19,6 +20,7 @@ import { bytes, time, escapeHtml, fuzzy, IO_TITLE } from '../format.js';
 import { toast, navigate, confirmDialog, showMenu } from '../app.js';
 import { registerCommands } from '../palette.js';
 import { endTask, copyText } from './processes.js';
+import { defenderMenuItem } from './defender.js';
 
 const REFRESH_MS = 30000;
 const RANGES = [
@@ -476,6 +478,7 @@ function menuItems(r) {
     { label: 'Search online', icon: 'i-globe', action: () => run('search_online', { query: r.name }) },
     { label: 'Open file location', icon: 'i-folder', disabled: !r.exe, action: () => run('open_location', { path: r.exe }) },
     { label: 'Properties', icon: 'i-file', disabled: !r.exe, action: () => run('show_properties', { path: r.exe }) },
+    defenderMenuItem(r.exe),
     { separator: true },
     { label: 'Copy name', icon: 'i-copy', action: () => copy(r.name, r.name) },
     { label: 'Copy path', icon: 'i-copy', disabled: !r.exe, action: () => copy(r.exe, 'the path') },

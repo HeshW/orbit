@@ -22,8 +22,9 @@ import boost from './boost.js';
 import drivers from './drivers.js';
 import gpu from './gpu.js';
 import rig from './rig.js';
+import defender from './defender.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig, defender };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

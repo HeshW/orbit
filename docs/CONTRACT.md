@@ -754,6 +754,56 @@ WindowsSpec { edition: string|null /*"Windows 11 Pro": ProductName, fixed for bu
   from 0, and every block ends at opacity 1; with the switch off and under
   `prefers-reduced-motion`, transitions are 0s, `--lift` is 0px, no sweep, no entrance, no
   count-up.
+- Malware scan through Microsoft Defender (8e, `defender.rs`, `views/defender.js`, details in
+  `docs/features/defender.md`). No new sidebar view: a "Malware scan" panel
+  (`section.panel.df[data-defender]`) sits at the top of Security, above the process-scan
+  toolbar. Orbit has no engine of its own and never removes or quarantines anything.
+
+| command | args | returns |
+|---|---|---|
+| `defender_status` | – | `Result<DefenderStatus, String>` (async; read only: WMI `root\Microsoft\Windows\Defender` `MSFT_MpComputerStatus` + `root\SecurityCenter2` `AntiVirusProduct`) |
+| `defender_scan` | `kind: "quick"\|"full"\|"custom"`, `path?: String` (custom: an existing file or folder, plain `X:\` path on a local drive) | `Result<DefenderScan, String>` (async; resolves when the scan ends; Err when one is already running, the path is refused or MpCmdRun.exe is missing) |
+| `defender_cancel` | – | `Result<(), String>` (kills the running MpCmdRun; no-op when none) |
+| `defender_pick_target` | `folder: bool` | `Result<string\|null, String>` (async; Windows file or folder picker, null when cancelled) |
+| `open_windows_security` | `page?: "threats"\|"home"` | `Result<(), String>` (`windowsdefender://threat` / `threatsettings`, falling back to `windowsdefender://` and `ms-settings:windowsdefender`) |
+
+```ts
+DefenderStatus { readAt: number, isAdmin: boolean, available: boolean /*MSFT_MpComputerStatus read*/,
+  active: boolean /*service + antivirus on, not passive*/, runningMode: string|null /*"Normal"|
+  "Passive Mode"|...*/, realTime: boolean|null, signatureVersion: string|null,
+  signatureUpdated: number|null, signatureAgeDays: number|null, signaturesOutOfDate: boolean|null,
+  quickScanAt: number|null, fullScanAt: number|null /*null = never*/, engineVersion: string|null,
+  productVersion: string|null, tamperProtected: boolean|null, products: AvProduct[],
+  other: AvProduct|null /*another antivirus that is on while Defender is not active*/,
+  canScan: boolean /*active and MpCmdRun.exe found*/, scan: DefenderScan|null /*running, else
+  the last one this run*/, error: string|null }
+AvProduct { name: string, defender: boolean, state: "on"|"off"|"snoozed"|"expired",
+  upToDate: boolean }   // productState bits 12-15 and 4-7
+DefenderScan { id: number, kind: "quick"|"full"|"custom", target: string|null,
+  state: "running"|"clean"|"threats"|"failed"|"cancelled", startedAt: number, elapsedSecs: number,
+  threats: string[] /*"Trojan:Win32/Wacatac.B!ml"*/, message: string|null,
+  needsAdmin: boolean /*show Restart as administrator*/, exitCode: number|null }
+// event orbit://defender-progress: DefenderScan (state "running" about once a second, then the result)
+```
+- MpCmdRun.exe: `HKLM\SOFTWARE\Microsoft\Windows Defender` `InstallLocation`, else the newest
+  `%ProgramData%\Microsoft\Windows Defender\Platform\*\`, else `%ProgramFiles%\Windows Defender\`.
+  Run as `-Scan -ScanType 1|2|3 [-File <path>]` (path one argument, `CREATE_NO_WINDOW`). Exit 0 =
+  clean, 2 = threats (names from its "Threat : <name>" lines); otherwise failed, with
+  `hr = 0x80070005` = needs admin. `exit_cleanup` calls `defender::on_exit` (kills a running
+  MpCmdRun). `rig.rs`: `reg_sz` is `pub(crate)`.
+- `views/defender.js` exports `mountDefender(el)`, `showDefender()`, `loadStatus(force?)`,
+  `defenderStatus()`, `currentScan()`, `onDefender(fn)`, `startScan(kind, path?)`, `cancelScan()`,
+  `openWindowsSecurity(page?)`, `scanWithDefender(path, name?)` (toasts the result),
+  `defenderMenuItem(path)` (the menu item; disabled with hint "Defender is off" when it can't
+  scan), `baseName`, `elapsedText`, `whenText`. Processes (row and group menus) and History add
+  **Scan with Defender** after Search online / Properties. Palette: "Quick scan with Defender",
+  "Full scan with Defender", "Scan a file with Defender" (only when Defender can scan). A full
+  scan asks first (`confirmDialog`).
+- CSS in `css/views/security.css` (prefix `df-`). New mock module `mock/defender.js` (quick 3 s,
+  full 6 s, custom 1.5 s; a file named like a crack / keygen has two threats; the file picker
+  returns `...\Downloads\game-keygen.exe`; `?otherav` = Norton 360 active, Defender passive).
+  `tests/ui-smoke.mjs` "defender": status facts, quick scan running + elapsed + clean, full scan
+  cancelled, picked file with threats, Processes menu scan, History menu item, `?otherav`.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

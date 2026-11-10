@@ -181,7 +181,7 @@ fn some_text(s: Option<String>) -> Option<String> {
 // Readers
 // ---------------------------------------------------------------------------
 
-fn reg_sz(path: &str, name: &str) -> Option<String> {
+pub(crate) fn reg_sz(path: &str, name: &str) -> Option<String> {
     let mut buf = [0u16; 512];
     let mut size = (buf.len() * 2) as u32;
     let rc = unsafe {

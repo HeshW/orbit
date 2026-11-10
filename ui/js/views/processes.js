@@ -14,6 +14,7 @@ import { store, on, setSettings, setQuery, selectProcess, pinStartMatches, pinEn
 import { bytes, rate, pct, heat, escapeHtml, fuzzy, IO_TITLE } from '../format.js';
 import { toast, showMenu, confirmDialog, formDialog, openRunTask } from '../app.js';
 import { openLockFinder } from '../tools.js';
+import { defenderMenuItem } from './defender.js';
 
 const ROW_H = 32;
 const ROW_H_COMPACT = 26;
@@ -691,6 +692,7 @@ export function processMenuItems(row) {
     { separator: true },
     { label: 'Open file location', icon: 'i-folder', disabled: !live.exe, action: () => openLocation(live) },
     { label: 'Search online', icon: 'i-globe', action: () => searchOnline(live.name) },
+    defenderMenuItem(live.exe),
     { label: 'Copy details', icon: 'i-copy', action: () => copyDetails(live) },
     { label: pinned ? 'Unpin from watchlist' : 'Pin to watchlist', icon: 'i-pin', action: () => togglePin(live) },
     { separator: true },
@@ -720,6 +722,7 @@ function groupMenuItems(item) {
     { label: item.open ? 'Collapse' : 'Expand', icon: 'i-chevron', action: () => toggleItem(item) },
     { label: 'Open file location', icon: 'i-folder', disabled: !p.exe, action: () => openLocation(p) },
     { label: 'Search online', icon: 'i-globe', action: () => searchOnline(p.name) },
+    defenderMenuItem(p.exe),
     { label: 'Copy details', icon: 'i-copy', action: () => copyDetails(p) },
     { label: pinned ? 'Unpin from watchlist' : 'Pin to watchlist', icon: 'i-pin', action: () => pinGroup(g) },
     { separator: true },

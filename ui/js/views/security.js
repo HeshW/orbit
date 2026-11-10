@@ -3,6 +3,8 @@
 // The scan runs once when the view first opens and again on "Scan again" (or the palette's
 // "Security scan"). Findings come from `security_scan`, most severe first, one per program
 // file. Rows whose process has since exited stay listed, marked "Exited".
+// Above the table, the Malware scan panel (views/defender.js) shows Microsoft Defender's
+// status and runs its quick, full and custom scans.
 
 import { call } from '../api.js';
 import { store, on, selectProcess } from '../store.js';
@@ -10,6 +12,7 @@ import { escapeHtml, fuzzy } from '../format.js';
 import { toast, navigate } from '../app.js';
 import { registerCommands } from '../palette.js';
 import { endTask } from './processes.js';
+import { mountDefender, showDefender } from './defender.js';
 
 const ICON_RETRY_MS = 4000;
 const MAX_VT_ITEMS = 24;
@@ -449,6 +452,7 @@ export function mount(rootEl) {
         <div class="stat lv-stat"><span class="micro stat-label">Checked</span><span class="stat-value lv-stat-value" data-stat="checked">-</span></div>
       </div>
     </header>
+    <section class="panel df" data-defender aria-label="Malware scan"></section>
     <div class="toolbar lv-toolbar">
       <div class="lv-chips" role="group" aria-label="Filter findings">
         ${FILTERS.map((f) => `<button type="button" class="chip" data-filter="${f.id}" aria-pressed="false">${f.label}<span class="lv-chip-count"></span></button>`).join('')}
@@ -493,6 +497,7 @@ export function mount(rootEl) {
   els.statInfo = root.querySelector('[data-stat="info"]');
   els.statChecked = root.querySelector('[data-stat="checked"]');
 
+  mountDefender(root.querySelector('[data-defender]'));
   els.scanBtn.addEventListener('click', () => scan());
   els.chips.addEventListener('click', (e) => {
     const btn = e.target instanceof Element ? e.target.closest('[data-filter]') : null;
@@ -519,6 +524,7 @@ export function mount(rootEl) {
 
 export function onShow() {
   visible = true;
+  showDefender();
   if (!scanned && !scanning && !scanError) scan();
   else render();
 }

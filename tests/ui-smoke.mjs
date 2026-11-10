@@ -135,7 +135,7 @@ async function historyMenu(page) {
   await chrome.waitFor({ timeout: WAIT });
   await chrome.click({ button: 'right' });
   let labels = await menuLabels(page);
-  for (const want of ['Search online', 'Open file location', 'Properties', 'Copy name', 'Copy path', 'Show in Processes', 'End task', 'Remove from history']) {
+  for (const want of ['Search online', 'Open file location', 'Properties', 'Scan with Defender', 'Copy name', 'Copy path', 'Show in Processes', 'End task', 'Remove from history']) {
     if (!labels.includes(want)) throw new Error(`History menu for chrome.exe lacks "${want}": ${labels.join(', ')}`);
   }
   await page.keyboard.press('Escape');
@@ -167,6 +167,74 @@ async function historyMenu(page) {
   }, [key, before], { timeout: WAIT }).catch(() => {
     throw new Error('Remove from history left the row in the table');
   });
+}
+
+// Security > Malware scan (Microsoft Defender, mock): status, a quick scan with progress and
+// a clean result, a full scan cancelled, a picked file with threats, "Scan with Defender" in
+// the Processes menu, and (?otherav) another antivirus named with the scan buttons hidden.
+async function defender(page, base, watch) {
+  const panel = '#view-security [data-defender]';
+  const state = (s) => page.waitForSelector(`${panel} .df-run[data-state="${s}"]`, { timeout: WAIT }).catch(() => {
+    throw new Error(`Defender panel never showed "${s}"`);
+  });
+  await showView(page, 'security');
+  await page.waitForFunction((sel) => /Microsoft Defender is on/.test(document.querySelector(sel)?.innerText || ''), panel, { timeout: WAIT }).catch(() => {
+    throw new Error('Defender panel does not say "Microsoft Defender is on"');
+  });
+  const facts = await page.locator(`${panel} .df-facts`).innerText();
+  for (const want of ['REAL-TIME PROTECTION', 'Up to date', '1.463.223.0', 'LAST QUICK SCAN', 'LAST FULL SCAN', 'Never', '4.18.26100.4']) {
+    if (!facts.toUpperCase().includes(want.toUpperCase())) throw new Error(`Defender facts lack "${want}": ${facts.replace(/\s+/g, ' ')}`);
+  }
+
+  await page.click(`${panel} [data-df-scan="quick"]`);
+  await state('running');
+  if (!await page.locator(`${panel} [data-df-scan="full"]`).isDisabled()) throw new Error('scan buttons stay enabled while a scan runs');
+  await page.waitForFunction((sel) => /^0:0[1-9]$/.test(document.querySelector(`${sel} [data-df-elapsed]`)?.textContent || ''), panel, { timeout: WAIT }).catch(() => {
+    throw new Error('running scan shows no elapsed time');
+  });
+  await state('clean');
+  if (!/No threats found\. Quick scan, 0:0\d\./.test(await page.locator(`${panel} .df-run`).innerText())) throw new Error('quick scan result text');
+  if (!/Today/.test(await page.locator(`${panel} .df-facts`).innerText())) throw new Error('last quick scan did not update to today');
+
+  await page.click(`${panel} [data-df-scan="full"]`);
+  await page.click('#dialog [data-act="ok"]');
+  await state('running');
+  await page.click(`${panel} [data-df-act="cancel"]`);
+  await state('cancelled');
+
+  await page.click(`${panel} [data-df-scan="pick"]`);
+  await menuLabels(page);
+  await page.locator('#context-menu .menu-item', { hasText: 'A file' }).click();
+  await state('threats');
+  const threats = await page.locator(`${panel} .df-threat`).allInnerTexts();
+  if (threats.length !== 2 || !threats.includes('Trojan:Win32/Wacatac.B!ml')) throw new Error(`threat names: ${threats.join(', ')}`);
+  if (!await page.locator(`${panel} [data-df-act="threats"]`).isVisible()) throw new Error('no Open Windows Security button for threats');
+
+  await showView(page, 'processes');
+  const row = page.locator('#view-processes .proc-canvas > .proc-row.row').first();
+  await row.click({ button: 'right' });
+  const labels = await menuLabels(page);
+  if (!labels.includes('Scan with Defender')) throw new Error(`Processes menu lacks "Scan with Defender": ${labels.join(', ')}`);
+  await page.locator('#context-menu .menu-item', { hasText: 'Scan with Defender' }).click();
+  await page.waitForFunction(() => /No threats found in /.test(document.getElementById('toasts')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('Scan with Defender from Processes showed no result toast');
+  });
+
+  // Another antivirus is active: named, Defender explained, no scan buttons.
+  const other = await page.context().newPage();
+  watch(other);
+  try {
+    await other.goto(`${base}?otherav`, { waitUntil: 'load' });
+    await showView(other, 'security');
+    await other.waitForFunction((sel) => /Norton 360 protects this PC/.test(document.querySelector(sel)?.innerText || ''), panel, { timeout: WAIT }).catch(() => {
+      throw new Error('?otherav: panel does not name Norton 360');
+    });
+    const text = await other.locator(panel).innerText();
+    if (!/Microsoft Defender is off because Norton 360/.test(text)) throw new Error(`?otherav text: ${text.replace(/\s+/g, ' ')}`);
+    if (await other.locator(`${panel} [data-df-scan]`).count()) throw new Error('?otherav still shows scan buttons');
+  } finally {
+    await other.close();
+  }
 }
 
 // My Rig: seven cards from the mock, Copy specs puts the summary on the clipboard; key 0
@@ -322,10 +390,13 @@ try {
   browser = await chromium.launch({ channel, headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') fail(`console error: ${msg.text()}`);
-  });
-  page.on('pageerror', (err) => fail(`page error: ${err.message}`));
+  const watch = (p) => {
+    p.on('console', (msg) => {
+      if (msg.type() === 'error') fail(`console error: ${msg.text()}`);
+    });
+    p.on('pageerror', (err) => fail(`page error: ${err.message}`));
+  };
+  watch(page);
 
   console.log(`Orbit UI smoke test (${channel || 'chromium'}) at ${base}`);
   await check('load', async () => {
@@ -344,6 +415,7 @@ try {
   }
   await check('gpu adapters', () => gpuAdapters(page));
   await check('history menu', () => historyMenu(page));
+  await check('defender', () => defender(page, base, watch));
   await check('my rig', () => myRig(page));
   await check('motion', () => motion(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
@@ -360,4 +432,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, My Rig, motion on and off, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, Defender scans, My Rig, motion on and off, no console errors.`);

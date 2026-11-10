@@ -498,6 +498,11 @@ Instead Orbit drives what Windows already has:
 Likely route: the Defender WMI classes (`MSFT_MpComputerStatus`, `MSFT_MpScan`) or
 `MpCmdRun.exe`, and `SecurityCenter2` for other products. Some scans may need admin.
 **Not doing:** uploading files anywhere. A VirusTotal hash lookup could come later, opt-in only.
+**Done (0.6):** a Malware scan panel at the top of Security (status from
+`MSFT_MpComputerStatus` and `SecurityCenter2`; Quick, Full and file / folder scans through
+`MpCmdRun.exe`, hidden, one at a time, cancellable) and **Scan with Defender** in the
+Processes and History menus. Threats are shown by name with **Open Windows Security**;
+Orbit never removes anything. See `docs/features/defender.md`.
 
 ### 8f. Guided debloat: startup apps, scheduled tasks, services, built-in apps — L
 

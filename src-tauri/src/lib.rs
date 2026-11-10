@@ -4,6 +4,7 @@ pub mod actions;
 pub mod autoruns;
 pub mod boost;
 pub mod cleanup;
+pub mod defender;
 pub mod drivers;
 pub mod gpu;
 pub mod health;
@@ -135,6 +136,12 @@ pub fn run() {
             gpu::get_gpu_info,
             // my rig (v0.6)
             rig::get_rig_specs,
+            // malware scan through Microsoft Defender (v0.6)
+            defender::defender_status,
+            defender::defender_scan,
+            defender::defender_cancel,
+            defender::defender_pick_target,
+            defender::open_windows_security,
         ])
         .setup(|app| {
             history::init(app.handle());
@@ -160,7 +167,7 @@ pub fn run() {
 
 /// What has to happen before the process goes: save the shell prefs and
 /// take the tray icon down, undo Boost (priorities, paused apps, power plan),
-/// wake whatever Orbit suspended, stop the network
+/// wake whatever Orbit suspended, stop a running Defender scan, stop the network
 /// trace session (it outlives the process otherwise) and write pending app
 /// history. Runs on RunEvent::Exit and right before an update's installer
 /// ends the process (no RunEvent::Exit then). Every step is safe to repeat.
@@ -168,6 +175,7 @@ pub(crate) fn exit_cleanup(app: &AppHandle) {
     shell::on_exit(app);
     boost::on_exit(app);
     actions::resume_all(app);
+    defender::on_exit();
     network::shutdown();
     history::flush();
 }
