@@ -472,6 +472,61 @@ What the code has beyond the sections above. These are part of the contract now.
   Security, Settings; keys 1-9), new snapshot fields, commands, settings keys, palette
   and mock registries: see `docs/V04-CONTRACT.md`, including its "Integration notes".
 
+**v0.5: Optimize view (health report, startup suggestions; cleanup, boost, drivers to come)**
+- Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
+  Security and Settings. It has no number key: `app.js` keeps keys 1-9 on the 0.4 views
+  (`KEY_VIEWS` = `VIEW_NAMES` without `'optimize'`). The palette "Go to" group lists it, and the
+  palette Actions offer "Optimize: Health / Cleanup / Boost / Drivers".
+- Sub-tabs: Health, Cleanup, Boost, Drivers. `views/optimize.js` is only the frame (head, tab
+  list, one pane each; last tab in localStorage `orbit.optimizeTab`) and exports
+  `openTab(id)`. Each sub-tab is its own module `views/optimize/<id>.js` with
+  `mount(paneEl, ctx)` (once, on first open), optional `onShow()` / `onHide()`;
+  `ctx = { openTab(id), setBadge(text, kind?) }` (kind `'warn'` or `'danger'` tints the tab
+  count). CSS: `css/views/optimize.css` (frame, `op-`, shared `.op-soon` placeholder card) and
+  `css/views/optimize/<id>.css` per sub-tab (prefixes `hl-`, `sg-`, `cl-`, `bo-`, `dr-`),
+  all linked in `index.html`. Backend: one module per sub-tab (`health.rs` now; `cleanup.rs`,
+  `boost.rs`, `drivers.rs` later), registered in `lib.rs`. To add a sub-tab, see
+  `docs/features/health.md` "Adding a sub-tab".
+- Commands (`health.rs`):
+
+| command | args | returns |
+|---|---|---|
+| `get_health_report` | – | `Result<HealthReport, String>` (async; WMI + security scan, about 1-3 s) |
+| `get_update_status` | `refresh?: bool` (true: start an online search now) | `UpdateStatus` (plain value) |
+| `get_startup_suggestions` | – | `Result<StartupSuggestion[], String>` (async) |
+| `open_settings_page` | `page: String` (`ms-settings:` + letters, digits, `-`) | `Result<(), String>` |
+
+```ts
+HealthReport { generatedAt: number /*Unix secs*/, isAdmin: boolean, items: HealthItem[],
+  drives: DriveSpace[], disks: PhysicalDisk[], diskNote: string|null, update: UpdateStatus,
+  uptimeSecs: number, restartReasons: string[] }
+HealthItem { key: "disks"|"space"|"restart"|"updates"|"uptime"|"startup"|"security",
+  title: string, status: "good"|"warning"|"problem"|"unknown", text: string,
+  detail: string|null, action: HealthAction|null }
+HealthAction { label: string, kind: "view"|"optimize"|"settings"|"admin", target: string }
+  // view: navigate(target); optimize: open that sub-tab; settings: open_settings_page(target);
+  // admin: Restart as administrator. Orbit never restarts the PC.
+DriveSpace { mount: string /*"C:\\"*/, name: string, fileSystem: string, total: number,
+  available: number, removable: boolean, status: "good"|"warning"|"problem" }
+PhysicalDisk { deviceId: string, name: string, mediaType: "SSD"|"HDD"|"SCM"|"Unknown",
+  busType: string, size: number, health: "healthy"|"warning"|"unhealthy"|"unknown",
+  problems: string[], drives: string[] /*"C:"*/, wearPct: number|null,
+  temperatureC: number|null, powerOnHours: number|null, readErrors: number|null,
+  writeErrors: number|null }   // the last five need admin
+UpdateStatus { state: "idle"|"checking"|"ready"|"error", lastSearch: number|null,
+  lastInstall: number|null, pending: number|null, pendingTitles: string[],
+  checkedAt: number|null, online: boolean, error: string|null }
+StartupSuggestion { id: string /*StartupEntry.id*/, name: string, path: string|null,
+  impact: "high"|"medium", cpuMs: number, diskReadBytes: number, publisher: string|null,
+  needsAdmin: boolean, measuredAt: number }
+```
+- Cargo: `windows` features `Win32_System_UpdateAgent` and `Win32_System_Wmi`.
+- `api.js` mock: `ctx.call(cmd, args)` lets a mock module use another mock command's result
+  (`mock/health.js` reads `list_startup` and `security_scan`). New mock module `mock/health.js`.
+- `views/startup.js` shows the suggestions card (`views/optimize/suggestions.js`,
+  `createSuggestions(el, { onChange, compact })`) above the Apps table.
+- `tests/ui-smoke.mjs` visits Optimize and each sub-tab in every theme.
+
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`
   (masks are decimal u64 strings, bit n = CPU n; JS uses BigInt). `StartupEntry` gains

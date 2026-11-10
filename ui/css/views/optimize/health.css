@@ -1,0 +1,440 @@
+/* Orbit / optimize/health.css: Optimize > Health (7a) and the startup suggestions card (7b,
+   also shown in the Startup view). Used by ui/js/views/optimize/health.js and
+   suggestions.js. Prefixes: hl- (health), sg- (suggestions). */
+
+/* ------------------------------------------------------------ toolbar */
+
+.hl-toolbar {
+  margin-bottom: 0;
+}
+
+.hl-lede {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------ summary */
+
+.hl-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 16px;
+  padding: 16px 20px;
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  border-radius: var(--radius-pass);
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg-raised));
+}
+
+.hl-summary--warning {
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, var(--bg-raised));
+}
+
+.hl-summary--problem {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-raised));
+}
+
+.hl-summary-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.hl-summary--warning .hl-summary-icon {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+.hl-summary--problem .hl-summary-icon {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.hl-summary-icon .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.hl-summary-text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.hl-summary-title {
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.hl-summary-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.hl-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ------------------------------------------------------------ checks */
+
+.hl-items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.hl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.hl-item:first-child {
+  border-top: 0;
+}
+
+.hl-dot {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
+  border-radius: var(--radius-tile-sm, 10px 3px 10px 3px);
+  background: var(--bg-raised);
+  color: var(--muted);
+}
+
+.hl-dot .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.hl-item--good .hl-dot {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+
+.hl-item--warning .hl-dot {
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  color: var(--warn);
+}
+
+.hl-item--problem .hl-dot {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+
+.hl-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hl-item-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 3px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14.5px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.hl-item-line {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.hl-item-detail {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.hl-item-acts {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 300px;
+}
+
+/* ------------------------------------------------------------ drives and disks */
+
+.hl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.hl-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hl-panel-title {
+  margin: 0;
+}
+
+.hl-panel-btn {
+  align-self: flex-start;
+}
+
+.hl-drives,
+.hl-disks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hl-drive-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+}
+
+.hl-drive-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.hl-drive-free {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hl-bar {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-soft);
+  overflow: hidden;
+}
+
+.hl-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+}
+
+.hl-drive--warning .hl-bar-fill {
+  background: var(--warn);
+}
+
+.hl-drive--problem .hl-bar-fill {
+  background: var(--danger);
+}
+
+.hl-disk {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.hl-disk:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.hl-disk-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hl-disk-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.hl-disk-sub,
+.hl-disk-facts {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hl-disk-facts {
+  color: var(--ink-2);
+}
+
+.hl-disk-problem {
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+.hl-note {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------ startup suggestions (7b) */
+
+.sg {
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--line));
+  border-radius: var(--radius-pass);
+  background:
+    radial-gradient(420px 200px at 100% 0%, color-mix(in srgb, var(--blue) 12%, transparent), transparent 70%),
+    var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.sg[hidden] {
+  display: none;
+}
+
+.sg-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sg-head > .icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  color: var(--cyan-ink);
+}
+
+.sg-title {
+  margin: 0 0 3px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 15.5px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.sg-help {
+  margin: 0;
+  max-width: 80ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.sg-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0 9px 34px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.sg-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sg-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.sg-cost {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.sg-row.is-off .sg-name {
+  color: var(--ink-2);
+}
+
+.sg-row .btn {
+  flex: none;
+}
+
+/* The Startup view hosts the card above its table. */
+.lv--startup .sg {
+  flex: none;
+}
+
+@media (max-width: 1100px) {
+  .hl-item {
+    flex-wrap: wrap;
+  }
+
+  .hl-item-acts {
+    max-width: none;
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 42px;
+  }
+
+  .sg-row {
+    padding-left: 0;
+  }
+}

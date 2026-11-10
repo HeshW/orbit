@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
 const ROOT = resolve(fileURLToPath(new URL('../ui/', import.meta.url)));
-const VIEWS = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'settings'];
+const VIEWS = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'settings'];
+const OPTIMIZE_TABS = ['health', 'cleanup', 'boost', 'drivers'];
 const THEMES = ['night', 'void', 'signal', 'daylight'];
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -81,6 +82,24 @@ async function showView(page, view) {
   });
 }
 
+// Optimize: every sub-tab shows text; Health fills in from the mock report.
+async function optimizeTabs(page) {
+  await showView(page, 'optimize');
+  for (const tab of OPTIMIZE_TABS) {
+    await page.click(`#view-optimize .op-tabs [data-tab="${tab}"]`);
+    await page.waitForFunction((id) => {
+      const el = document.getElementById(id);
+      return !!el && !el.hidden && el.offsetHeight > 0 && el.innerText.trim().length > 0;
+    }, `op-pane-${tab}`, { timeout: WAIT }).catch(() => {
+      throw new Error(`Optimize > ${tab} is empty`);
+    });
+  }
+  await page.click('#view-optimize .op-tabs [data-tab="health"]');
+  await page.waitForSelector('#op-pane-health .hl-item', { timeout: WAIT }).catch(() => {
+    throw new Error('Optimize > Health shows no checks');
+  });
+}
+
 async function setTheme(page, theme) {
   await showView(page, 'settings');
   await page.click(`#view-settings .lv-theme[data-pick="${theme}"]`);
@@ -139,6 +158,7 @@ try {
     for (const view of VIEWS) {
       await check(`${theme}: ${view}`, () => showView(page, view));
     }
+    await check(`${theme}: optimize tabs`, () => optimizeTabs(page));
     await check(`${theme}: palette`, () => palette(page));
     await check(`${theme}: details drawer`, () => drawer(page));
   }
@@ -156,4 +176,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, palette and details drawer, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, no console errors.`);

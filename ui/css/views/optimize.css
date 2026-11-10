@@ -1,0 +1,62 @@
+/* Orbit / optimize.css: the Optimize view frame (0.5): head, sub-tab list, panes and the
+   shared "coming soon" card. Each sub-tab has its own file in css/views/optimize/.
+   The tab list reuses .ar-tab / .ar-tab-count from autoruns.css. Prefix: op-. */
+
+.op {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.op > .view-head {
+  margin-bottom: 0;
+}
+
+.op-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.op-pane[hidden] {
+  display: none;
+}
+
+.op-soon {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 760px;
+  padding: 20px 22px;
+}
+
+.op-soon > .icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  color: var(--cyan-ink);
+}
+
+.op-soon-title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.op-soon-body {
+  margin: 0 0 12px;
+  max-width: 64ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.op-soon .micro {
+  margin: 0;
+}

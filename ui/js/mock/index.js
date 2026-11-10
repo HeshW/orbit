@@ -15,8 +15,9 @@ import users from './users.js';
 import history from './history.js';
 import tools from './tools.js';
 import shell from './shell.js';
+import health from './health.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

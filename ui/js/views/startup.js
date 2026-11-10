@@ -5,6 +5,7 @@ import { store, on, setQuery } from '../store.js';
 import { escapeHtml, fuzzy, time } from '../format.js';
 import { toast, showMenu } from '../app.js';
 import { checkOnVirusTotal } from './security.js';
+import { createSuggestions } from './optimize/suggestions.js';
 
 const FILTERS = [
   { id: 'all', label: 'All', test: () => true },
@@ -49,6 +50,7 @@ let sort = { key: 'name', dir: 1 };
 let measureScheduled = false; // a one-shot RunOnce measurement waits for the next sign-in
 let measureBusy = false;
 let appsCount = 0; // Apps entries matching the search (tab count)
+let suggest = null; // "Turn them off?" card (0.5, 7b)
 
 // Autoruns tabs (read only, list_autoruns).
 const TABS = [
@@ -166,6 +168,7 @@ async function load() {
     if (visible) render(); else dirty = true;
   }
   loadIcons();
+  suggest?.load();
 }
 
 async function loadIcons() {
@@ -222,6 +225,7 @@ async function toggle(entry) {
   try {
     await call('set_startup_enabled', { id: entry.id, enabled: next });
     toast(next ? `${entry.name} will start with Windows.` : `${entry.name} will no longer start with Windows.`, 'success');
+    suggest?.load();
   } catch (err) {
     entry.enabled = !next;
     toast(errMsg(err), 'error');
@@ -865,6 +869,7 @@ export function mount(rootEl) {
       <span class="lv-note-text">Orbit will measure your startup apps the next time you sign in.</span>
       <button type="button" class="btn btn--ghost btn--sm" data-note-cancel><span>Cancel</span>${icon('i-close')}</button>
     </div>
+    <div data-suggest></div>
     <div class="panel lv-table-panel">
       <div class="lv-scroll">
         <table class="table lv-table lv-table--startup">
@@ -929,6 +934,7 @@ export function mount(rootEl) {
   els.arTbody = els.arTable.tBodies[0];
   els.arEmpty = root.querySelector('[data-ar-empty-box]');
   els.logon = root.querySelector('[data-ar-logon]');
+  suggest = createSuggestions(root.querySelector('[data-suggest]'), { onChange: () => load(), compact: true });
 
   els.tabs.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-tab]');

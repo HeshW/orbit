@@ -6,8 +6,10 @@ import { pct, bytes, escapeHtml } from './format.js';
 
 export const views = {};
 
-// Sidebar order; number keys 1-9 follow it (docs/V04-CONTRACT.md).
-const VIEW_NAMES = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'settings'];
+// Sidebar order (docs/V04-CONTRACT.md, plus Optimize in 0.5).
+const VIEW_NAMES = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'settings'];
+// Number keys 1-9 keep their 0.4 views; Optimize has no key (palette and sidebar only).
+const KEY_VIEWS = VIEW_NAMES.filter((v) => v !== 'optimize');
 const VIEW_KEY = 'orbit.view';
 const SEARCH_DEBOUNCE_MS = 80;
 const WATCH_CPU = 50;
@@ -1004,7 +1006,7 @@ function wireKeys() {
     }
     if (key >= '1' && key <= '9' && key.length === 1) {
       e.preventDefault();
-      navigate(VIEW_NAMES[Number(key) - 1]);
+      navigate(KEY_VIEWS[Number(key) - 1]);
       return;
     }
     if (key === ' ' || e.code === 'Space') {

@@ -33,6 +33,7 @@ const VIEWS = [
   ['services', 'Services', 'i-services', '06', 'windows services'],
   ['network', 'Network', 'i-plug', '07', 'connections ports sockets tcp udp internet'],
   ['security', 'Security', 'i-radar', '08', 'scan signatures malware suspicious signed'],
+  ['optimize', 'Optimize', 'i-gauge', '', 'health report pc check cleanup boost drivers speed up'],
   ['settings', 'Settings', 'i-gear', '09', 'preferences options themes'],
 ];
 

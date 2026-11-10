@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod autoruns;
+pub mod health;
 pub mod history;
 pub mod icons;
 pub mod impact;
@@ -101,6 +102,11 @@ pub fn run() {
             shell::set_autostart,
             shell::set_hotkey_enabled,
             shell::toggle_mini,
+            // optimize: health (v0.5)
+            health::get_health_report,
+            health::get_update_status,
+            health::get_startup_suggestions,
+            health::open_settings_page,
         ])
         .setup(|app| {
             history::init(app.handle());

@@ -1025,6 +1025,11 @@ const mock = (() => {
     snapshot: () => state.last || sample(),
     isAdmin: () => state.isAdmin,
     delay,
+    // Another mock command's result (e.g. the health mock reads list_startup).
+    call: async (cmd, args = {}) => {
+      if (!handlers[cmd]) throw `Unknown command: ${cmd}`;
+      return clone(await handlers[cmd](args, ctx));
+    },
   };
 
   async function mockCall(cmd, args) {

@@ -31,6 +31,11 @@
   <link rel="stylesheet" href="css/views/autoruns.css">
   <link rel="stylesheet" href="css/views/shell.css">
   <link rel="stylesheet" href="css/views/tools.css">
+  <link rel="stylesheet" href="css/views/optimize.css">
+  <link rel="stylesheet" href="css/views/optimize/health.css">
+  <link rel="stylesheet" href="css/views/optimize/cleanup.css">
+  <link rel="stylesheet" href="css/views/optimize/boost.css">
+  <link rel="stylesheet" href="css/views/optimize/drivers.css">
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
@@ -188,6 +193,9 @@
       <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2.5" y="7.5" width="17" height="9" rx="1.5"/><path d="M21.5 10.5v3"/><path d="M5.5 10.5v3M8.5 10.5v3"/>
       </symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.3 17.5a8.5 8.5 0 1 1 15.4 0"/><path d="M12 14l3.8-4.3"/><path d="M12 14h.01" stroke-width="2.8"/><path d="M7 12.5h1.2M12 7.2v1.2M17 12.5h-1.2"/>
+      </symbol>
     </defs>
   </svg>
 
@@ -277,6 +285,11 @@
         <span class="nav-label">Security</span>
         <span class="nav-index">08</span>
       </button>
+      <button type="button" class="nav-item" data-view="optimize" title="Optimize: health, cleanup, boost, drivers">
+        <svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg>
+        <span class="nav-label">Optimize</span>
+        <span class="nav-index" aria-hidden="true"></span>
+      </button>
       <button type="button" class="nav-item" data-view="settings" title="Settings (9)">
         <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>
         <span class="nav-label">Settings</span>
@@ -313,6 +326,7 @@
     <section id="view-services" class="view" aria-label="Services"></section>
     <section id="view-network" class="view" aria-label="Network"></section>
     <section id="view-security" class="view" aria-label="Security"></section>
+    <section id="view-optimize" class="view" aria-label="Optimize"></section>
     <section id="view-settings" class="view" aria-label="Settings"></section>
   </main>
 
