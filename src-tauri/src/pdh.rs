@@ -16,7 +16,7 @@ use std::ffi::c_void;
 use std::ptr::null_mut;
 use std::time::{Duration, Instant};
 
-use crate::model::{DiskActivity, GpuEngine};
+use crate::model::{DiskActivity, GpuAdapterLoad, GpuEngine};
 
 type PdhHandle = *mut c_void;
 type PdhStatus = i32;
@@ -98,6 +98,8 @@ pub struct PdhSample {
     pub disks: Vec<DiskActivity>,
     /// GPU usage per engine type, busiest engine of each type, 0-100.
     pub gpu_engines: Vec<GpuEngine>,
+    /// Usage and dedicated memory per adapter LUID, sorted by LUID.
+    pub gpu_adapters: Vec<GpuAdapterLoad>,
     pub threads: Option<u64>,
     pub handles: Option<u64>,
     pub committed: Option<u64>,
@@ -378,6 +380,13 @@ impl GpuCounters {
                 .collect();
             let total = per_engine.values().map(|e| e.1).fold(0.0_f64, f64::max);
             out.gpu_total = Some(total.clamp(0.0, 100.0));
+            for (engine, (_, usage)) in &per_engine {
+                if let Some(luid) = parse_adapter(engine).and_then(adapter_luid) {
+                    let slot = adapter_slot(&mut out.gpu_adapters, luid);
+                    let u = usage.clamp(0.0, 100.0);
+                    slot.usage = Some(slot.usage.map_or(u, |v| v.max(u)));
+                }
+            }
             out.gpu_engines = engine_types(per_engine.into_values());
         }
 
@@ -390,6 +399,12 @@ impl GpuCounters {
                 .map(|(_, value)| value.max(0.0))
                 .fold(0.0_f64, f64::max);
             out.gpu_dedicated = Some(to_u64(largest));
+            for (name, value) in &items {
+                if let Some(luid) = parse_adapter(name).and_then(adapter_luid) {
+                    let slot = adapter_slot(&mut out.gpu_adapters, luid);
+                    slot.dedicated_used = Some(slot.dedicated_used.unwrap_or(0) + to_u64(value.max(0.0)));
+                }
+            }
         } else if let Some(items) = self.memory.and_then(read_array) {
             // Fallback: sum per adapter, then report the adapter using the most.
             // Per-process values can count shared memory more than once.
@@ -401,8 +416,34 @@ impl GpuCounters {
             }
             let largest = per_adapter.values().copied().fold(0.0_f64, f64::max);
             out.gpu_dedicated = Some(to_u64(largest));
+            for (adapter, value) in per_adapter {
+                if let Some(luid) = adapter_luid(adapter) {
+                    adapter_slot(&mut out.gpu_adapters, luid).dedicated_used = Some(to_u64(value));
+                }
+            }
         }
+        out.gpu_adapters.sort_by(|a, b| a.luid.cmp(&b.luid));
     }
+}
+
+/// "luid_0x00000000_0x0000D1A5" -> "0x00000000_0x0000d1a5" (gpu::luid_key),
+/// so PDH instances match DXGI adapters.
+fn adapter_luid(key: &str) -> Option<String> {
+    let rest = key.strip_prefix("luid_")?;
+    let (high, low) = rest.split_once('_')?;
+    let hex = |s: &str| u32::from_str_radix(s.trim_start_matches("0x").trim_start_matches("0X"), 16).ok();
+    Some(crate::gpu::luid_key(hex(high)?, hex(low)?))
+}
+
+fn adapter_slot(list: &mut Vec<GpuAdapterLoad>, luid: String) -> &mut GpuAdapterLoad {
+    let i = match list.iter().position(|a| a.luid == luid) {
+        Some(i) => i,
+        None => {
+            list.push(GpuAdapterLoad { luid, usage: None, dedicated_used: None });
+            list.len() - 1
+        }
+    };
+    &mut list[i]
 }
 
 /// Parses "pid_1234_luid_0x00000000_0x0000D1A5_phys_0_eng_3_engtype_3D" into
@@ -651,7 +692,7 @@ unsafe fn wide_ptr_to_string(ptr: *const u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        engine_type, engine_types, friendly_engine_name, merge_disks, parse_adapter,
+        adapter_luid, engine_type, engine_types, friendly_engine_name, merge_disks, parse_adapter,
         parse_engine_instance,
     };
 
@@ -747,5 +788,13 @@ mod tests {
             Some("luid_0x00000000_0x00016B80")
         );
         assert_eq!(parse_adapter("_Total"), None);
+    }
+
+    #[test]
+    fn adapter_keys_match_dxgi_luids() {
+        assert_eq!(adapter_luid("luid_0x00000000_0x0000D1A5").as_deref(), Some("0x00000000_0x0000d1a5"));
+        assert_eq!(adapter_luid("luid_0x1_0xA").as_deref(), Some("0x00000001_0x0000000a"));
+        assert_eq!(adapter_luid("luid_0x00000000"), None);
+        assert_eq!(adapter_luid("luid_0xZZ_0x1"), None);
     }
 }

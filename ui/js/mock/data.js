@@ -8,6 +8,8 @@
 // URL flags: ?nogpu (no GPU counters: gpuEngines is []), ?nobattery (a desktop PC:
 // battery is null, as on most desktops).
 
+import { ADAPTERS } from './gpu.js';
+
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const round2 = (v) => Math.round(v * 100) / 100;
 
@@ -69,6 +71,13 @@ export function decorateSnapshot(snap, admin = false) {
     { name: 'Video Decode', usage: round2(clamp(2.5 + Math.random() * 1.5, 0, 100)) },
     { name: 'Security', usage: 0 },
   ];
+  // Per adapter (gpu.rs LUIDs): the discrete card does the work, the integrated one idles.
+  if (snap.gpu) {
+    snap.gpu.adapters = gpu === null ? [] : [
+      { luid: ADAPTERS[0].luid, usage: gpu, dedicatedUsed: snap.gpu.dedicatedUsed },
+      { luid: ADAPTERS[1].luid, usage: round2(clamp(1.2 + Math.random() * 1.6, 0, 100)), dedicatedUsed: Math.round(96 * 1024 ** 2) },
+    ].sort((a, b) => a.luid.localeCompare(b.luid));
+  }
 
   if (NO_BATTERY) {
     snap.battery = null;

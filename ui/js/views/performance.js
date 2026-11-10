@@ -7,6 +7,9 @@
 // Snapshot.battery is not null). Several tiles of one kind share that kind's detail pane,
 // which shows the selected disk or interface.
 //
+// GPU: names, video memory and driver come from get_gpu_info (gpu.rs, read once); each
+// adapter's live load is matched by LUID from snap.gpu.adapters. One line per adapter.
+//
 // Rendering rules:
 // - Nothing is drawn while the view is hidden; onShow redraws from history at once.
 //   Per-disk, per-interface and battery history is kept here (the store only keeps the
@@ -123,6 +126,10 @@ let engineRows = [];          // [{ val, fill, last }]
 const batteryHist = [];       // percent, one point a minute, last one live
 let batteryAt = 0;
 let volumesFor = null;        // [staticInfo, letters] the volume list was built for
+let gpuInfo = null;           // GpuAdapter[] from get_gpu_info, null until loaded
+let gpuInfoAsked = false;
+let adapterKey = null;
+let adapterRows = [];         // [{ luid, val, fill, used }]
 
 const topP = new Array(TOP_N);
 const topV = new Float64Array(TOP_N);
@@ -497,6 +504,12 @@ function paneHtml(key) {
             <ul class="perf-engine-list" data-ref="engines" aria-label="GPU engines"></ul>
             <p class="perf-note" data-ref="enginesEmpty" hidden>No per-engine counters reported.</p>
           </div>
+        </div>
+        <div class="perf-block perf-block--flush">
+          <div class="perf-block__head"><p class="micro">Adapters / <span data-ref="adapterCount">0</span></p></div>
+          <ul class="perf-disks perf-adapters" data-ref="adapters" aria-label="Graphics adapters">
+            <li class="perf-note">Reading the graphics adapters.</li>
+          </ul>
         </div>
         ${lowerHtml(key)}`;
       break;
@@ -1263,6 +1276,7 @@ function renderGpu(snap) {
   setText(P.refs.headSub, g.dedicatedUsed != null ? `${fmt.bytes(g.dedicatedUsed)} dedicated memory` : 'Dedicated memory not reported');
 
   renderEngines(engines);
+  renderAdapters(g);
 
   let busy = null;
   for (let i = 0; i < engines.length; i++) if (!busy || engines[i].usage > busy.usage) busy = engines[i];
@@ -1273,6 +1287,88 @@ function renderGpu(snap) {
   setFact(P, 'avg', fmt.pct(avgOf(buf.gpu), 1));
 
   renderTop(P, 'gpu', snap);
+}
+
+// Names, memory and driver are read once; the backend caches them too.
+async function loadGpuInfo() {
+  if (gpuInfoAsked) return;
+  gpuInfoAsked = true;
+  try {
+    const list = await call('get_gpu_info');
+    gpuInfo = Array.isArray(list) ? list : [];
+  } catch (_) {
+    gpuInfo = [];
+  }
+  adapterKey = null;
+  schedule();
+}
+
+function vram(bytes) {
+  return bytes >= 1024 ** 3 ? `${Math.round(bytes / 1024 ** 3)} GB` : fmt.bytes(bytes, 0);
+}
+
+function adapterMeta(a) {
+  const parts = [];
+  if (a.dedicatedMemory > 0) parts.push(`${vram(a.dedicatedMemory)} VRAM`);
+  else if (a.sharedMemory > 0) parts.push(`${vram(a.sharedMemory)} shared`);
+  if (a.driverVersion) parts.push(`Driver ${a.driverVersion}`);
+  return parts.join(' · ');
+}
+
+// One line per adapter: name, VRAM and driver, plus its live load (matched by LUID).
+function renderAdapters(g) {
+  const P = panes.gpu;
+  if (!gpuInfo) {
+    loadGpuInfo();
+    return;
+  }
+  const loads = Array.isArray(g.adapters) ? g.adapters : [];
+  const key = gpuInfo.map((a) => a.luid).join('|');
+  if (key !== adapterKey) {
+    adapterKey = key;
+    setText(P.refs.adapterCount, String(gpuInfo.length));
+    const first = gpuInfo[0];
+    setText(P.refs.title, first ? first.name : 'Graphics');
+    if (!gpuInfo.length) {
+      P.refs.adapters.innerHTML = '<li class="perf-note">Windows did not name the graphics adapter.</li>';
+      adapterRows = [];
+    } else {
+      P.refs.adapters.innerHTML = gpuInfo.map((a) => `
+        <li class="perf-disk perf-adapter">
+          <div class="perf-disk__head">
+            <span class="perf-adapter__name" title="${fmt.escapeHtml(a.name)}">${fmt.escapeHtml(a.name)}</span>
+            <span class="perf-adapter__val">${DASH}</span>
+          </div>
+          <div class="perf-bar" aria-hidden="true"><span class="perf-bar__fill"></span></div>
+          <div class="perf-disk__meta">
+            <span>${fmt.escapeHtml(adapterMeta(a))}</span>
+            <span class="perf-adapter__used"></span>
+          </div>
+        </li>`).join('');
+      adapterRows = Array.from(P.refs.adapters.children, (li, i) => ({
+        luid: gpuInfo[i].luid,
+        val: li.querySelector('.perf-adapter__val'),
+        fill: li.querySelector('.perf-bar__fill'),
+        used: li.querySelector('.perf-adapter__used'),
+        last: -1,
+      }));
+    }
+  }
+  // The tile's tooltip names the cards (tiles are rebuilt now and then).
+  const tile = tileMap.get('gpu');
+  const tip = gpuInfo.length ? gpuInfo.map((a) => a.name).join(', ') : RES.gpu.label;
+  if (tile && tile.el && tile.el.title !== tip) tile.el.title = tip;
+  for (const row of adapterRows) {
+    const load = loads.find((l) => l.luid === row.luid);
+    const u = load && typeof load.usage === 'number' ? load.usage : null;
+    setText(row.val, u == null ? DASH : fmt.pct(u, 0));
+    const frac = u == null ? 0 : Math.round(Math.min(100, Math.max(0, u))) / 100;
+    if (frac !== row.last) {
+      row.fill.style.transform = `scaleX(${frac})`;
+      row.last = frac;
+    }
+    setText(row.used, load && load.dedicatedUsed != null ? `${fmt.bytes(load.dedicatedUsed)} in use` : '');
+  }
 }
 
 // Per-engine bars beside the main chart (the busiest engine of each type, 0-100).

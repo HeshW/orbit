@@ -20,8 +20,9 @@ import health from './health.js';
 import cleanup from './cleanup.js';
 import boost from './boost.js';
 import drivers from './drivers.js';
+import gpu from './gpu.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

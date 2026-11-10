@@ -5,6 +5,7 @@ pub mod autoruns;
 pub mod boost;
 pub mod cleanup;
 pub mod drivers;
+pub mod gpu;
 pub mod health;
 pub mod history;
 pub mod icons;
@@ -127,6 +128,8 @@ pub fn run() {
             drivers::list_drivers,
             drivers::get_driver_updates,
             drivers::install_driver_update,
+            // graphics adapters (v0.6)
+            gpu::get_gpu_info,
         ])
         .setup(|app| {
             history::init(app.handle());

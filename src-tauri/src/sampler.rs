@@ -599,6 +599,7 @@ impl Sampler {
         let gpu = GpuStats {
             usage: pdh.gpu_total.map(round2),
             dedicated_used: pdh.gpu_dedicated,
+            adapters: std::mem::take(&mut pdh.gpu_adapters),
         };
 
         let system = SystemStats {

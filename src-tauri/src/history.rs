@@ -781,7 +781,7 @@ mod tests {
             },
             disk: DiskStats { active_pct: None, read_bps: None, write_bps: None },
             network: NetworkStats { rx_bps: 0.0, tx_bps: 0.0, interfaces: vec![], per_app: PerAppStatus::default() },
-            gpu: GpuStats { usage: None, dedicated_used: None },
+            gpu: GpuStats { usage: None, dedicated_used: None, adapters: Vec::new() },
             system: SystemStats { uptime_secs: 1, process_count: 0, thread_count: None, handle_count: None },
             disks: vec![],
             gpu_engines: vec![],

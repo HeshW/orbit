@@ -108,6 +108,20 @@ async function optimizeTabs(page) {
   });
 }
 
+// Performance > GPU names each adapter (mock: two) with its video memory and driver.
+async function gpuAdapters(page) {
+  await showView(page, 'performance');
+  await page.click('#view-performance .perf-tile--gpu');
+  await page.waitForFunction(() => document.querySelectorAll('#perf-pane-gpu .perf-adapter').length === 2, null, { timeout: WAIT }).catch(() => {
+    throw new Error('Performance > GPU does not list two adapters');
+  });
+  const text = await page.locator('#perf-pane-gpu .perf-adapters').innerText();
+  if (!/RTX 4070/.test(text) || !/VRAM/.test(text) || !/Driver \d/.test(text)) throw new Error(`GPU adapters miss name, VRAM or driver: ${text.replace(/\s+/g, ' ')}`);
+  const title = await page.locator('#perf-pane-gpu [data-ref="title"]').innerText();
+  if (!/RTX 4070/.test(title)) throw new Error(`GPU pane title is "${title}"`);
+  await page.click('#view-performance .perf-tile--cpu');
+}
+
 async function setTheme(page, theme) {
   await showView(page, 'settings');
   await page.click(`#view-settings .lv-theme[data-pick="${theme}"]`);
@@ -170,6 +184,7 @@ try {
     await check(`${theme}: palette`, () => palette(page));
     await check(`${theme}: details drawer`, () => drawer(page));
   }
+  await check('gpu adapters', () => gpuAdapters(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
   step = 'idle';
   await page.waitForTimeout(1500);
@@ -184,4 +199,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, no console errors.`);

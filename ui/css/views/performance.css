@@ -758,6 +758,30 @@
   .perf-engine-list { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ---------------------------------------------------------------- GPU adapters */
+
+.perf-adapters { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+.perf-adapter__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 500 14px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perf-adapter__val {
+  flex: none;
+  font: 500 13px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.perf-adapter .perf-bar__fill { background: var(--chart-gpu); }
+
 /* ---------------------------------------------------------------- volumes */
 
 .perf-disks {

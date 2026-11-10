@@ -650,6 +650,36 @@ InstallResult { id, title: string, ok: boolean,
 - New mock module `mock/drivers.js` (fake install, never touches anything); `mock/health.js`
   builds the "devices" item from it.
 
+**v0.6**
+- GPU names (8a, `gpu.rs`, details in `docs/features/gpu.md`). DXGI `EnumAdapters1` (no admin),
+  read once and cached; software adapters (Basic Render Driver, Microsoft remote/virtual ones
+  with no video memory) are left out; the most video memory first. A virtual display driver can
+  list one card twice under a second LUID: `get_gpu_info` drops a same-name, same-memory twin
+  that has no GPU counters when the other one has them (`gpu::visible`).
+
+| command | args | returns |
+|---|---|---|
+| `get_gpu_info` | – | `Result<GpuAdapter[], String>` (async; never fails, `[]` without DXGI) |
+
+```ts
+GpuAdapter { luid: string /*"0x00000000_0x0000d1a5": LUID high, low (gpu::luid_key)*/,
+  name: string, vendor: string|null /*"NVIDIA"|"AMD"|"Intel"|...*/, dedicatedMemory: number,
+  sharedMemory: number /*bytes*/, driverVersion: string|null /*"32.0.15.9621", UMD version
+  from CheckInterfaceSupport(IDXGIDevice)*/ }
+// Snapshot.gpu gains (SnapshotDelta too, same object):
+gpu: { usage, dedicatedUsed, adapters: GpuAdapterLoad[] /*per PDH adapter LUID, sorted by luid;
+  [] without counters*/ }
+GpuAdapterLoad { luid: string, usage: number|null /*busiest engine of that adapter*/,
+  dedicatedUsed: number|null }
+```
+- Cargo: `windows` feature `Win32_Graphics_Dxgi`.
+- `views/performance.js`: the GPU pane title is the first adapter's name; a block
+  "Adapters / N" lists one card per adapter (name, live %, bar, "8 GB VRAM · Driver x", memory
+  in use), matched to `gpu.adapters` by `luid`. The GPU tile's tooltip names the cards.
+  CSS `.perf-adapters`, `.perf-adapter`, `.perf-adapter__name`, `.perf-adapter__val`.
+- New mock module `mock/gpu.js` (two adapters, `?nogpu` empties it); `mock/data.js` fills
+  `gpu.adapters`. `tests/ui-smoke.mjs` checks the adapter list.
+
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`
   (masks are decimal u64 strings, bit n = CPU n; JS uses BigInt). `StartupEntry` gains

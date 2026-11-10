@@ -145,6 +145,22 @@ pub struct GpuStats {
     pub usage: Option<f64>,
     /// Bytes of dedicated GPU memory in use.
     pub dedicated_used: Option<u64>,
+    /// The same per adapter (PDH LUID), sorted by `luid`. Empty without
+    /// counters. Names come from `get_gpu_info` (gpu.rs), matched by `luid`.
+    #[serde(default)]
+    pub adapters: Vec<GpuAdapterLoad>,
+}
+
+/// Live load of one GPU adapter.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuAdapterLoad {
+    /// "0x00000000_0x0000d1a5": LUID high part, then low part (gpu::luid_key).
+    pub luid: String,
+    /// Busiest engine of this adapter, 0-100.
+    pub usage: Option<f64>,
+    /// Bytes of this adapter's dedicated memory in use.
+    pub dedicated_used: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
