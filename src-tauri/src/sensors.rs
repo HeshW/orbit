@@ -23,7 +23,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -55,8 +55,12 @@ pub const SRC_ACPI: &str = "ACPI";
 
 /// At most one reading a second, however fast the sampler ticks.
 const MIN_GAP: Duration = Duration::from_millis(1000);
-/// A reading older than this (a source hung) is dropped, not shown.
+/// A read still going after this long (a source hung): the last reading is
+/// dropped, not shown. Measured from the request, not the reading, so a slow
+/// update interval or a long pause never hides a good one.
 const STALE: Duration = Duration::from_secs(5);
+/// How long `on_exit` waits for the sensor thread to release NVML.
+const EXIT_WAIT: Duration = Duration::from_millis(1000);
 /// How often to look for a monitoring tool that was not running.
 const PROBE_EVERY: Duration = Duration::from_secs(15);
 /// WMI wait per row; the tools answer in a few milliseconds.
@@ -133,7 +137,22 @@ pub struct GpuSensors {
 struct HubState {
     requested: bool,
     stop: bool,
-    latest: Option<(Instant, Sensors)>,
+    /// The sensor thread has ended (NVML shut down, COM released).
+    done: bool,
+    /// When the read under way started; `None` between reads.
+    busy_since: Option<Instant>,
+    latest: Option<Sensors>,
+}
+
+impl HubState {
+    /// The latest reading, unless the read after it has hung.
+    fn current(&self) -> Sensors {
+        let hung = self.busy_since.is_some_and(|t| t.elapsed() > STALE);
+        match &self.latest {
+            Some(s) if !hung => s.clone(),
+            _ => Sensors::default(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -146,8 +165,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The hub whose thread `on_exit` stops (the sampler's; there is one).
+static HUB: OnceLock<Arc<Shared>> = OnceLock::new();
+
 /// Owned by the sampler. The reading thread starts on the first `poll` and
-/// ends when the hub is dropped.
+/// ends when the hub is dropped or on `on_exit`.
 pub struct SensorHub {
     shared: Arc<Shared>,
     started: bool,
@@ -166,6 +188,7 @@ impl SensorHub {
         if !self.started {
             self.started = true;
             let shared = Arc::clone(&self.shared);
+            let _ = HUB.set(Arc::clone(&self.shared));
             if let Err(err) = std::thread::Builder::new()
                 .name("orbit-sensors".into())
                 .spawn(move || run(shared))
@@ -176,10 +199,7 @@ impl SensorHub {
         let out = {
             let mut g = lock(&self.shared.state);
             g.requested = true;
-            match &g.latest {
-                Some((at, s)) if at.elapsed() <= STALE => s.clone(),
-                _ => Sensors::default(),
-            }
+            g.current()
         };
         self.shared.cv.notify_all();
         out
@@ -193,35 +213,67 @@ impl Drop for SensorHub {
     }
 }
 
+/// Stops the sensor thread and waits (briefly) for it to shut NVML down on
+/// its own thread, so no NVML call is cut off. Safe to repeat (lib.rs
+/// `exit_cleanup`); the sampler itself never ends.
+pub fn on_exit() {
+    let Some(shared) = HUB.get() else { return };
+    let deadline = Instant::now() + EXIT_WAIT;
+    let mut g = lock(&shared.state);
+    g.stop = true;
+    shared.cv.notify_all();
+    while !g.done {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        g = match shared.cv.wait_timeout(g, left) {
+            Ok((g, _)) => g,
+            Err(e) => e.into_inner().0,
+        };
+    }
+}
+
 fn run(shared: Arc<Shared>) {
-    let _com = crate::health::com_init();
-    let mut reader = Reader::default();
+    {
+        let _com = crate::health::com_init();
+        // Dropped before COM: WMI released, NVML shut down.
+        let mut reader = Reader::default();
+        read_loop(&shared, &mut reader);
+    }
+    lock(&shared.state).done = true;
+    shared.cv.notify_all();
+}
+
+fn read_loop(shared: &Shared, reader: &mut Reader) {
     let mut last: Option<Instant> = None;
     loop {
-        {
-            let mut g = lock(&shared.state);
-            while !g.requested && !g.stop {
-                g = shared.cv.wait(g).unwrap_or_else(|e| e.into_inner());
-            }
-            if g.stop {
-                return;
-            }
-            g.requested = false;
-        }
-        if let Some(at) = last {
-            let since = at.elapsed();
-            if since < MIN_GAP {
-                std::thread::sleep(MIN_GAP - since);
-            }
-        }
-        let sensors = reader.read();
-        let now = Instant::now();
-        last = Some(now);
         let mut g = lock(&shared.state);
+        while !g.requested && !g.stop {
+            g = shared.cv.wait(g).unwrap_or_else(|e| e.into_inner());
+        }
+        // At most one reading a second; a stop still ends the wait.
+        while !g.stop {
+            let left = last.map_or(Duration::ZERO, |at| MIN_GAP.saturating_sub(at.elapsed()));
+            if left.is_zero() {
+                break;
+            }
+            g = match shared.cv.wait_timeout(g, left) {
+                Ok((g, _)) => g,
+                Err(e) => e.into_inner().0,
+            };
+        }
         if g.stop {
             return;
         }
-        g.latest = Some((now, sensors));
+        g.requested = false;
+        g.busy_since = Some(Instant::now());
+        drop(g);
+        let sensors = reader.read();
+        last = Some(Instant::now());
+        let mut g = lock(&shared.state);
+        g.latest = Some(sensors);
+        g.busy_since = None;
     }
 }
 
@@ -920,6 +972,8 @@ impl Drop for Nvml {
 }
 
 /// System32 first (current drivers), then the NVSMI folder (older ones).
+/// Both from Windows itself (no environment variable, no search path), so
+/// nothing a user-level process sets can point Orbit at another nvml.dll.
 fn nvml_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut buf = [0u16; 260];
@@ -1291,6 +1345,35 @@ mod tests {
         // Once TZ01 moves it is shown, and stays shown when it settles back.
         assert!(near(zones.update(&[z("TZ00", 3010), z("TZ01", 3162)]), 43.05));
         assert!(near(zones.update(&[z("TZ00", 3010), z("TZ01", 3132)]), 40.05));
+    }
+
+    #[test]
+    fn stale_only_when_a_read_hangs() {
+        let reading = Sensors { cpu: None, gpus: vec![GpuSensors {
+            luid: None, name: "RTX".into(), source: SRC_NVML.into(), temp: Some(50.0), memory_temp: None,
+            slowdown_temp: None, fan_pct: None, power_w: None, power_limit_w: None, core_mhz: None, memory_mhz: None,
+        }] };
+        // However old the reading (a 5 s interval, a long pause), it is shown between reads...
+        let mut st = HubState { latest: Some(reading.clone()), ..Default::default() };
+        assert_eq!(st.current(), reading);
+        // ...and while a read is under way...
+        st.busy_since = Some(Instant::now());
+        assert_eq!(st.current(), reading);
+        // ...until that read has hung past STALE.
+        if let Some(t) = Instant::now().checked_sub(STALE + Duration::from_secs(1)) {
+            st.busy_since = Some(t);
+            assert_eq!(st.current(), Sensors::default());
+        }
+    }
+
+    #[test]
+    fn exit_stops_the_thread() {
+        let shared = Arc::new(Shared::default());
+        let t = { let s = Arc::clone(&shared); std::thread::spawn(move || run(s)) };
+        lock(&shared.state).stop = true;
+        shared.cv.notify_all();
+        t.join().unwrap();
+        assert!(lock(&shared.state).done);
     }
 
     #[test]

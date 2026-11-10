@@ -29,8 +29,10 @@ user has installed it themselves; not used now.
 ## Rules
 
 - Read on the `orbit-sensors` thread, at most once a second, only while the sampler ticks
-  (`SensorHub::poll` each tick asks for a reading and returns the latest without waiting). A
-  reading older than 5 s (a hung source) is dropped. With updates paused there are no reads.
+  (`SensorHub::poll` each tick asks for a reading and returns the latest without waiting). When a
+  read has been running for over 5 s (a hung source) the last reading is dropped; a slow update
+  interval or a pause never hides one. With updates paused there are no reads. On exit
+  (`exit_cleanup`) the thread is stopped and shuts NVML down, waiting at most 1 s.
 - Cost on the dev PC: first read (NVML init, DXGI match, probing the tools) about 25 ms, then
   0.5 to 1 ms a read.
 - Nothing is guessed. A value a source does not give is `null` and its row is hidden.

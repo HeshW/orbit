@@ -896,7 +896,8 @@ DebloatUndoAllResult { undone: DebloatChange[], failed: { id, name, error }[],
 - CPU and GPU temperatures (9b, `sensors.rs`, details in `docs/features/sensors.md`). No new
   command or event: `Snapshot.sensors` (and `SnapshotDelta.sensors`, same object) carries the
   latest reading, taken on the `orbit-sensors` thread at most once a second while the sampler
-  ticks (`sensors::SensorHub::poll`, never waits; a reading older than 5 s is dropped).
+  ticks (`sensors::SensorHub::poll`, never waits; the last reading is dropped while a read has hung over 5 s;
+  `sensors::on_exit` in `exit_cleanup` stops the thread so it shuts NVML down).
 
 ```ts
 Snapshot.sensors: Sensors { cpu: CpuSensors|null /*no source*/, gpus: GpuSensors[] }

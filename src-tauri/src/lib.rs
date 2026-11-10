@@ -177,8 +177,8 @@ pub fn run() {
 /// What has to happen before the process goes: save the shell prefs and
 /// take the tray icon down, undo Boost (priorities, paused apps, power plan),
 /// wake whatever Orbit suspended, stop a running Defender scan, stop the network
-/// trace session (it outlives the process otherwise) and write pending app
-/// history. Runs on RunEvent::Exit and right before an update's installer
+/// trace session (it outlives the process otherwise), let the sensor thread
+/// shut NVML down and write pending app history. Runs on RunEvent::Exit and right before an update's installer
 /// ends the process (no RunEvent::Exit then). Every step is safe to repeat.
 pub(crate) fn exit_cleanup(app: &AppHandle) {
     shell::on_exit(app);
@@ -186,6 +186,7 @@ pub(crate) fn exit_cleanup(app: &AppHandle) {
     actions::resume_all(app);
     defender::on_exit();
     network::shutdown();
+    sensors::on_exit();
     history::flush();
 }
 
