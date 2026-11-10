@@ -11,6 +11,7 @@
 | 5 | Auto-start elevated | Not planned: Orbit installs to a user-writable folder, so a silent elevated task would be a privilege-escalation hole. |
 | 6 | v1 gaps | Per-process network done (#3). The rest are Windows limits, unchanged. |
 | 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
+| 8 | **0.6 list** | Planned: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -435,3 +436,95 @@ These are common in "optimizer" apps but don't help, so Orbit won't ship them:
 2. **Disk cleanup (7c):** visible result (space freed), needs the most care on path rules.
 3. **Game boost (7d):** builds on existing actions.
 4. **Driver check (7e):** read-only listing first, Windows Update installs second.
+
+---
+
+## 8. Next release (planned for 0.6)
+
+The owner's list after 0.5.0. Planning only; API names are **(unverified)** until built.
+
+### 8a. GPU name in Performance — S
+
+- Show the card's model name (e.g. "NVIDIA GeForce RTX 4070"), its VRAM and driver version.
+- One line per GPU when there are two (laptop iGPU + dGPU).
+- Likely route: DXGI `EnumAdapters1` for name and VRAM, matched to the PDH adapter LUIDs
+  `pdh.rs` already reads. No admin.
+
+### 8b. Right-click menu in History — S
+
+- The same menu as Processes, where it makes sense:
+  - Search online, Open file location, Properties, Copy name / path.
+  - Show in Processes and End task, only while the app is running.
+  - Remove this app from history.
+- Reuses the Processes menu code and `actions.rs`. No admin.
+
+### 8c. My Rig tab — S–M
+
+A one-page spec sheet, with a **Copy specs** button for sharing:
+- CPU: model, cores / threads, base clock.
+- Memory: total, speed, slots used.
+- GPU: from 8a.
+- Motherboard and BIOS version.
+- Drives: model, size, SSD or HDD.
+- Displays: resolution and refresh rate.
+- Windows edition and build.
+
+Likely route: WMI (`Win32_Processor`, `Win32_PhysicalMemory`, `Win32_BaseBoard`,
+`MSFT_PhysicalDisk`) plus what `StaticInfo` already has. No admin.
+**Open question:** this is the 11th tab, and only 10 number keys exist (Settings is on 0).
+
+### 8d. Motion like the LegacyTech site — S–M
+
+- Buttons lift with a light sweep; icons turn on hover.
+- Cards lift and glow on hover.
+- Views fade and rise in with a short stagger; numbers count up on first show.
+- On by default. The existing **Reduce motion** setting (and the Windows setting) turns all
+  of it off.
+- CSS first, matching the design system's easing and durations. Must not cost CPU when
+  Orbit sits in the tray.
+
+### 8e. Malware scan through Microsoft Defender — M
+
+Orbit should not ship its own antivirus engine. One that works needs daily signature
+updates and a research team, and a weak one gives false comfort and false alarms.
+Instead Orbit drives what Windows already has:
+- Shows protection status: real-time on or off, definition age, last scan.
+- **Quick scan** and **Full scan** buttons, with progress and results in Orbit.
+- **Scan with Defender** on a file, folder or process (right-click).
+- If another antivirus is installed, Defender is off, so Orbit shows that product's name
+  and status instead.
+
+Likely route: the Defender WMI classes (`MSFT_MpComputerStatus`, `MSFT_MpScan`) or
+`MpCmdRun.exe`, and `SecurityCenter2` for other products. Some scans may need admin.
+**Not doing:** uploading files anywhere. A VirusTotal hash lookup could come later, opt-in only.
+
+### 8f. Guided debloat: startup apps, scheduled tasks, services, built-in apps — L
+
+Most people can't tell what "MicrosoftEdgeUpdateTaskMachineUA" or "SysMain" is. Orbit
+explains each item in plain words and gives a verdict:
+- **Safe to turn off**: what you lose, in one line.
+- **Keep**: needed by Windows or the hardware.
+- **Unknown**: leave it, with a Search online button.
+
+Scope:
+- Startup apps and non-Microsoft scheduled tasks: turn off (never delete).
+- Services: set to Manual, never Disabled; core Windows services are not offered.
+- Built-in apps (Xbox, Clipchamp, News and so on): remove for this user; they can be
+  reinstalled from the Store.
+
+Rules:
+- Verdicts come from a reviewed list shipped with Orbit, not guesses.
+- Nothing changes without a preview. Every change is saved, with **Undo** per item and
+  **Undo all**.
+- Changes to services and tasks need admin (Restart as administrator pattern).
+
+**Risks:** breaking a feature someone uses. Keep the list short, explain each item, and
+make undo work before anything else.
+
+### Order
+
+1. **GPU name (8a)** and **History right-click (8b):** small, quick wins.
+2. **My Rig (8c):** reuses 8a.
+3. **Motion (8d):** a UI pass across all views.
+4. **Defender scan (8e).**
+5. **Guided debloat (8f):** last, it needs the most care.
