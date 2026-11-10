@@ -1,6 +1,6 @@
 # Orbit roadmap — future features
 
-## Status (after 0.4.0)
+## Status (after 0.5.0)
 
 | # | Item | Status |
 |---|------|--------|
@@ -10,7 +10,7 @@
 | 4 | Ctrl+Shift+Esc takeover | Dropped. Replaced by the Ctrl+Shift+O hotkey in 0.4.0. |
 | 5 | Auto-start elevated | Not planned: Orbit installs to a user-writable folder, so a silent elevated task would be a privilege-escalation hole. |
 | 6 | v1 gaps | Per-process network done (#3). The rest are Windows limits, unchanged. |
-| 7 | **Optimize (planned for 0.5)** | Planned. See section 7 below. |
+| 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,

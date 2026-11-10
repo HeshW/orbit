@@ -15,6 +15,7 @@ desktop.ini
 # Local screenshots of the real machine (personal window titles); public ones live in site/img
 docs/screenshots/
 docs/screenshots-v04/
+docs/screenshots-v05/
 
 # Claude Code worktrees
 .claude/
