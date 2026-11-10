@@ -1,3 +1,550 @@
-/* Orbit / optimize/cleanup.css: Optimize > Cleanup (feature 7c).
-   Used by ui/js/views/optimize/cleanup.js. Prefix new classes with cl-. Until the
-   feature is built the tab shows the shared .op-soon card from optimize.css. */
+/* Orbit / optimize/cleanup.css: Optimize > Cleanup (feature 7c), junk files and biggest
+   folders. Used by ui/js/views/optimize/cleanup.js. Prefix: cl-. */
+
+.cl-toolbar {
+  margin-bottom: 0;
+}
+
+.cl-lede {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+#op-pane-cleanup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+#op-pane-cleanup[hidden] {
+  display: none;
+}
+
+.cl-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cl-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cl-panel-title {
+  flex: 1;
+  margin: 0;
+}
+
+.cl-test {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--warn);
+}
+
+/* ------------------------------------------------------------ progress */
+
+.cl-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: var(--bg-raised);
+}
+
+.cl-progress-text {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.cl-progress-text > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cl-progress-what {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-progress-bar {
+  flex: 1 1 160px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+}
+
+.cl-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-grad);
+  transition: width var(--dur-1) var(--ease);
+}
+
+.cl-progress-bar.is-loose > span {
+  width: 30% !important;
+  animation: cl-slide 1.4s var(--ease) infinite;
+}
+
+@keyframes cl-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+/* ------------------------------------------------------------ categories */
+
+.cl-cats {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.cl-cat {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.cl-cat:first-child {
+  border-top: 0;
+}
+
+.cl-cat.is-on {
+  background: color-mix(in srgb, var(--blue) 6%, transparent);
+}
+
+.cl-cat-main {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.cl-cat.is-locked .cl-cat-main {
+  cursor: default;
+}
+
+.cl-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--blue);
+}
+
+.cl-cat-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cl-cat-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.cl-cat.is-locked .cl-cat-title {
+  color: var(--ink-2);
+}
+
+.cl-cat-line {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.cl-cat-sub {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.cl-cat-sub--warn {
+  color: var(--warn);
+}
+
+.cl-size {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 90px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-align: right;
+}
+
+.cl-size small {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cl-cat.is-locked .cl-size {
+  color: var(--muted);
+}
+
+.cl-size-unknown {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ footer and result */
+
+.cl-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding-top: 4px;
+}
+
+.cl-foot[hidden] {
+  display: none;
+}
+
+.cl-foot .check {
+  flex: 1 1 300px;
+}
+
+.cl-foot-total {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-foot-total strong {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.cl-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg-raised));
+}
+
+.cl-result-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-tile-sm);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.cl-result-icon .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.cl-result-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cl-result-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.cl-result-sub {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.cl-result-line {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------ biggest folders */
+
+.cl-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.cl-drives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cl-drive {
+  cursor: pointer;
+}
+
+.cl-drive:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cl-path {
+  display: flex;
+  flex: 1 1 280px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cl-path-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cl-folder-help,
+.cl-folder-note {
+  margin: 0;
+}
+
+.cl-folder-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warn);
+}
+
+.cl-folder-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.cl-crumbs {
+  display: flex;
+  flex: 1 1 240px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.cl-crumb {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--blue-soft);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cl-crumb:hover {
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.cl-crumb.is-here {
+  color: var(--ink);
+  font-weight: 600;
+  cursor: default;
+}
+
+.cl-crumb-sep .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-2);
+  vertical-align: middle;
+}
+
+.cl-folder-total {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.cl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.cl-row:first-child {
+  border-top: 0;
+}
+
+.cl-row-main {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(120px, 1.3fr) minmax(60px, 1fr) 84px 96px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+button.cl-row-main {
+  cursor: pointer;
+}
+
+button.cl-row-main:hover {
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+}
+
+.cl-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cl-row-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cl-row-name .icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--blue-soft);
+}
+
+.cl-row--files .cl-row-name .icon {
+  color: var(--muted);
+}
+
+.cl-row-open,
+.cl-row-gap {
+  flex: none;
+  width: 112px;
+  justify-content: center;
+}
+
+.cl-row-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--line-soft);
+}
+
+.cl-row-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-grad);
+}
+
+.cl-row--files .cl-row-bar > span {
+  background: var(--muted-2);
+}
+
+.cl-row-size {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cl-row-files {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cl-row--empty {
+  padding: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.cl-folder-when {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .cl-row-main {
+    grid-template-columns: minmax(100px, 1fr) 70px 80px;
+  }
+  .cl-row-bar {
+    display: none;
+  }
+}
+
+html.reduce-motion .cl-progress-bar > span {
+  transition: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-progress-bar > span {
+    transition: none;
+    animation: none;
+  }
+}

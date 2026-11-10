@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod autoruns;
+pub mod cleanup;
 pub mod health;
 pub mod history;
 pub mod icons;
@@ -107,6 +108,12 @@ pub fn run() {
             health::get_update_status,
             health::get_startup_suggestions,
             health::open_settings_page,
+            // optimize: cleanup (v0.5)
+            cleanup::cleanup_scan,
+            cleanup::cleanup_clean,
+            cleanup::cleanup_cancel,
+            cleanup::cleanup_drives,
+            cleanup::cleanup_folder_sizes,
         ])
         .setup(|app| {
             history::init(app.handle());

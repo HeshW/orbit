@@ -2,7 +2,8 @@
 // preview (docs/V04-CONTRACT.md "Mock registry"). api.js imports this file only.
 //
 // Each module in this folder default-exports { command_name(args, ctx) { ... } }.
-// ctx = { snapshot(): the latest mock Snapshot, isAdmin(): boolean, delay(ms): Promise }.
+// ctx = { snapshot(): the latest mock Snapshot, isAdmin(): boolean, delay(ms): Promise,
+// emit(event, payload): send to api.js onEvent subscribers, call(cmd, args) }.
 // A handler returns the value (or a Promise of it) or throws a short human string, like
 // the Rust command. Registry handlers win over api.js's built-in ones with the same name.
 // Mock modules must not import api.js.
@@ -16,8 +17,9 @@ import history from './history.js';
 import tools from './tools.js';
 import shell from './shell.js';
 import health from './health.js';
+import cleanup from './cleanup.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

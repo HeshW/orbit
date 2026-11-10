@@ -472,7 +472,7 @@ What the code has beyond the sections above. These are part of the contract now.
   Security, Settings; keys 1-9), new snapshot fields, commands, settings keys, palette
   and mock registries: see `docs/V04-CONTRACT.md`, including its "Integration notes".
 
-**v0.5: Optimize view (health report, startup suggestions; cleanup, boost, drivers to come)**
+**v0.5: Optimize view (health report, startup suggestions, disk cleanup; boost, drivers to come)**
 - Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
   Security and Settings. It has no number key: `app.js` keeps keys 1-9 on the 0.4 views
   (`KEY_VIEWS` = `VIEW_NAMES` without `'optimize'`). The palette "Go to" group lists it, and the
@@ -526,6 +526,43 @@ StartupSuggestion { id: string /*StartupEntry.id*/, name: string, path: string|n
 - `views/startup.js` shows the suggestions card (`views/optimize/suggestions.js`,
   `createSuggestions(el, { onChange, compact })`) above the Apps table.
 - `tests/ui-smoke.mjs` visits Optimize and each sub-tab in every theme.
+- Cleanup (7c, `cleanup.rs`, details in `docs/features/cleanup.md`). The UI sends category ids,
+  never paths; Rust computes every root and deletes only strictly inside them (checked by
+  handle, no reparse points followed or deleted, in-use / read-only files skipped).
+
+| command | args | returns |
+|---|---|---|
+| `cleanup_scan` | – | `Result<CleanupScan, String>` (async; read only; progress events) |
+| `cleanup_clean` | `ids: string[]`, `olderThanDay?: bool` (default true) | `Result<CleanResult, String>` (async; unknown id is an error) |
+| `cleanup_cancel` | `job: "scan"\|"clean"\|"folders"` | `Result<(), String>` |
+| `cleanup_drives` | – | `DriveInfo[]` |
+| `cleanup_folder_sizes` | `path: String`, `fresh?: bool` | `Result<FolderSizes, String>` (async; read only) |
+
+```ts
+// ids: user-temp, windows-temp, update-cache, crash-dumps, system-dumps, thumbnails,
+//      browser-edge, browser-chrome, browser-brave, browser-firefox, recycle-bin
+CleanupScan { scannedAt: number, isAdmin: boolean, categories: CategoryScan[], cancelled: boolean,
+  testRoot: string|null /*ORBIT_CLEANUP_ROOT, debug builds only*/ }
+CategoryScan { id, label, description: string, needsAdmin: boolean, ageFilter: boolean,
+  paths: string[], found: boolean, readable: boolean, bytes: number, files: number,
+  oldBytes: number, oldFiles: number /*what the 24 h rule leaves to clean*/,
+  unreadable: number, blocked: string|null /*"Edge is open. ..."*/, note: string|null }
+CleanResult { freedBytes, deletedFiles, skippedInUse, skippedDenied, skippedOther, keptNew: number,
+  cancelled: boolean, categories: CategoryClean[] }
+CategoryClean { id, label: string, freedBytes, deletedFiles, skippedInUse, skippedDenied,
+  skippedOther, keptNew: number, skipped: string|null /*whole category skipped, why*/ }
+FolderSizes { path: string, bytes, files: number, folders: FolderEntry[] /*top 40, biggest first*/,
+  otherBytes, otherCount, filesHereBytes, filesHere, unreadable, links: number,
+  cancelled: boolean, scannedAt: number, cached: boolean }
+FolderEntry { name, path: string, bytes, files, unreadable: number }
+DriveInfo { mount: string, name: string, total: number, available: number, removable: boolean }
+// event orbit://cleanup-progress
+Progress { job: "scan"|"clean"|"folders", label: string, step: number, steps: number,
+  files: number, bytes: number, done: boolean }
+```
+- `api.js`: `onEvent(name, cb)` subscribes to any backend event and returns an unsubscribe
+  function. Mock modules get `ctx.emit(name, payload)` to reach it. New mock module
+  `mock/cleanup.js`.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

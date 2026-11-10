@@ -32,6 +32,23 @@ export function onSnapshot(cb) {
   return mock.subscribe(cb);
 }
 
+/** Subscribe to a backend event (e.g. 'orbit://cleanup-progress'). Returns an unsubscribe function. */
+export function onEvent(name, cb) {
+  if (isTauri) {
+    let unlisten = null;
+    let cancelled = false;
+    T.event.listen(name, (e) => cb(e.payload)).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }
+  return mock.on(name, cb);
+}
+
 function currentWindow() {
   return T && T.window && typeof T.window.getCurrentWindow === 'function' ? T.window.getCurrentWindow() : null;
 }
@@ -1021,10 +1038,20 @@ const mock = (() => {
 
   // v0.4 feature mocks (js/mock/*.js); one with the same name replaces the built-in handler.
   Object.assign(handlers, mockRegistry.handlers);
+  const bus = new Map(); // event name -> Set of callbacks (onEvent)
+  function on(name, cb) {
+    if (!bus.has(name)) bus.set(name, new Set());
+    bus.get(name).add(cb);
+    return () => bus.get(name)?.delete(cb);
+  }
   const ctx = {
     snapshot: () => state.last || sample(),
     isAdmin: () => state.isAdmin,
     delay,
+    // Send an event to onEvent subscribers (like app.emit in Rust).
+    emit: (name, payload) => {
+      for (const cb of bus.get(name) || []) cb(clone(payload));
+    },
     // Another mock command's result (e.g. the health mock reads list_startup).
     call: async (cmd, args = {}) => {
       if (!handlers[cmd]) throw `Unknown command: ${cmd}`;
@@ -1043,5 +1070,5 @@ const mock = (() => {
     }
   }
 
-  return { call: mockCall, subscribe };
+  return { call: mockCall, subscribe, on };
 })();

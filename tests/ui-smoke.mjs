@@ -94,6 +94,10 @@ async function optimizeTabs(page) {
       throw new Error(`Optimize > ${tab} is empty`);
     });
   }
+  await page.click('#view-optimize .op-tabs [data-tab="cleanup"]');
+  await page.waitForSelector('#op-pane-cleanup .cl-cat', { timeout: WAIT }).catch(() => {
+    throw new Error('Optimize > Cleanup shows no categories');
+  });
   await page.click('#view-optimize .op-tabs [data-tab="health"]');
   await page.waitForSelector('#op-pane-health .hl-item', { timeout: WAIT }).catch(() => {
     throw new Error('Optimize > Health shows no checks');
