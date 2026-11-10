@@ -794,7 +794,8 @@ pub fn changes_with(b: &dyn Backend, dir: &Path) -> Result<Vec<Change>, String> 
     let mut log = load_log(dir)?;
     let mut dirty = false;
     for c in log.changes.iter_mut().filter(|c| c.group == Group::App && is_live(c)) {
-        if c.state == ChangeState::Applied && c.family.as_deref().is_some_and(|f| b.app_installed(f)) {
+        // Pending too: an app whose removal never finished (Orbit stopped) is still installed.
+        if c.family.as_deref().is_some_and(|f| b.app_installed(f)) {
             c.state = ChangeState::Undone;
             c.undone_at = Some(now_secs());
             dirty = true;

@@ -564,6 +564,41 @@ fn a_pending_change_from_a_crash_can_be_undone() {
 }
 
 #[test]
+fn a_pending_app_removal_that_never_happened_counts_as_undone() {
+    let dir = temp_dir("crashapp");
+    let family = "Microsoft.BingWeather_8wekyb3d8bbwe";
+    let log = ChangeLog {
+        version: 1,
+        next_id: 2,
+        changes: vec![Change {
+            id: 1,
+            item: format!("app:{family}"),
+            group: Group::App,
+            name: "Weather".into(),
+            raw: "Microsoft.BingWeather".into(),
+            target: "Microsoft.BingWeather_1.0.0.0_x64__8wekyb3d8bbwe".into(),
+            action: "Remove for this user".into(),
+            from: "Installed".into(),
+            to: "Removed for you".into(),
+            before: "installed".into(),
+            family: Some(family.into()),
+            store_url: Some(store_url(family)),
+            needs_admin: false,
+            at: 1,
+            state: ChangeState::Pending,
+            undone_at: None,
+        }],
+    };
+    save_log(&dir, &log).unwrap();
+    let f = Fake { inv: RefCell::new(sample()), ..Default::default() };
+    // Still removed: it stays live.
+    assert_eq!(changes_with(&f, &dir).unwrap()[0].state, ChangeState::Pending);
+    // Still installed (the removal never ran): nothing left to undo.
+    f.installed.borrow_mut().push(family.into());
+    assert_eq!(changes_with(&f, &dir).unwrap()[0].state, ChangeState::Undone);
+}
+
+#[test]
 fn store_family_names_are_checked() {
     assert!(valid_family("Microsoft.BingWeather_8wekyb3d8bbwe"));
     assert!(valid_family("king.com.CandyCrushSaga_kgqvnymyfvs32"));
