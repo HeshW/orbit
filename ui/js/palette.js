@@ -33,8 +33,8 @@ const VIEWS = [
   ['services', 'Services', 'i-services', '06', 'windows services'],
   ['network', 'Network', 'i-plug', '07', 'connections ports sockets tcp udp internet'],
   ['security', 'Security', 'i-radar', '08', 'scan signatures malware suspicious signed'],
-  ['optimize', 'Optimize', 'i-gauge', '', 'health report pc check cleanup boost drivers speed up'],
-  ['settings', 'Settings', 'i-gear', '09', 'preferences options themes'],
+  ['optimize', 'Optimize', 'i-gauge', '09', 'health report pc check cleanup boost drivers speed up'],
+  ['settings', 'Settings', 'i-gear', '10', 'preferences options themes'],
 ];
 
 // Commands other modules add (docs/V04-CONTRACT.md "Palette registry").

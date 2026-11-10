@@ -474,8 +474,7 @@ What the code has beyond the sections above. These are part of the contract now.
 
 **v0.5: Optimize view (health report, startup suggestions, disk cleanup, game boost, driver check)**
 - Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
-  Security and Settings. It has no number key: `app.js` keeps keys 1-9 on the 0.4 views
-  (`KEY_VIEWS` = `VIEW_NAMES` without `'optimize'`). The palette "Go to" group lists it, and the
+  Security and Settings, numbered 09 on key 9; Settings is 10 on key 0 (`KEY_VIEWS` = `VIEW_NAMES`). The palette "Go to" group lists it, and the
   palette Actions offer "Optimize: Health / Cleanup / Boost / Drivers".
 - Sub-tabs: Health, Cleanup, Boost, Drivers. `views/optimize.js` is only the frame (head, tab
   list, one pane each; last tab in localStorage `orbit.optimizeTab`) and exports

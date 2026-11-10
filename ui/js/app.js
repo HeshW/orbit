@@ -8,8 +8,8 @@ export const views = {};
 
 // Sidebar order (docs/V04-CONTRACT.md, plus Optimize in 0.5).
 const VIEW_NAMES = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'settings'];
-// Number keys 1-9 keep their 0.4 views; Optimize has no key (palette and sidebar only).
-const KEY_VIEWS = VIEW_NAMES.filter((v) => v !== 'optimize');
+// Number keys follow the sidebar: 1-9 are the first nine views, 0 is the tenth (Settings).
+const KEY_VIEWS = VIEW_NAMES;
 const VIEW_KEY = 'orbit.view';
 const SEARCH_DEBOUNCE_MS = 80;
 const WATCH_CPU = 50;
@@ -1004,9 +1004,9 @@ function wireKeys() {
       focusSearch();
       return;
     }
-    if (key >= '1' && key <= '9' && key.length === 1) {
+    if (key >= '0' && key <= '9' && key.length === 1) {
       e.preventDefault();
-      navigate(KEY_VIEWS[Number(key) - 1]);
+      navigate(KEY_VIEWS[key === '0' ? 9 : Number(key) - 1]);
       return;
     }
     if (key === ' ' || e.code === 'Space') {
@@ -1128,7 +1128,7 @@ async function boot() {
     }
   }
 
-  // A sidebar click or 1-9 during boot already picked a view before its module had
+  // A sidebar click or 0-9 during boot already picked a view before its module had
   // mounted: keep that choice and show it now instead of jumping back to the saved view.
   if (currentView) {
     try {

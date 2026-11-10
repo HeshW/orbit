@@ -26,7 +26,7 @@ const SHORTCUTS = [
   { keys: ['/'], what: 'Focus search' },
   { keys: ['Ctrl', 'K'], what: 'Open the command palette' },
   { keys: ['Ctrl', 'N'], what: 'Run a new task' },
-  { keys: ['1', '9'], range: true, what: 'Switch section' },
+  { keys: ['1', '9'], range: true, what: 'Switch section (0 for Settings)' },
   { keys: ['Space'], what: 'Pause or resume updates' },
   { keys: ['Del'], what: 'End the selected task' },
   { keys: ['Enter'], what: 'Open details for the selected process' },
