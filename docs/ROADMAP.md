@@ -1,5 +1,26 @@
 # Orbit roadmap — future features
 
+## Status (after 0.4.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | App history | Shipped in 0.4.0 (Orbit records its own). SRUM back-fill not done. |
+| 2 | Users tab | Shipped in 0.4.0. |
+| 3 | Per-app network (ETW) | Shipped in 0.4.0, admin only. The elevated path is not tested on a real PC yet. |
+| 4 | Ctrl+Shift+Esc takeover | Dropped. Replaced by the Ctrl+Shift+O hotkey in 0.4.0. |
+| 5 | Auto-start elevated | Not planned: Orbit installs to a user-writable folder, so a silent elevated task would be a privilege-escalation hole. |
+| 6 | v1 gaps | Per-process network done (#3). The rest are Windows limits, unchanged. |
+| 7 | **Optimize (planned for 0.5)** | Planned. See section 7 below. |
+
+Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
+real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
+a real Ctrl+Shift+O press, Start with Windows, backup import, Users actions, battery).
+
+---
+
+The sections below were written before 0.4.0. Sections 1-6 are kept for the reasoning;
+section 7 is new.
+
 Planning only. No code yet. This file describes six things the owner wants to add,
 how each would fit Orbit's real architecture (see `CONTRACT.md`), what admin rights
 each needs, the risks, and a rough size (S / M / L). A recommended order is at the end.
@@ -308,3 +329,109 @@ Ordered by value-for-effort and risk, lightest and safest first:
 A theme across all of them: keep the admin-only parts **opt-in and clearly labelled**, and
 reuse Orbit's existing "show what we can read, offer Restart as administrator for the rest"
 pattern rather than demanding elevation up front.
+
+---
+
+## 7. Optimize (planned for 0.5)
+
+The owner asked for something that helps optimize and speed up PCs, in the spirit of IObit
+Driver Booster. The plan keeps the useful part and skips the risky part. Orbit stays local
+and honest: it never downloads drivers or software itself, every clean-up shows what it will
+remove before it removes it, and it makes no speed claims it can't measure.
+
+Planning only, not yet checked against Microsoft's docs. API names below are the likely
+route and are **(unverified)** until each feature is built.
+
+### 7a. PC health report — M
+
+**What it does.** One page that answers "is anything wrong with this PC?", with a plain
+"Fix this" button per item where Orbit can act:
+- Disk health (SMART / reliability) and free space per drive.
+- Uptime, and whether a restart is pending (after updates or installs).
+- Windows Update status: last check, pending updates.
+- Startup load: the 0.4 startup impact numbers.
+- Anything the Security scan flagged.
+
+**Likely route.** Disk health from the Storage WMI classes (`MSFT_PhysicalDisk`; the
+reliability counters probably need admin). Pending restart from the well-known registry
+flags. Windows Update from the Windows Update Agent COM API (search only, no installs).
+Reuses `impact.rs` and `security.rs`.
+
+**Admin:** mostly no; disk reliability counters likely yes.
+
+### 7b. Startup suggestions — S
+
+**What it does.** Builds on the startup impact Orbit already measures: "These 3 apps add
+the most to your sign-in. Turn them off?", with one click to disable each (the existing
+startup toggle). It never suggests Microsoft or security software, and never disables
+anything on its own. Shown in Startup and in the health report.
+
+### 7c. Disk cleanup and "what's filling my disk" — M–L
+
+**What it does.**
+- Shows the size of each junk category: user and Windows temp files, the Windows Update
+  download cache, crash dumps, browser caches, and the Recycle Bin.
+- Clears only the categories the user ticks, and reports how much space it freed.
+- A "biggest folders" view per drive, to find what's filling the disk, with "Open folder"
+  instead of delete.
+
+**Rules.** Browser caches only when that browser is closed. Never touch user documents,
+Downloads, or anything outside the known junk folders. Files in use are skipped, not
+forced.
+
+**Admin:** user temp and the Recycle Bin, no. Windows temp, the update cache and crash
+dumps, yes (Restart as administrator pattern).
+**Risks:** deleting the wrong thing. Keep the folder list fixed and reviewed, add unit tests
+for the path rules, and show a preview before every clean.
+
+### 7d. Game / focus boost — S–M
+
+**What it does.** One click, or automatically when a chosen game starts:
+- lowers the priority of heavy background apps, or pauses them (optional);
+- switches to the High performance power plan;
+- shows a small "Boost on" badge.
+
+When the game closes or the user turns it off, everything goes back exactly as it was.
+
+**Likely route.** Reuses `actions.rs` priority and suspend, along with its critical-process
+guard. Power plans via the Power API (`PowerGetActiveScheme` / `PowerSetActiveScheme`).
+Game start detected from a user-picked list of exes (simple and predictable) rather than
+guessing from full-screen windows.
+
+**Admin:** none expected for your own apps. System processes are left alone.
+**Risks:** an app left paused or low priority if Orbit crashes. Save the "before" state to
+disk and restore it on the next start, the way `resume_all` works on exit.
+
+### 7e. Driver check — M
+
+**What it does.**
+- Lists every device driver with its version, date, maker, and whether it is signed.
+- Flags devices that report a problem (the yellow "!" in Device Manager, with the reason
+  in plain words), very old drivers, and unsigned drivers.
+- For updates, it offers only two safe routes:
+  - drivers Windows Update itself offers for this PC, installed through Windows;
+  - a link to the maker's official driver page (NVIDIA, AMD, Intel, Realtek and so on).
+
+**Likely route.** Device list, problem codes, driver version and date through SetupAPI /
+CfgMgr32. Windows Update driver search through the Windows Update Agent API.
+
+**Admin:** listing, no. Installing a Windows Update driver, yes.
+**Not doing:** downloading drivers from Orbit's own servers or third-party mirrors, or
+installing drivers silently. That is where tools like this cause boot crashes.
+
+### Not building (and why)
+
+These are common in "optimizer" apps but don't help, so Orbit won't ship them:
+- **RAM cleaners.** They push apps out of memory, and the PC gets slower as it pages them
+  back in.
+- **Registry cleaners.** No measurable speed gain, and a real chance of breaking apps or
+  Windows.
+- **"Internet booster" tweaks.** TCP tweaks with no measurable effect on modern Windows.
+
+### Order
+
+1. **Health report (7a) plus startup suggestions (7b):** safe, read-mostly, and shows
+   value straight away.
+2. **Disk cleanup (7c):** visible result (space freed), needs the most care on path rules.
+3. **Game boost (7d):** builds on existing actions.
+4. **Driver check (7e):** read-only listing first, Windows Update installs second.
