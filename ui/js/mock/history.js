@@ -114,6 +114,7 @@ function buildDays() {
 
 let days = null;
 let cleared = false;
+const removed = new Set(); // keys removed with remove_history_app
 
 function flag(name) {
   try {
@@ -155,8 +156,10 @@ export default {
     const rows = [];
     for (const [i, s] of sums) {
       const [name, exe] = APPS[i];
+      const key = (exe || name).toLowerCase();
+      if (removed.has(key)) continue;
       rows.push({
-        key: (exe || name).toLowerCase(),
+        key,
         name,
         exe,
         cpuSeconds: Math.round(s.cpu * 1000) / 1000,
@@ -178,6 +181,14 @@ export default {
   async clear_history(_args, ctx) {
     await ctx.delay(80);
     cleared = true;
+    return null;
+  },
+
+  // Like history.rs: an unknown key is not an error (nothing to delete).
+  async remove_history_app({ key } = {}, ctx) {
+    await ctx.delay(60);
+    if (!String(key || '').trim()) throw 'That app is not in the history.';
+    removed.add(String(key).toLowerCase());
     return null;
   },
 

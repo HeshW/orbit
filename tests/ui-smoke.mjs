@@ -122,6 +122,53 @@ async function gpuAdapters(page) {
   await page.click('#view-performance .perf-tile--cpu');
 }
 
+async function menuLabels(page) {
+  await page.waitForSelector('#context-menu:not([hidden]) .menu-item', { timeout: WAIT });
+  return page.locator('#context-menu .menu-item__label').allInnerTexts();
+}
+
+// History: right-click a running app (mock chrome.exe) and an app that is not running;
+// Shift+F10 opens the same menu from the keyboard; Remove from history drops the row.
+async function historyMenu(page) {
+  await showView(page, 'history');
+  const chrome = page.locator('#view-history tr.row[data-key$="\\\\chrome.exe"]');
+  await chrome.waitFor({ timeout: WAIT });
+  await chrome.click({ button: 'right' });
+  let labels = await menuLabels(page);
+  for (const want of ['Search online', 'Open file location', 'Properties', 'Copy name', 'Copy path', 'Show in Processes', 'End task', 'Remove from history']) {
+    if (!labels.includes(want)) throw new Error(`History menu for chrome.exe lacks "${want}": ${labels.join(', ')}`);
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#context-menu[hidden]', { state: 'attached', timeout: WAIT });
+
+  // Keyboard: Shift+F10 on the focused row. The mock runs none of these apps, and the
+  // seeded history has some of them on any day.
+  const idle = page.locator(['rustc', 'photoshop', 'blender', 'audacity']
+    .map((n) => `#view-history tr.row[data-key$="\\\\${n}.exe"]`).join(', ')).first();
+  await idle.focus();
+  await page.keyboard.press('Shift+F10');
+  labels = await menuLabels(page);
+  if (!labels.includes('Remove from history')) throw new Error(`Shift+F10 menu: ${labels.join(', ')}`);
+  if (labels.includes('End task') || labels.includes('Show in Processes')) throw new Error('History menu offers End task for an app that is not running');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#context-menu[hidden]', { state: 'attached', timeout: WAIT });
+
+  const before = await page.locator('#view-history tr.row').count();
+  // A row in view: scrolling closes the menu.
+  const row = page.locator('#view-history tr.row').nth(3);
+  const key = await row.getAttribute('data-key');
+  await row.click({ button: 'right' });
+  await menuLabels(page);
+  await page.locator('#context-menu .menu-item', { hasText: 'Remove from history' }).click();
+  await page.click('#dialog [data-act="ok"]');
+  await page.waitForFunction(([k, n]) => {
+    const rows = [...document.querySelectorAll('#view-history tr.row')];
+    return rows.length === n - 1 && !rows.some((r) => r.dataset.key === k);
+  }, [key, before], { timeout: WAIT }).catch(() => {
+    throw new Error('Remove from history left the row in the table');
+  });
+}
+
 async function setTheme(page, theme) {
   await showView(page, 'settings');
   await page.click(`#view-settings .lv-theme[data-pick="${theme}"]`);
@@ -185,6 +232,7 @@ try {
     await check(`${theme}: details drawer`, () => drawer(page));
   }
   await check('gpu adapters', () => gpuAdapters(page));
+  await check('history menu', () => historyMenu(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
   step = 'idle';
   await page.waitForTimeout(1500);
@@ -199,4 +247,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, no console errors.`);

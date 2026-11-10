@@ -892,6 +892,11 @@ const mock = (() => {
       return null;
     },
 
+    show_properties({ path }) {
+      if (!path) throw 'No file path is known for that app.';
+      return null;
+    },
+
     open_url({ url }) {
       if (!String(url || '').startsWith('https://')) throw 'Only https links can be opened.';
       return null;

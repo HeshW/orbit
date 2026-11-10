@@ -679,6 +679,18 @@ GpuAdapterLoad { luid: string, usage: number|null /*busiest engine of that adapt
   CSS `.perf-adapters`, `.perf-adapter`, `.perf-adapter__name`, `.perf-adapter__val`.
 - New mock module `mock/gpu.js` (two adapters, `?nogpu` empties it); `mock/data.js` fills
   `gpu.adapters`. `tests/ui-smoke.mjs` checks the adapter list.
+- History row menu (8b, details in `docs/features/history.md`). Right-click or Shift+F10 /
+  context-menu key on a row: Search online, Open file location, Properties, Copy name, Copy
+  path; Show in Processes and End task only while the app runs (`processes.js` `endTask`:
+  same confirm and Orbit / critical guards); Remove from history (danger confirm).
+
+| command | args | returns |
+|---|---|---|
+| `remove_history_app` | `key: String` (a `HistoryRow.key`) | `Result<u32, String>` days that held it (async; Orbit's own history files and pending totals only; unknown key = 0) |
+| `show_properties` | `path: String` (absolute, existing) | `Result<(), String>` (async; Explorer's Properties sheet via `SHObjectProperties` on its own STA thread, which pumps messages while it owns the sheet) |
+
+- Mocks: `show_properties` in `api.js`, `remove_history_app` in `mock/history.js`.
+  `tests/ui-smoke.mjs` checks the menu (running and idle app, Shift+F10) and Remove.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

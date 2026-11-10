@@ -67,6 +67,7 @@ pub fn run() {
             actions::run_task,
             actions::get_affinity,
             actions::set_affinity,
+            actions::show_properties,
             // icons
             icons::get_icons,
             // startup
@@ -99,6 +100,7 @@ pub fn run() {
             history::get_history,
             history::clear_history,
             history::set_history_enabled,
+            history::remove_history_app,
             // tools (v0.4)
             tools::find_file_lockers,
             // shell (v0.4)

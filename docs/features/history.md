@@ -19,6 +19,7 @@ Files: `src-tauri/src/history.rs`, `ui/js/views/history.js`, `ui/css/views/histo
 | pruning | Day files older than 90 days (today counts as one) are deleted at start (background thread) and at each new day. Only `YYYY-MM-DD.json` names are touched. |
 | `get_history(days)` | `spawn_blocking`. Days clamped 1..90; merges the files of the last N local days plus what is still in memory, sorted by CPU time. A broken file is skipped with a log line. |
 | `clear_history` | Deletes every day file (and half-written `.tmp`) in the folder and empties memory. Recording carries on if it is on. |
+| `remove_history_app(key)` | v0.6. `spawn_blocking`, under `IO`. Drops that app's pending totals (`Recorder::forget`; a running app is counted again from the next tick) and removes it from every day file (`remove_from_files`: rewrite atomically, delete a day left empty, other files untouched). Returns the number of days that held it; an unknown key is not an error. Orbit's own files only. |
 | `set_history_enabled` | Now `async` (allowed by the contract). Stores the flag; turning it off writes what was pending. |
 | locking | One `IO` mutex around file reads/writes, always taken before the `STATE` mutex; ticks that do not write take only `STATE`. |
 
@@ -50,13 +51,23 @@ Live day file: 180 apps, 78 KB. `get_history(1)` round trip from the UI: 10 ms.
 - Range is remembered in settings as `historyRange` ("today"|"7"|"30"|"custom") and
   `historyCustomDays` (store.js keeps extra keys).
 - Palette: "App history", "Turn off/on app history recording", "Delete app history" (danger).
+- Row menu (v0.6, 8b): right-click a row, or Shift+F10 / the context-menu key on the focused
+  row (rows are focusable: one roving `tabindex="0"`, arrows / Home / End move, the
+  selection survives the 30 s refresh). Items: Search online, Open file location,
+  Properties (`show_properties`, Explorer's Properties sheet), Copy name, Copy path; while
+  the app runs (a snapshot process whose lowercased exe path, else name, equals the key):
+  Show in Processes (clears the search, opens Processes and the details drawer) and End
+  task (`processes.js` `endTask` on the process with a window, else the root of the app's
+  tree: same confirm for Windows processes and the same refusal for Orbit itself); then
+  Remove from history (danger confirm, `remove_history_app`).
 
 ## Mock (`mock/history.js`)
 
 25 apps over 30 days from a fixed seed (stable between reloads): daily, weekday, weekend
 and occasional apps, Premiere first seen 21 days ago, Orbit 6 days ago; today is partial.
 Network bytes only on days 9-11 ago (as if Orbit ran elevated then), plus today after the
-mock's Run as admin. Delete empties it. Flags: `?nohistory`, `?historyfail`.
+mock's Run as admin. Delete empties it; `remove_history_app` hides one key until reload.
+Flags: `?nohistory`, `?historyfail`.
 
 ## How to test
 

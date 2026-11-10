@@ -337,6 +337,14 @@ impl Recorder {
     fn pending(&self) -> impl Iterator<Item = &DayApp> {
         self.apps.iter().filter(|a| !a.is_empty())
     }
+
+    /// Drops what is pending for one app. Its processes stay known, so it is
+    /// counted again from the next tick if it is still running.
+    fn forget(&mut self, key: &str) {
+        if let Some(&i) = self.index.get(key) {
+            self.apps[i].clear_counts();
+        }
+    }
 }
 
 fn finite(v: f64) -> f64 {
@@ -471,6 +479,11 @@ fn merge_into_file(dir: &Path, day: i64, apps: &[DayApp]) -> std::io::Result<()>
             }
         }
     }
+    write_day(dir, day, &mut file)
+}
+
+/// Writes one day file atomically (temp file, then rename).
+fn write_day(dir: &Path, day: i64, file: &mut DayFile) -> std::io::Result<()> {
     file.version = FILE_VERSION;
     file.date = file_name(day).trim_end_matches(".json").to_string();
     let json = serde_json::to_vec(&file).map_err(std::io::Error::other)?;
@@ -479,6 +492,27 @@ fn merge_into_file(dir: &Path, day: i64, apps: &[DayApp]) -> std::io::Result<()>
     let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     fs::write(&tmp, json)?;
     fs::rename(&tmp, &path)
+}
+
+/// Removes one app (`key`) from every day file in `dir`. A day left with no
+/// apps is deleted. Returns how many days held it.
+fn remove_from_files(dir: &Path, key: &str) -> std::io::Result<u32> {
+    let mut changed = 0;
+    let mut failed = None;
+    for (day, path) in day_files(dir) {
+        let Some(mut file) = read_day(dir, day) else { continue };
+        let before = file.apps.len();
+        file.apps.retain(|a| a.key != key);
+        if file.apps.len() == before {
+            continue;
+        }
+        let result = if file.apps.is_empty() { fs::remove_file(&path) } else { write_day(dir, day, &mut file) };
+        match result {
+            Ok(()) => changed += 1,
+            Err(err) => failed = Some(err),
+        }
+    }
+    failed.map_or(Ok(changed), Err)
 }
 
 /// Merges the files of days `from..=to` into `out` by key.
@@ -690,6 +724,22 @@ fn clear_all() -> Result<(), String> {
     }
 }
 
+/// Deletes one app from Orbit's history: every day file and what is pending.
+fn remove_app(key: &str) -> Result<u32, String> {
+    let key = key.trim().to_lowercase();
+    if key.is_empty() {
+        return Err("That app is not in the history.".to_string());
+    }
+    let _io = lock(&IO);
+    if let Some(rec) = lock(&STATE).as_mut() {
+        rec.forget(&key);
+    }
+    match history_dir() {
+        Some(dir) => remove_from_files(&dir, &key).map_err(|err| format!("Could not change every history file: {err}.")),
+        None => Ok(0),
+    }
+}
+
 #[tauri::command]
 pub async fn get_history(days: u32) -> Result<Vec<HistoryRow>, String> {
     tauri::async_runtime::spawn_blocking(move || history_rows(days))
@@ -702,6 +752,15 @@ pub async fn clear_history() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(clear_all)
         .await
         .map_err(|_| "Could not delete app history.".to_string())?
+}
+
+/// History > right-click > Remove from history. `key` is a `HistoryRow.key`.
+/// Returns the number of days that held the app (0 when only pending or unknown).
+#[tauri::command]
+pub async fn remove_history_app(key: String) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || remove_app(&key))
+        .await
+        .map_err(|_| "Could not remove that app from the history.".to_string())?
 }
 
 /// The UI calls this at boot and whenever the setting changes. Turning it
@@ -960,6 +1019,38 @@ mod tests {
         let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(left, vec![std::ffi::OsString::from("notes.txt")]);
         delete_all(&dir.join("missing")).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn removes_one_app_from_files_and_pending() {
+        let dir = scratch("remove");
+        let a = DayApp { key: r"c:\a.exe".into(), name: "a.exe".into(), cpu_seconds: 5.0, first_seen: 1, last_seen: 2, ..Default::default() };
+        let b = DayApp { key: r"c:\b.exe".into(), name: "b.exe".into(), cpu_seconds: 7.0, first_seen: 1, last_seen: 2, ..Default::default() };
+        merge_into_file(&dir, 100, &[a.clone(), b.clone()]).unwrap();
+        merge_into_file(&dir, 101, &[a.clone()]).unwrap();
+        merge_into_file(&dir, 102, &[b.clone()]).unwrap();
+        fs::write(dir.join("notes.txt"), "keep").unwrap();
+
+        assert_eq!(remove_from_files(&dir, r"c:\a.exe").unwrap(), 2);
+        // Day 100 keeps b; day 101 had only a and is gone; day 102 is untouched.
+        let d100 = read_day(&dir, 100).unwrap();
+        assert_eq!(d100.apps.iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), [r"c:\b.exe"]);
+        assert!(!dir.join(file_name(101)).exists());
+        assert_eq!(read_day(&dir, 102).unwrap().apps.len(), 1);
+        assert!(dir.join("notes.txt").exists());
+        // Unknown key: nothing changes.
+        assert_eq!(remove_from_files(&dir, "nope").unwrap(), 0);
+
+        // Pending totals go, the app is counted again on the next tick.
+        let mut rec = Recorder::new(100);
+        let rows = vec![row(9, "a.exe", Some(r"C:\a.exe"), 50.0, 1024, ProcessKind::App)];
+        rec.add_tick(&snapshot(1, 2, rows.clone()), 1.0, 1);
+        assert_eq!(rec.pending().count(), 1);
+        rec.forget(r"c:\a.exe");
+        assert_eq!(rec.pending().count(), 0);
+        rec.add_tick(&snapshot(2, 2, rows), 1.0, 2);
+        assert_eq!(rec.pending().count(), 1);
         let _ = fs::remove_dir_all(&dir);
     }
 

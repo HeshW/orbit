@@ -6,12 +6,19 @@
 // reloads on show, on range change and every 30 s while visible (the backend includes what
 // it has not written yet, so today is always current). "Record app history" is
 // settings.historyEnabled, sent to the backend at boot and on every change.
+//
+// Right-click (or Shift+F10 / the context-menu key on the focused row; arrows move between
+// rows) opens a menu with the Processes view's actions where they make sense: Search
+// online, Open file location, Properties, Copy name / path, and, while the app runs, Show
+// in Processes and End task (processes.js endTask: same confirm and critical-process
+// guard). "Remove from history" deletes that app from Orbit's own history files.
 
 import { call } from '../api.js';
-import { store, on, setSettings } from '../store.js';
+import { store, on, setSettings, setQuery, selectProcess } from '../store.js';
 import { bytes, time, escapeHtml, fuzzy, IO_TITLE } from '../format.js';
-import { toast, navigate, confirmDialog } from '../app.js';
+import { toast, navigate, confirmDialog, showMenu } from '../app.js';
 import { registerCommands } from '../palette.js';
+import { endTask, copyText } from './processes.js';
 
 const REFRESH_MS = 30000;
 const RANGES = [
@@ -39,6 +46,7 @@ let timer = 0;
 let sort = { key: 'cpu', dir: -1 };
 let lastSent = null; // last historyEnabled value sent to the backend
 const icons = new Map(); // exe -> data URL, '' while asked or when Windows has none
+let selectedKey = null;  // the row the menu / keyboard acts on
 let unregister = null;
 
 const icon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"/></svg>`;
@@ -246,7 +254,8 @@ function netCell(r, admin) {
 function rowHtml(r, maxCpu, admin) {
   const share = maxCpu > 0 ? Math.max(0, Math.min(1, r.cpuSeconds / maxCpu)) : 0;
   const w = Math.round(share * 1000) / 10;
-  return `<tr class="row" data-key="${text(r.key)}">
+  const sel = r.key === selectedKey;
+  return `<tr class="row${sel ? ' is-selected' : ''}" data-key="${text(r.key)}" tabindex="${sel ? 0 : -1}" aria-selected="${sel}">
     <td class="c-name"><div class="lv-namecell">
       ${iconCell(r.exe)}
       <span class="lv-primary" title="${text(r.exe || r.name)}">${text(r.name)}</span>
@@ -362,14 +371,166 @@ function renderTable() {
   for (const r of list) if (r.cpuSeconds > maxCpu) maxCpu = r.cpuSeconds;
   const admin = perAppNet();
   const scroll = els.scroll.scrollTop;
+  // Keep keyboard focus on the same app across the 30 s refresh.
+  const hadFocus = els.tbody.contains(document.activeElement);
+  if (!list.some((r) => r.key === selectedKey)) selectedKey = null;
   els.tbody.innerHTML = list.map((r) => rowHtml(r, maxCpu, admin)).join('');
+  // Without a selection the first row takes Tab, so the table is reachable by keyboard.
+  if (!selectedKey && els.tbody.firstElementChild) els.tbody.firstElementChild.tabIndex = 0;
   els.scroll.scrollTop = scroll;
+  if (hadFocus) {
+    const tr = rowEl(selectedKey) || els.tbody.firstElementChild;
+    if (tr) tr.focus({ preventScroll: true });
+  }
 }
 
 function render() {
   if (!root) return;
   renderControls();
   renderTable();
+}
+
+// ------------------------------------------------------------------ row menu
+
+function rowEl(key) {
+  if (!key) return null;
+  for (const tr of els.tbody.children) if (tr.dataset.key === key) return tr;
+  return null;
+}
+
+function select(key, focus = false) {
+  selectedKey = key;
+  for (const tr of els.tbody.children) {
+    const on = tr.dataset.key === key;
+    tr.classList.toggle('is-selected', on);
+    tr.setAttribute('aria-selected', on ? 'true' : 'false');
+    tr.tabIndex = on ? 0 : -1;
+  }
+  const tr = rowEl(key);
+  if (tr && focus) {
+    tr.focus({ preventScroll: true });
+    tr.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+/** The app's running processes, matched like history.rs keys (exe path, else name). */
+function runningOf(r) {
+  const procs = store.snapshot && Array.isArray(store.snapshot.processes) ? store.snapshot.processes : [];
+  return procs.filter((p) => p.pid !== 0 && (p.exe ? p.exe.toLowerCase() : String(p.name).toLowerCase()) === r.key);
+}
+
+/** The process End task acts on: the one with a window, else the root of the app's tree. */
+function mainProcess(procs) {
+  const pids = new Set(procs.map((p) => p.pid));
+  return procs.find((p) => p.kind === 'app')
+    || procs.find((p) => p.parentPid == null || !pids.has(p.parentPid))
+    || procs[0];
+}
+
+function clearSearch() {
+  const input = document.getElementById('search');
+  if (input && input.value) {
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if ((store.query || '') !== '') setQuery('');
+}
+
+async function run(cmd, args) {
+  try {
+    await call(cmd, args);
+  } catch (err) {
+    toast(errText(err), 'error');
+  }
+}
+
+async function copy(value, what) {
+  const ok = await copyText(value);
+  toast(ok ? `Copied ${what}.` : 'Could not copy to the clipboard.', ok ? 'success' : 'error');
+}
+
+async function removeApp(r) {
+  const ok = await confirmDialog({
+    title: `Remove ${r.name} from history?`,
+    body: `Orbit deletes every day it recorded for ${r.name} on this PC. This cannot be undone. If the app runs again, Orbit starts counting it again.`,
+    confirmLabel: 'Remove',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await call('remove_history_app', { key: r.key });
+    rows = rows.filter((x) => x.key !== r.key);
+    if (selectedKey === r.key) selectedKey = null;
+    render();
+    toast(`Removed ${r.name} from app history.`, 'success');
+  } catch (err) {
+    toast(`Could not remove ${r.name}. ${errText(err)}`, 'error');
+  }
+  load();
+}
+
+function menuItems(r) {
+  const procs = runningOf(r);
+  const main = procs.length ? mainProcess(procs) : null;
+  const items = [
+    { label: 'Search online', icon: 'i-globe', action: () => run('search_online', { query: r.name }) },
+    { label: 'Open file location', icon: 'i-folder', disabled: !r.exe, action: () => run('open_location', { path: r.exe }) },
+    { label: 'Properties', icon: 'i-file', disabled: !r.exe, action: () => run('show_properties', { path: r.exe }) },
+    { separator: true },
+    { label: 'Copy name', icon: 'i-copy', action: () => copy(r.name, r.name) },
+    { label: 'Copy path', icon: 'i-copy', disabled: !r.exe, action: () => copy(r.exe, 'the path') },
+  ];
+  if (main) {
+    items.push(
+      { separator: true },
+      {
+        label: 'Show in Processes',
+        icon: 'i-arrow-right',
+        action: () => {
+          // The search is global: clear it so the row is not filtered out over there.
+          clearSearch();
+          navigate('processes');
+          selectProcess(main.pid);
+        },
+      },
+      { label: 'End task', icon: 'i-stop', danger: true, action: () => endTask(main.pid, main.name, main.startTime) },
+    );
+  }
+  items.push(
+    { separator: true },
+    { label: 'Remove from history', icon: 'i-x', danger: true, action: () => removeApp(r) },
+  );
+  return items;
+}
+
+function openMenu(key, x, y) {
+  const r = rows.find((row) => row.key === key);
+  if (!r) return;
+  select(key);
+  showMenu(x, y, menuItems(r));
+}
+
+function onRowKey(e) {
+  const tr = e.target instanceof Element ? e.target.closest('tr.row') : null;
+  if (!tr || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = tr.getBoundingClientRect();
+    openMenu(tr.dataset.key, Math.round(rect.left + 48), Math.round(rect.bottom));
+    return;
+  }
+  if (e.shiftKey) return;
+  const all = Array.from(els.tbody.children);
+  const i = all.indexOf(tr);
+  let next = -1;
+  if (e.key === 'ArrowDown') next = Math.min(all.length - 1, i + 1);
+  else if (e.key === 'ArrowUp') next = Math.max(0, i - 1);
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = all.length - 1;
+  if (next < 0) return;
+  e.preventDefault();
+  select(all[next].dataset.key, true);
 }
 
 // ------------------------------------------------------------------ actions
@@ -554,6 +715,23 @@ export function mount(rootEl) {
     if (btn.dataset.emptyAct === 'retry') load();
     if (btn.dataset.emptyAct === 'enable') setRecording(true);
   });
+  els.tbody.addEventListener('contextmenu', (e) => {
+    const tr = e.target instanceof Element ? e.target.closest('tr.row') : null;
+    if (!tr) return;
+    e.preventDefault();
+    let { clientX: x, clientY: y } = e;
+    if (!x && !y) {
+      const rect = tr.getBoundingClientRect();
+      x = rect.left + 48;
+      y = rect.bottom;
+    }
+    openMenu(tr.dataset.key, x, y);
+  });
+  els.tbody.addEventListener('click', (e) => {
+    const tr = e.target instanceof Element ? e.target.closest('tr.row') : null;
+    if (tr) select(tr.dataset.key);
+  });
+  els.tbody.addEventListener('keydown', onRowKey);
   els.table.querySelector('thead').addEventListener('click', (e) => {
     const btn = e.target instanceof Element ? e.target.closest('[data-sort]') : null;
     if (!btn) return;

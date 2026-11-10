@@ -1238,6 +1238,93 @@ pub async fn open_location(path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// A file's Properties sheet, as Explorer shows it (History > right-click >
+/// Properties). Off the main thread: `exists()` can block on a network path.
+#[tauri::command]
+pub async fn show_properties(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || show_properties_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn show_properties_blocking(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("No file path is known for that app.".to_string());
+    }
+    if trimmed.contains('"') {
+        return Err("That path is not valid.".to_string());
+    }
+    let normalized = trimmed.replace('/', "\\");
+    let p = Path::new(&normalized);
+    if !p.is_absolute() || !p.exists() {
+        return Err("That file no longer exists.".to_string());
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    // The sheet is modeless. It gets an STA thread of its own that keeps
+    // pumping messages while it owns a window, so it stays open after this
+    // returns (the shell may also open it on a thread of its own).
+    std::thread::Builder::new()
+        .name("orbit-properties".into())
+        .spawn(move || {
+            use windows::Win32::UI::Shell::{SHObjectProperties, SHOP_FILEPATH};
+            let init = unsafe {
+                CoInitializeEx(None, COINIT(COINIT_APARTMENTTHREADED.0 | COINIT_DISABLE_OLE1DDE.0))
+            };
+            let wide = to_wide(&normalized);
+            let ok = unsafe {
+                SHObjectProperties(HWND::default(), SHOP_FILEPATH, PCWSTR(wide.as_ptr()), PCWSTR::null())
+            }
+            .as_bool();
+            let _ = tx.send(ok);
+            if ok {
+                pump_while_windowed();
+            }
+            if init.is_ok() {
+                unsafe { CoUninitialize() };
+            }
+        })
+        .map_err(|e| format!("Could not open the properties: {e}."))?;
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("Windows could not show the properties for that file.".to_string()),
+        // Still opening (a slow network path): it shows when it is ready.
+        Err(_) => Ok(()),
+    }
+}
+
+/// Runs this thread's message loop until it owns no window any more.
+fn pump_while_windowed() {
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::System::Threading::GetCurrentThreadId;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, EnumThreadWindows, MsgWaitForMultipleObjects, PeekMessageW,
+        TranslateMessage, MSG, PM_REMOVE, QS_ALLINPUT,
+    };
+    unsafe extern "system" fn found(_hwnd: HWND, flag: LPARAM) -> BOOL {
+        // SAFETY: `flag` points at the bool below, alive for the whole call.
+        unsafe { *(flag.0 as *mut bool) = true };
+        BOOL(0)
+    }
+    let tid = unsafe { GetCurrentThreadId() };
+    let has_window = || {
+        let mut any = false;
+        let _ = unsafe { EnumThreadWindows(tid, Some(found), LPARAM(&mut any as *mut bool as isize)) };
+        any
+    };
+    let mut msg = MSG::default();
+    while has_window() {
+        // Wake at least twice a second to notice the sheet is gone.
+        unsafe { MsgWaitForMultipleObjects(None, false, 500, QS_ALLINPUT) };
+        while unsafe { PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE) }.as_bool() {
+            unsafe {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    }
+}
+
 /// Percent-encodes a query string value (UTF-8, unreserved characters kept, spaces as '+').
 fn url_encode(input: &str) -> String {
     let mut out = String::with_capacity(input.len() * 3);
