@@ -56,7 +56,7 @@ pub struct HealthReport {
     /// Unix seconds.
     pub generated_at: u64,
     pub is_admin: bool,
-    /// In display order: disks, space, restart, updates, uptime, startup, security.
+    /// In display order: disks, space, restart, updates, devices, uptime, startup, security.
     pub items: Vec<HealthItem>,
     pub drives: Vec<DriveSpace>,
     pub disks: Vec<PhysicalDisk>,
@@ -71,7 +71,7 @@ pub struct HealthReport {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthItem {
-    /// "disks" | "space" | "restart" | "updates" | "uptime" | "startup" | "security"
+    /// "disks" | "space" | "restart" | "updates" | "devices" | "uptime" | "startup" | "security"
     pub key: String,
     pub title: String,
     /// "good" | "warning" | "problem" | "unknown"
@@ -190,7 +190,7 @@ pub struct StartupSuggestion {
 const GB: u64 = 1024 * 1024 * 1024;
 const MB: u64 = 1024 * 1024;
 
-fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -235,7 +235,7 @@ fn gb_text(bytes: u64) -> String {
 }
 
 /// Uninitializes COM on drop when this thread's init succeeded.
-struct ComGuard(bool);
+pub(crate) struct ComGuard(bool);
 
 impl Drop for ComGuard {
     fn drop(&mut self) {
@@ -245,14 +245,14 @@ impl Drop for ComGuard {
     }
 }
 
-fn com_init() -> ComGuard {
+pub(crate) fn com_init() -> ComGuard {
     // S_OK and S_FALSE both need a matching CoUninitialize.
     ComGuard(unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok())
 }
 
 /// OLE automation date (days since 1899-12-30, UTC here) to Unix seconds.
 /// None for 0 / before 1970 (WUA's "never").
-fn ole_date_to_unix(date: f64) -> Option<u64> {
+pub(crate) fn ole_date_to_unix(date: f64) -> Option<u64> {
     let secs = (date - 25_569.0) * 86_400.0;
     (date.is_finite() && secs > 0.0).then(|| secs.round() as u64)
 }
@@ -822,11 +822,11 @@ fn update_cache() -> &'static Mutex<UpdateCache> {
     })
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn wua_error(e: &windows::core::Error) -> String {
+pub(crate) fn wua_error(e: &windows::core::Error) -> String {
     let msg = e.message().to_string();
     let msg = msg.trim().trim_end_matches('.');
     if msg.is_empty() {
@@ -1210,6 +1210,8 @@ struct Local {
     entries: Vec<StartupEntry>,
     measured: bool,
     picks: usize,
+    /// Devices with a problem code (drivers.rs), as (name, reason).
+    devices: Result<Vec<(String, String)>, String>,
 }
 
 fn read_local(is_admin: bool) -> Local {
@@ -1225,6 +1227,7 @@ fn read_local(is_admin: bool) -> Local {
         entries,
         measured: file.is_some(),
         picks: picks.len(),
+        devices: crate::drivers::problem_devices(),
     }
 }
 
@@ -1234,7 +1237,7 @@ fn assemble(
     local: Local,
     scan_ref: Result<&[crate::security::SecurityFinding], &str>,
 ) -> HealthReport {
-    let Local { drives, disks, disk_note, reasons, entries, measured, picks } = local;
+    let Local { drives, disks, disk_note, reasons, entries, measured, picks, devices } = local;
     let now = now_secs();
     let uptime = uptime_secs();
     let items = vec![
@@ -1242,6 +1245,7 @@ fn assemble(
         space_item(&drives),
         restart_item(&reasons),
         updates_item(&update, now),
+        crate::drivers::devices_item(devices.as_deref().map_err(|e| e.as_str())),
         uptime_item(uptime),
         startup_item(&entries, measured, picks),
         security_item(scan_ref),
@@ -1577,6 +1581,6 @@ mod tests {
         // app's process list, so it shows as not run here).
         let report = assemble(false, lock(update_cache()).status.clone(), read_local(false), Err("Not run in this test."));
         println!("report: {}", serde_json::to_string_pretty(&report).unwrap());
-        assert_eq!(report.items.len(), 7);
+        assert_eq!(report.items.len(), 8);
     }
 }

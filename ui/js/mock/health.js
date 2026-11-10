@@ -174,12 +174,21 @@ export default {
           : item('security', 'Security scan', 'good', 'Nothing suspicious among the running programs.');
     security.action = act('Go to Security', 'view', 'security');
 
+    const drivers = await ctx.call('list_drivers');
+    const bad = drivers.devices.filter((d) => d.flags.includes('problem'));
+    const devices = bad.length
+      ? item('devices', 'Devices', 'warning', bad.length === 1 ? `${bad[0].name} reports a problem.` : `${bad.length} devices report a problem.`, {
+        detail: bad.slice(0, 5).map((d) => `${d.name}: ${d.problemText}`).join(' '), action: act('Go to Drivers', 'optimize', 'drivers'),
+      })
+      : item('devices', 'Devices', 'good', 'No device reports a problem.');
+
     const uptime = now() - BOOT;
     const items = [
       item('disks', 'Disk health', 'good', `All ${dk.length} disks report healthy.`, admin ? {} : { detail: diskNote, action: act('Restart as administrator', 'admin', '') }),
       space,
       item('restart', 'Restart', 'warning', 'A restart is pending. Restart when it suits you; Orbit will not restart the PC.', { detail: reasons.join(' ') }),
       updatesItem(update),
+      devices,
       item('uptime', 'Uptime', 'good', `Restarted ${plural(Math.floor(uptime / 86400), 'day', 'days')} ago.`),
       item('startup', 'Startup load', high && picks.length ? 'warning' : 'good',
         high && picks.length

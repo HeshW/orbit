@@ -4,6 +4,7 @@ pub mod actions;
 pub mod autoruns;
 pub mod boost;
 pub mod cleanup;
+pub mod drivers;
 pub mod health;
 pub mod history;
 pub mod icons;
@@ -122,6 +123,10 @@ pub fn run() {
             boost::boost_stop,
             boost::boost_suggestions,
             boost::boost_pick_exe,
+            // optimize: drivers (v0.5)
+            drivers::list_drivers,
+            drivers::get_driver_updates,
+            drivers::install_driver_update,
         ])
         .setup(|app| {
             history::init(app.handle());

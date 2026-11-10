@@ -472,7 +472,7 @@ What the code has beyond the sections above. These are part of the contract now.
   Security, Settings; keys 1-9), new snapshot fields, commands, settings keys, palette
   and mock registries: see `docs/V04-CONTRACT.md`, including its "Integration notes".
 
-**v0.5: Optimize view (health report, startup suggestions, disk cleanup, game boost; drivers to come)**
+**v0.5: Optimize view (health report, startup suggestions, disk cleanup, game boost, driver check)**
 - Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
   Security and Settings. It has no number key: `app.js` keeps keys 1-9 on the 0.4 views
   (`KEY_VIEWS` = `VIEW_NAMES` without `'optimize'`). The palette "Go to" group lists it, and the
@@ -485,7 +485,7 @@ What the code has beyond the sections above. These are part of the contract now.
   count). CSS: `css/views/optimize.css` (frame, `op-`, shared `.op-soon` placeholder card) and
   `css/views/optimize/<id>.css` per sub-tab (prefixes `hl-`, `sg-`, `cl-`, `bo-`, `dr-`),
   all linked in `index.html`. Backend: one module per sub-tab (`health.rs` now; `cleanup.rs`,
-  `boost.rs` now; `drivers.rs` later), registered in `lib.rs`. To add a sub-tab, see
+  `boost.rs`, `drivers.rs` now), registered in `lib.rs`. To add a sub-tab, see
   `docs/features/health.md` "Adding a sub-tab".
 - Commands (`health.rs`):
 
@@ -500,7 +500,7 @@ What the code has beyond the sections above. These are part of the contract now.
 HealthReport { generatedAt: number /*Unix secs*/, isAdmin: boolean, items: HealthItem[],
   drives: DriveSpace[], disks: PhysicalDisk[], diskNote: string|null, update: UpdateStatus,
   uptimeSecs: number, restartReasons: string[] }
-HealthItem { key: "disks"|"space"|"restart"|"updates"|"uptime"|"startup"|"security",
+HealthItem { key: "disks"|"space"|"restart"|"updates"|"devices"|"uptime"|"startup"|"security",
   title: string, status: "good"|"warning"|"problem"|"unknown", text: string,
   detail: string|null, action: HealthAction|null }
 HealthAction { label: string, kind: "view"|"optimize"|"settings"|"admin", target: string }
@@ -607,6 +607,49 @@ Suggestion { name: string, exe: string|null, cpu: number, memory: number, count:
   Processes Boost pauses are added to `SuspendedSet`, so the Processes view shows them.
 - New mock module `mock/boost.js` (uses the built-in `set_priority` / `suspend_process`).
 - `tests/ui-smoke.mjs` checks that Boost shows its status.
+- Drivers (7e, `drivers.rs`, details in `docs/features/drivers.md`). Lists every present device
+  (SetupAPI `DIGCF_PRESENT | DIGCF_ALLCLASSES`, device properties, `CM_Get_DevNode_Status`,
+  `SetupVerifyInfFile` per INF, cached) and flags problem codes, unsigned drivers and
+  third-party drivers 5+ years old (never inbox ones for age). Updates: Windows Update driver
+  offers (WUA, `Type='Driver'`, search only unless the user installs one) or the maker's page
+  (fixed https table, opened with `open_url`). Health gains a "devices" item (problem codes
+  other than 22 / 45, button "Go to Drivers" = `optimize` / `drivers`).
+
+| command | args | returns |
+|---|---|---|
+| `list_drivers` | – | `Result<DriverList, String>` (async; read only; starts a cached WU driver search when stale) |
+| `get_driver_updates` | `refresh?: bool` (true: online search now) | `DriverUpdateStatus` (plain value) |
+| `install_driver_update` | `id: string` (an offered UpdateID) | `Result<InstallResult, String>` (async; admin only; WUA download + install of that one update; the UI confirms first) |
+
+```ts
+DriverList { scannedAt: number, isAdmin: boolean, oldYears: number /*5*/, devices: Device[]
+  /*worst first*/, hidden: number /*no-show devices without a problem, left out*/,
+  counts: { total, problem, unsigned, old, off: number }, system: SystemInfo,
+  updates: DriverUpdateStatus }
+Device { id: string /*instance id*/, name: string, class: string /*"Display adapters"*/,
+  manufacturer: string|null, provider: string|null, version: string|null, date: number|null
+  /*Unix secs*/, inf: string|null /*"oem12.inf"*/, inbox: boolean, signed: boolean|null,
+  signer: string|null, signature: "windows"|"whql"|"authenticode"|"signed"|"unsigned"|null,
+  problem: number|null /*CM_PROB_*/, problemText: string|null,
+  status: "problem"|"unsigned"|"old"|"off"|"ok", flags: string[] /*worst first*/,
+  vendor: VendorLink|null, updateId: string|null /*a DriverOffer.id for this device*/ }
+VendorLink { name: string, url: string /*https, hard-coded in drivers.rs*/ }
+SystemInfo { manufacturer: string|null, model: string|null, vendor: VendorLink|null /*PC maker*/ }
+DriverUpdateStatus { state: "idle"|"checking"|"ready"|"error", offers: DriverOffer[],
+  checkedAt: number|null, online: boolean, error: string|null, installing: string|null,
+  lastInstall: InstallResult|null }
+DriverOffer { id: string /*UpdateID*/, title: string, class, provider, manufacturer, model,
+  hardwareId: string|null, date: number|null, optional: boolean /*BrowseOnly*/,
+  downloaded: boolean, deviceId: string|null, deviceName: string|null }
+InstallResult { id, title: string, ok: boolean,
+  result: "succeeded"|"succeededWithErrors"|"failed"|"aborted", restartRequired: boolean,
+  message: string, at: number }
+```
+- Cargo: `windows` features `Win32_Devices_DeviceAndDriverInstallation` and
+  `Win32_Devices_Properties`. `health.rs` helpers `now_secs`, `com_init`, `ole_date_to_unix`,
+  `lock`, `wua_error` are `pub(crate)`.
+- New mock module `mock/drivers.js` (fake install, never touches anything); `mock/health.js`
+  builds the "devices" item from it.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

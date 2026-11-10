@@ -24,6 +24,7 @@ Update are only queried.
 | Free space | sysinfo disks, per volume. Removable drives listed but not judged. | warning below 10% of the drive (at least 5 GB, at most 25 GB); problem below 3% (1 to 5 GB). Button: Free up space (Cleanup tab). |
 | Restart | `HKLM\...\Component Based Servicing\RebootPending`, `...\WindowsUpdate\Auto Update\RebootRequired` (key exists), `Session Manager\PendingFileRenameOperations` (non-empty). | warning with one plain sentence per flag. No button: Orbit never restarts the PC. |
 | Windows Update | Windows Update Agent COM: `IUpdateSearcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=0")`, feature upgrades (Upgrades category) and duplicate titles left out; `IAutomaticUpdates2.Results` for the last search / install dates. Search only, never download or install. | warning: updates waiting, or Windows has not checked in 14+ days. Button: Open Windows Update (`ms-settings:windowsupdate`). "Check again" asks the server. |
+| Devices | `drivers::problem_devices` (SetupAPI + `CM_Get_DevNode_Status`, see `drivers.md`) | warning when a device has a problem code (22 turned off and 45 not connected do not count); the first 5 with their reason in the detail. Button: Go to Drivers. |
 | Uptime | `GetTickCount64` | warning from 14 days. |
 | Startup load | `startup::collect_startup` + `impact.rs` measurement | unknown until measured; warning when high-impact apps exist that Orbit can suggest turning off. Button: Go to Startup. |
 | Security scan | `security::security_scan` (its signature cache makes repeats fast) | problem with high findings, warning with medium; info findings do not count. Button: Go to Security. |
@@ -66,7 +67,8 @@ table refreshes after a change.
 6. A new tab in `TABS` (`views/optimize.js`) needs a pane id `op-pane-<id>` (made for you)
    and an entry in `OPTIMIZE_TABS` in `tests/ui-smoke.mjs`.
 
-Notes for 7e: Windows Update driver offers are excluded here (`Type='Software'`). Health's
+Notes for 7e: Windows Update driver offers are excluded here (`Type='Software'`); the
+Drivers tab searches them itself. Health's
 "Free up space" button opens the Cleanup tab.
 
 ## How to test
