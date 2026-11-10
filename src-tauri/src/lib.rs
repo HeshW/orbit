@@ -4,6 +4,7 @@ pub mod actions;
 pub mod autoruns;
 pub mod boost;
 pub mod cleanup;
+pub mod debloat;
 pub mod defender;
 pub mod drivers;
 pub mod gpu;
@@ -142,6 +143,13 @@ pub fn run() {
             defender::defender_cancel,
             defender::defender_pick_target,
             defender::open_windows_security,
+            // optimize: guided debloat (v0.6)
+            debloat::debloat_analyze,
+            debloat::debloat_preview,
+            debloat::debloat_apply,
+            debloat::debloat_changes,
+            debloat::debloat_undo,
+            debloat::debloat_undo_all,
         ])
         .setup(|app| {
             history::init(app.handle());

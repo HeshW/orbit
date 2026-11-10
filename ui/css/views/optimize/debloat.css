@@ -1,0 +1,522 @@
+/* Orbit / optimize/debloat.css: Optimize > Debloat (feature 8f).
+   Used by ui/js/views/optimize/debloat.js. Prefix db-. */
+
+/* ------------------------------------------------------------ toolbar */
+
+.db-toolbar {
+  margin-bottom: 0;
+}
+
+.db-lede {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.db-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.db-intro .btn {
+  margin-top: 6px;
+}
+
+.db-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cyan-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.db-link:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 2px;
+}
+
+.db-raw {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------ summary */
+
+.db-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 16px;
+  padding: 16px 20px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 40%, transparent);
+  border-radius: var(--radius-pass);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--bg-raised));
+}
+
+.db-summary--clear {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg-raised));
+}
+
+.db-summary-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--cyan-ink);
+}
+
+.db-summary--clear .db-summary-icon {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.db-summary-icon .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.db-summary-text {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+
+.db-summary-title {
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.db-summary-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.db-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.db-summary-acts {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.db-admin {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.db-admin .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.db-errors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+.db-errors .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* ------------------------------------------------------------ panels */
+
+.db-panel,
+.db-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.db-panel-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.db-panel-title {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.db-group-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.db-group-chips {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 12.5px;
+}
+
+.db-group-note,
+.db-empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ changes */
+
+.db-changes {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.db-change {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.db-change-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.db-change-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.db-change-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.db-change--undone .db-change-name {
+  color: var(--muted);
+}
+
+.db-change .btn,
+.db-change .chip {
+  flex: none;
+}
+
+/* ------------------------------------------------------------ items */
+
+.db-items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  list-style: none;
+  overflow: hidden;
+}
+
+.db-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 16px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line-soft);
+  transition: background-color var(--dur-1) var(--ease);
+}
+
+.db-item:first-child {
+  border-top: 0;
+}
+
+.db-item.is-picked {
+  background: color-mix(in srgb, var(--cyan) 7%, transparent);
+}
+
+.db-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.db-item--off .db-item-main {
+  cursor: pointer;
+}
+
+.db-tick {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.db-tick-gap {
+  flex: none;
+  width: 16px;
+}
+
+.db-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.db-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.db-what {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.db-item-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.db-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.db-chips .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.db-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.db-note-label {
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.db-note--muted {
+  color: var(--muted);
+}
+
+.db-note--gain {
+  color: var(--ok);
+}
+
+.db-note--hint {
+  color: var(--ink-2);
+}
+
+.db-detail {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-item-acts {
+  display: flex;
+  align-items: center;
+}
+
+/* Keep and Unknown fold away so the list stays short. */
+.db-sub {
+  min-width: 0;
+}
+
+.db-sub-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.db-sub-head::-webkit-details-marker {
+  display: none;
+}
+
+.db-sub-head:hover {
+  color: var(--ink);
+}
+
+.db-sub-head:focus-visible {
+  outline: 2px solid var(--cyan-ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.db-sub-head .icon {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+  transition: transform var(--dur-1) var(--ease);
+}
+
+/* i-chevron points right (closed); open rotates it to point down. */
+.db-sub[open] > .db-sub-head .icon {
+  transform: rotate(90deg);
+}
+
+.db-sub > .db-items {
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------ preview dialog */
+
+.db-pv-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 46vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.db-pv-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.db-pv-row:first-child {
+  border-top: 0;
+}
+
+.db-pv-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.db-pv-change {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.db-pv-change .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+}
+
+.db-pv-row--skip .db-pv-change {
+  color: var(--muted);
+}
+
+.db-pv-head {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.db-pv-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ narrow */
+
+@media (max-width: 900px) {
+  .db-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .db-item-side {
+    grid-column: 1 / -1;
+    padding-left: 26px;
+  }
+
+  .db-item-acts {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}

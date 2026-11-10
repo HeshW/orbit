@@ -1,5 +1,6 @@
 //! Windows services: list (status, PID, start type, description) and
-//! start / stop / restart through the Service Control Manager.
+//! start / stop / restart through the Service Control Manager, and the start
+//! type for Optimize > Debloat (Manual or back to Automatic, never Disabled).
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
@@ -60,7 +61,7 @@ fn config_cache() -> MutexGuard<'static, Option<(Instant, ConfigMap)>> {
 }
 
 /// Drops one service from the cache so the next list re-reads its config.
-fn forget_config(name: &str) {
+pub(crate) fn forget_config(name: &str) {
     if let Some((_, map)) = config_cache().as_mut() {
         map.remove(name);
     }
@@ -320,7 +321,7 @@ fn description(svc: &ScHandle) -> Option<String> {
     }
 }
 
-fn collect_services() -> Result<Vec<ServiceEntry>, String> {
+pub(crate) fn collect_services() -> Result<Vec<ServiceEntry>, String> {
     let scm = open_scm(SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE)?;
     let raw = enumerate(&scm)?;
 
@@ -486,6 +487,59 @@ fn control_blocking(name: &str, action: ServiceAction) -> Result<(), String> {
             start_service(&svc)
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Start type (Optimize > Debloat only)
+// ---------------------------------------------------------------------------
+
+/// Sets a service's start type: "manual", "auto" or "autoDelayed". Never
+/// Disabled, and the service is not stopped or started. Needs admin.
+pub(crate) fn set_start_type(name: &str, start: &str) -> Result<(), String> {
+    use windows::Win32::System::Services::{
+        ChangeServiceConfig2W, ChangeServiceConfigW, ENUM_SERVICE_TYPE, SERVICE_CHANGE_CONFIG,
+        SERVICE_ERROR, SERVICE_NO_CHANGE,
+    };
+    let (start_type, delayed) = match start {
+        "manual" => (SERVICE_DEMAND_START, None),
+        "auto" => (SERVICE_AUTO_START, Some(false)),
+        "autoDelayed" => (SERVICE_AUTO_START, Some(true)),
+        _ => return Err("Unknown start type.".to_string()),
+    };
+    forget_config(name);
+    let scm = open_scm(SC_MANAGER_CONNECT)?;
+    let wname = wide(name);
+    let svc = unsafe { OpenServiceW(scm.0, PCWSTR(wname.as_ptr()), SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG) }
+        .map(ScHandle)
+        .map_err(|e| friendly_error(&e, "Could not open the service"))?;
+    unsafe {
+        ChangeServiceConfigW(
+            svc.0,
+            ENUM_SERVICE_TYPE(SERVICE_NO_CHANGE),
+            start_type,
+            SERVICE_ERROR(SERVICE_NO_CHANGE),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            None,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            PCWSTR::null(),
+        )
+    }
+    .map_err(|e| friendly_error(&e, "Could not change the start type"))?;
+    if let Some(delayed) = delayed {
+        let info = SERVICE_DELAYED_AUTO_START_INFO { fDelayedAutostart: delayed.into() };
+        unsafe {
+            ChangeServiceConfig2W(
+                svc.0,
+                SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
+                Some(&info as *const SERVICE_DELAYED_AUTO_START_INFO as *const core::ffi::c_void),
+            )
+        }
+        .map_err(|e| friendly_error(&e, "Could not change the delayed start"))?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -805,6 +805,75 @@ DefenderScan { id: number, kind: "quick"|"full"|"custom", target: string|null,
   `tests/ui-smoke.mjs` "defender": status facts, quick scan running + elapsed + clean, full scan
   cancelled, picked file with threats, Processes menu scan, History menu item, `?otherav`.
 
+- Guided debloat (8f, `src-tauri/src/debloat/`, `views/optimize/debloat.js`, details and the
+  full reviewed list in `docs/features/debloat.md`). A fifth Optimize sub-tab, **Debloat**
+  (`#op-pane-debloat`, palette "Optimize: Debloat"). Verdicts come only from `debloat/known.rs`
+  (82 entries); `debloat/guard.rs` refuses its never-offer list at analysis and again before
+  every change. Real Windows calls sit behind `debloat::Backend` (`system::Real`); tests use a
+  fake.
+
+| command | args | returns |
+|---|---|---|
+| `debloat_analyze` | – | `Result<DebloatAnalysis, String>` (async; read only: startup entries + impact, every scheduled task, services, this user's main app packages) |
+| `debloat_preview` | `ids: String[]` (`DebloatItem.id`, 1-500) | `Result<DebloatPreview, String>` (async; changes nothing, writes nothing) |
+| `debloat_apply` | `ids: String[]` | `Result<DebloatApplyResult, String>` (async; only Safe, on, unguarded items; each change logged as pending with its previous state before the Windows call) |
+| `debloat_changes` | – | `Result<DebloatChange[], String>` (async; newest first; a removed app installed again is marked undone) |
+| `debloat_undo` | `id: number` (`DebloatChange.id`) | `Result<DebloatChange, String>` (async; startup/task on again, service start type restored; app: opens its Store page, state stays "applied") |
+| `debloat_undo_all` | – | `Result<DebloatUndoAllResult, String>` (async; newest first, skips removed apps) |
+
+```ts
+DebloatAnalysis { readAt: number, isAdmin: boolean, counts: DebloatCounts,
+  groups: DebloatGroup[] /*startup, task, service, app*/, errors: string[] /*"Services: ..."*/ }
+DebloatCounts { off: number, keep: number, unknown: number, ready: number /*safe, on, unguarded*/ }
+DebloatGroup { id: "startup"|"task"|"service"|"app", title: string /*"Startup apps"...*/,
+  counts: DebloatCounts, items: DebloatItem[] /*safe+on first, safe+off, keep, unknown; by name*/ }
+DebloatItem { id: string /*"startup:<StartupEntry.id>"|"task:<path>"|"service:<name>"|
+  "app:<package family>"*/, group, name: string /*plain*/, raw: string /*Windows' name*/,
+  what: string|null, verdict: "off"|"keep"|"unknown", note: string|null /*what you lose / why
+  keep / the guard's reason*/, on: boolean, actionable: boolean, needsAdmin: boolean,
+  change: string|null /*"Turn off at sign-in"|"Turn off the task"|"Set to Manual"|"Remove for
+  this user"*/, detail: string|null /*command, task program, "Starts: Automatic", app name*/,
+  impact: "high"|"medium"|"low"|null, suggested: boolean /*unknown startup app picked by
+  health::pick_suggestions*/, search: string, family: string|null, guarded: boolean }
+DebloatPreview { changes: DebloatPlanned[], refused: DebloatRefusal[], isAdmin: boolean }
+DebloatPlanned { id, group, name, raw, action: string, from: string /*"On at sign-in"|"On"|
+  "Automatic"|"Automatic (delayed)"|"Installed"*/, to: string /*"Off"|"Manual"|"Removed for
+  you"*/, needsAdmin: boolean }
+DebloatRefusal { id, name, reason: string, needsAdmin: boolean /*refused only for rights*/ }
+DebloatChange { id: number, item: string /*DebloatItem.id*/, group, name, raw, target: string
+  /*startup id | task path | service name | package full name*/, action, from, to,
+  before: string /*"enabled"|"auto"|"autoDelayed"|"installed"*/, family: string|null,
+  storeUrl: string|null /*ms-windows-store://pdp/?PFN=<family>*/, needsAdmin: boolean,
+  at: number, state: "pending"|"applied"|"undone", undoneAt: number|null }
+DebloatApplyResult { applied: DebloatChange[], failed: { id, name, error }[],
+  refused: DebloatRefusal[], changes: DebloatChange[] /*all, newest first*/ }
+DebloatUndoAllResult { undone: DebloatChange[], failed: { id, name, error }[],
+  storeApps: DebloatChange[] /*removed apps still waiting for the Store*/, changes: DebloatChange[] }
+```
+- Change log: `<app_local_data_dir>\debloat\debloat-changes.json`
+  `{ version: 1, nextId, changes: DebloatChange[] }` (atomic writes). Debug builds honour
+  `ORBIT_DEBLOAT_DIR`.
+- Changes: startup via `startup::set_startup_enabled` (StartupApproved); tasks via Task
+  Scheduler COM `GetTask(path)` + `put_Enabled`; services via `services::set_start_type`
+  (`ChangeServiceConfigW` Manual / Automatic + `SERVICE_CONFIG_DELAYED_AUTO_START_INFO`; never
+  Disabled, never stopped); apps via WinRT `PackageManager.RemovePackageAsync(fullName)`
+  (current user only). Errors: "Access denied. Try Restart as administrator.", "This task no
+  longer exists. Analyze again.", "Needs administrator rights. Restart Orbit as administrator,
+  then undo.", "That change was already undone."
+- Cargo: `windows` features `ApplicationModel`, `Foundation`, `Foundation_Collections`,
+  `Management_Deployment`. `autoruns.rs`: `all_tasks()` / `TaskBasic`, `auto_services()` /
+  `RawService` are `pub(crate)` (the task walk is a shared visitor). `services.rs`:
+  `collect_services`, `forget_config` `pub(crate)`, new `set_start_type`. `actions.rs`:
+  `shell_open` and `OwnedHandle` used from `debloat`.
+- Health: the "startup" item's action is `{ label: "Review in Debloat", kind: "optimize",
+  target: "debloat" }` when it is a warning (high-impact apps Orbit would suggest); otherwise
+  Go to Startup as before.
+- UI: `views/optimize/debloat.js` (sub-tab API, CSS `css/views/optimize/debloat.css`, prefix
+  `db-`). Fresh results use motion.js `enterView` and `countUp` on the summary title. The tab
+  badge is `counts.ready`. New mock module `mock/debloat.js` (a fixed PC with every verdict in
+  every group; a removed app's Undo counts as reinstalled on the next list). `mock/health.js`
+  mirrors the Health link. `tests/ui-smoke.mjs` "debloat".
+
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`
   (masks are decimal u64 strings, bit n = CPU n; JS uses BigInt). `StartupEntry` gains

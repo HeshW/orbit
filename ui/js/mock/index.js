@@ -23,8 +23,9 @@ import drivers from './drivers.js';
 import gpu from './gpu.js';
 import rig from './rig.js';
 import defender from './defender.js';
+import debloat from './debloat.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig, defender };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig, defender, debloat };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

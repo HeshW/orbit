@@ -194,7 +194,7 @@ export default {
         high && picks.length
           ? `${plural(enabled.length, 'app starts', 'apps start')} with Windows. ${plural(high, 'has', 'have')} a high impact on sign-in.`
           : `${plural(enabled.length, 'app starts', 'apps start')} with Windows. None of them slows sign-in much.`,
-        { action: act('Go to Startup', 'view', 'startup') }),
+        { action: high && picks.length ? act('Review in Debloat', 'optimize', 'debloat') : act('Go to Startup', 'view', 'startup') }),
       security,
     ];
     return {

@@ -1345,7 +1345,7 @@ fn url_encode(input: &str) -> String {
     out
 }
 
-fn shell_open(target: &str) -> Result<(), String> {
+pub(crate) fn shell_open(target: &str) -> Result<(), String> {
     let file = to_wide(target);
     let result = unsafe {
         ShellExecuteW(

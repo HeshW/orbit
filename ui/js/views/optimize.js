@@ -1,4 +1,5 @@
-// Optimize (0.5): PC health, disk cleanup, game boost and driver check, one sub-tab each.
+// Optimize (0.5): PC health, disk cleanup, game boost and driver check, one sub-tab each;
+// 0.6 adds guided debloat.
 // This file is only the frame: the view head, the tab list and one pane per sub-tab.
 // Each sub-tab lives in its own module, ui/js/views/optimize/<id>.js, with the API
 //   export function mount(paneEl, ctx)   // once, the first time its tab opens
@@ -16,6 +17,7 @@ const TABS = [
   { id: 'cleanup', label: 'Cleanup', title: 'Clear the junk. <em>Keep your files.</em>', search: 'disk cleanup temp files free space junk' },
   { id: 'boost', label: 'Boost', title: 'Focus the PC. <em>Undo it after.</em>', search: 'game boost focus mode power plan' },
   { id: 'drivers', label: 'Drivers', title: 'Know your drivers. <em>Update safely.</em>', search: 'drivers devices driver check' },
+  { id: 'debloat', label: 'Debloat', title: 'Know what runs. <em>Turn off the extras.</em>', search: 'debloat bloatware startup apps scheduled tasks services built-in apps telemetry remove' },
 ];
 const TAB_KEY = 'orbit.optimizeTab';
 
@@ -123,7 +125,7 @@ function selectTab(id, focus = false) {
   }
 }
 
-/** Show Optimize on sub-tab `id` ('health' | 'cleanup' | 'boost' | 'drivers'). */
+/** Show Optimize on sub-tab `id` ('health' | 'cleanup' | 'boost' | 'drivers' | 'debloat'). */
 export function openTab(id) {
   selectTab(id);
   if (currentViewName() !== 'optimize') navigate('optimize');

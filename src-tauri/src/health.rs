@@ -1142,7 +1142,12 @@ pub fn startup_item(entries: &[StartupEntry], measured: bool, suggestions: usize
     } else {
         item("startup", title, "good", format!("{apps} with Windows. None of them slows sign-in much."))
     };
-    it.action = action("Go to Startup", "view", "startup");
+    // Something worth turning off: Optimize > Debloat explains each app first.
+    it.action = if it.status == "warning" {
+        action("Review in Debloat", "optimize", "debloat")
+    } else {
+        action("Go to Startup", "view", "startup")
+    };
     it
 }
 
@@ -1538,7 +1543,9 @@ mod tests {
         list[0].impact = Some("high".into());
         let it = startup_item(&list, true, 1);
         assert_eq!((it.status.as_str(), it.text.as_str()), ("warning", "2 apps start with Windows. 1 has a high impact on sign-in."));
+        assert_eq!(it.action.as_ref().map(|a| (a.kind.as_str(), a.target.as_str())), Some(("optimize", "debloat")));
         assert_eq!(startup_item(&list, true, 0).status, "good");
+        assert_eq!(startup_item(&list, true, 0).action.unwrap().target, "startup");
         assert!(startup_item(&list[1..], true, 0).text.starts_with("1 app starts with Windows."));
         let finding = |sev: &str| crate::security::SecurityFinding {
             pid: 1,

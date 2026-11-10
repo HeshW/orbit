@@ -583,21 +583,21 @@ fn read_task(task: &IRegisteredTask, root: &str) -> Option<RawTask> {
     Some(RawTask { name, path, author, enabled, triggers: names, command: commands.join("; ") })
 }
 
-fn read_folder_tasks(folder: &ITaskFolder, root: &str, out: &mut Vec<RawTask>) {
+fn visit_folder_tasks(folder: &ITaskFolder, visit: &mut dyn FnMut(&IRegisteredTask)) {
     let Ok(tasks) = (unsafe { folder.GetTasks(TASK_ENUM_HIDDEN.0) }) else {
         return;
     };
     let n = unsafe { tasks.Count() }.unwrap_or(0);
     for i in 1..=n {
         if let Ok(task) = unsafe { tasks.get_Item(&VARIANT::from(i)) } {
-            if let Some(raw) = read_task(&task, root) {
-                out.push(raw);
-            }
+            visit(&task);
         }
     }
 }
 
-fn collect_tasks_com(root: &str) -> Result<Vec<RawTask>, String> {
+/// Calls `visit` for every task in every folder (hidden ones too), as far as
+/// this user may read them.
+fn walk_tasks_com(visit: &mut dyn FnMut(&IRegisteredTask)) -> Result<(), String> {
     let service: ITaskService = unsafe { CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER) }
         .map_err(|e| format!("Could not open Task Scheduler ({e})."))?;
     let empty = VARIANT::default();
@@ -606,7 +606,6 @@ fn collect_tasks_com(root: &str) -> Result<Vec<RawTask>, String> {
     let top = unsafe { service.GetFolder(&BSTR::from("\\")) }
         .map_err(|e| format!("Could not read the task folders ({e})."))?;
 
-    let mut out = Vec::new();
     let mut stack = vec![top];
     let mut visited = 0usize;
     while let Some(folder) = stack.pop() {
@@ -614,7 +613,7 @@ fn collect_tasks_com(root: &str) -> Result<Vec<RawTask>, String> {
         if visited > MAX_TASK_FOLDERS {
             break;
         }
-        read_folder_tasks(&folder, root, &mut out);
+        visit_folder_tasks(&folder, visit);
         if let Ok(subs) = unsafe { folder.GetFolders(0) } {
             let n = unsafe { subs.Count() }.unwrap_or(0);
             for i in 1..=n {
@@ -624,16 +623,87 @@ fn collect_tasks_com(root: &str) -> Result<Vec<RawTask>, String> {
             }
         }
     }
-    Ok(out)
+    Ok(())
 }
 
-fn collect_tasks(root: &str) -> Result<Vec<RawTask>, String> {
+/// Runs `f` with COM initialized on this thread.
+fn with_com<T>(f: impl FnOnce() -> T) -> T {
     // S_OK and S_FALSE both need a matching CoUninitialize; a thread already in
     // another apartment (RPC_E_CHANGED_MODE) can still make the calls.
     let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
     let _guard = ComGuard(init.is_ok());
-    // Every COM pointer lives inside this call, so it is released before the guard.
-    collect_tasks_com(root)
+    // Every COM pointer lives inside `f`, so it is released before the guard.
+    f()
+}
+
+fn collect_tasks(root: &str) -> Result<Vec<RawTask>, String> {
+    with_com(|| {
+        let mut out = Vec::new();
+        walk_tasks_com(&mut |task| {
+            if let Some(raw) = read_task(task, root) {
+                out.push(raw);
+            }
+        })?;
+        Ok(out)
+    })
+}
+
+/// One scheduled task, whatever starts it (Optimize > Debloat).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TaskBasic {
+    /// Full task path, e.g. "\Microsoft\Windows\Maps\MapsUpdateTask".
+    pub path: String,
+    pub enabled: bool,
+    /// The first program it runs (absolute), "" when none.
+    pub exe: String,
+    pub author: Option<String>,
+    /// The account it runs as ("SYSTEM", "PC\\User", a SID...), None if unset.
+    pub user_id: Option<String>,
+}
+
+fn read_task_basic(task: &IRegisteredTask, root: &str) -> Option<TaskBasic> {
+    let path = unsafe { task.Path() }.ok()?.to_string();
+    let enabled = unsafe { task.Enabled() }.map(|b| b.0 != 0).unwrap_or(false);
+    let mut out = TaskBasic { path, enabled, ..Default::default() };
+    let Ok(def) = (unsafe { task.Definition() }) else {
+        return Some(out);
+    };
+    out.author = unsafe { def.RegistrationInfo() }
+        .ok()
+        .and_then(|info| bstr_text(|b| unsafe { info.Author(b) }));
+    out.user_id = unsafe { def.Principal() }
+        .ok()
+        .and_then(|p| bstr_text(|b| unsafe { p.UserId(b) }));
+    if let Ok(actions) = unsafe { def.Actions() } {
+        let mut n = 0i32;
+        let _ = unsafe { actions.Count(&mut n) };
+        for i in 1..=n {
+            let Ok(action) = (unsafe { actions.get_Item(i) }) else {
+                continue;
+            };
+            if let Some((p, _)) = task_action(&action, root) {
+                if !p.is_empty() {
+                    out.exe = p;
+                    break;
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Every scheduled task this user may read, whatever its triggers. Read only.
+pub(crate) fn all_tasks() -> Result<Vec<TaskBasic>, String> {
+    let root = system_root();
+    with_com(|| {
+        let mut out = Vec::new();
+        walk_tasks_com(&mut |task| {
+            if let Some(t) = read_task_basic(task, &root) {
+                out.push(t);
+            }
+        })?;
+        Ok(out)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -650,11 +720,11 @@ impl Drop for ScHandle {
     }
 }
 
-struct RawService {
-    name: String,
-    display_name: String,
-    path: String,
-    start_type: &'static str,
+pub(crate) struct RawService {
+    pub name: String,
+    pub display_name: String,
+    pub path: String,
+    pub start_type: &'static str,
 }
 
 fn as_bytes_mut(buf: &mut [u64]) -> &mut [u8] {
@@ -796,6 +866,11 @@ fn service_binary(name: &str, image: &str, root: &str) -> String {
         }
     }
     file
+}
+
+/// Every service and driver that starts by itself, with the binary it runs.
+pub(crate) fn auto_services() -> Result<Vec<RawService>, String> {
+    collect_services(&system_root())
 }
 
 fn collect_services(root: &str) -> Result<Vec<RawService>, String> {

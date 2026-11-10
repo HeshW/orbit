@@ -26,6 +26,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 sha2 = "0.10"
 windows = { version = "0.58", features = [
+    "ApplicationModel",
+    "Foundation",
+    "Foundation_Collections",
+    "Management_Deployment",
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_Display",
     "Win32_Devices_Properties",

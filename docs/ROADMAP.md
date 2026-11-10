@@ -526,6 +526,14 @@ Rules:
 
 **Risks:** breaking a feature someone uses. Keep the list short, explain each item, and
 make undo work before anything else.
+**Done (0.6):** Optimize > **Debloat**. Analyze reads startup apps, scheduled tasks,
+services and this user's built-in apps and explains each from a reviewed list of 82 entries
+(`src-tauri/src/debloat/known.rs`): Safe to turn off (what you lose), Keep (why) or Unknown
+(Search online). A never-offer guard is checked at analysis and before every change. Only
+ticked Safe items change, after a preview: startup apps and tasks are turned off, services set
+to Manual, apps removed for this user. Every change is logged with its previous state before
+it is made; Changes has Undo per item and Undo all (removed apps: their Store page). Windows
+tasks are offered only when on the reviewed list. See `docs/features/debloat.md`.
 
 ### Order
 

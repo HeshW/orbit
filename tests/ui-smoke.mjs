@@ -14,7 +14,7 @@ import { chromium } from 'playwright-core';
 
 const ROOT = resolve(fileURLToPath(new URL('../ui/', import.meta.url)));
 const VIEWS = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'rig', 'settings'];
-const OPTIMIZE_TABS = ['health', 'cleanup', 'boost', 'drivers'];
+const OPTIMIZE_TABS = ['health', 'cleanup', 'boost', 'drivers', 'debloat'];
 const THEMES = ['night', 'void', 'signal', 'daylight'];
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -237,6 +237,94 @@ async function defender(page, base, watch) {
   }
 }
 
+// Optimize > Debloat (mock): Health's startup warning links here; Analyze groups the PC with
+// every verdict; only Safe items can be ticked; Review changes previews exactly what changes
+// (admin-only items skipped); applying lists the changes; Undo and Undo all put things back;
+// a removed app's Undo opens its Store page.
+async function debloat(page) {
+  const pane = '#op-pane-debloat';
+  const waitTitle = (re, what) => page.waitForFunction(([sel, src]) => new RegExp(src).test(document.querySelector(sel)?.textContent || ''),
+    [`${pane} [data-db-title]`, re.source], { timeout: WAIT }).catch(() => { throw new Error(`summary never said ${what}`); });
+  const toastSays = (re, what) => page.waitForFunction((src) => new RegExp(src).test(document.getElementById('toasts')?.innerText || ''),
+    re.source, { timeout: WAIT }).catch(() => { throw new Error(`no toast ${what}`); });
+  const item = (id) => page.locator(`${pane} [data-db-item]`).filter({ has: page.locator(`[data-db-pick="${id.replace(/\\/g, '\\\\')}"]`) });
+  const pick = (id) => page.locator(`${pane} [data-db-pick="${id.replace(/\\/g, '\\\\')}"]`).check();
+
+  await showView(page, 'optimize');
+  await page.click('#view-optimize .op-tabs [data-tab="health"]');
+  const link = page.locator('#op-pane-health .hl-item', { hasText: 'Startup load' }).locator('button', { hasText: 'Review in Debloat' });
+  await link.click({ timeout: WAIT }).catch(() => { throw new Error('Health has no "Review in Debloat" on the startup warning'); });
+  await page.waitForSelector(`${pane}:not([hidden])`, { timeout: WAIT });
+
+  if (await page.locator(`${pane} [data-db-start]`).count()) await page.click(`${pane} [data-db-start]`);
+  else await page.click(`${pane} [data-db-analyze]`);
+  await waitTitle(/^16 things are safe to turn off$/, '"16 things are safe to turn off"');
+  const groups = await page.locator(`${pane} [data-db-group] .db-group-title`).allInnerTexts();
+  if (groups.join('|') !== 'Startup apps|Scheduled tasks|Services|Built-in apps') throw new Error(`groups: ${groups.join(', ')}`);
+  for (const g of ['startup', 'task', 'service', 'app']) {
+    for (const v of ['off', 'keep']) {
+      if (!await page.locator(`${pane} [data-db-group="${g}"] [data-db-verdict="${v}"]`).count()) throw new Error(`${g} has no ${v} item`);
+    }
+    if (g !== 'app' && !await page.locator(`${pane} [data-db-group="${g}"] [data-db-verdict="unknown"]`).count()) throw new Error(`${g} has no unknown item`);
+  }
+  // Keep and Unknown can't be ticked; Unknown offers Search online and, for startup, the impact hint.
+  if (await page.locator(`${pane} .db-item--keep [data-db-pick], ${pane} .db-item--unknown [data-db-pick]`).count()) throw new Error('a Keep or Unknown item has a tick box');
+  await page.locator(`${pane} [data-db-sub="startup:unknown"] > summary`).click();
+  const synapse = await page.locator(`${pane} .db-item--unknown`, { hasText: 'Synapse3' }).innerText();
+  if (!/Search online/i.test(synapse) || !/high startup cost/.test(synapse)) throw new Error(`unknown startup app: ${synapse.replace(/\s+/g, ' ')}`);
+  const steam = await item('startup:HKCU\\Run\\Steam').innerText();
+  if (!/Safe to turn off/.test(steam) || !/You lose/.test(steam) || !/may start a little faster/.test(steam)) throw new Error(`Steam row: ${steam.replace(/\s+/g, ' ')}`);
+
+  // Preview: exactly what changes; the service is skipped for admin rights.
+  await pick('startup:HKCU\\Run\\Steam');
+  await pick('app:Microsoft.BingWeather_8wekyb3d8bbwe');
+  await pick('task:\\ZoomUpdateTaskUser-S-1-5-21-1001');
+  await pick('service:DiagTrack');
+  if (!/Review changes \(4\)/i.test(await page.locator(`${pane} [data-db-review]`).innerText())) throw new Error('Review changes does not count 4 ticks');
+  await page.click(`${pane} [data-db-review]`);
+  await page.waitForSelector('#dialog [data-db-preview]', { timeout: WAIT });
+  const pv = await page.locator('#dialog').innerText();
+  for (const want of ['Apply 3 changes?', 'Steam', 'On at sign-in', 'Removed for you', 'Zoom updater', 'Skipped', 'Windows telemetry', 'Needs administrator rights.', 'Microsoft Store']) {
+    if (!pv.includes(want)) throw new Error(`preview lacks "${want}": ${pv.replace(/\s+/g, ' ')}`);
+  }
+  await page.click('#dialog [data-act="ok"]');
+  await toastSays(/Changed 3 items/, '"Changed 3 items"');
+  await waitTitle(/^13 things/, '13 after applying');
+  const rows = page.locator(`${pane} [data-db-change]`);
+  if (await rows.count() !== 3) throw new Error(`Changes lists ${await rows.count()} rows`);
+  if (!/Open Store page/i.test(await rows.filter({ hasText: 'Weather' }).innerText())) throw new Error('removed app has no Open Store page');
+
+  // Undo one.
+  await rows.filter({ hasText: 'Steam' }).locator('[data-db-undo]').click();
+  await toastSays(/Steam starts at sign-in again/, 'for undoing Steam');
+  await waitTitle(/^14 things/, '14 after undo');
+  if (!/Undone/.test(await page.locator(`${pane} [data-db-change]`, { hasText: 'Steam' }).innerText())) throw new Error('Steam change not marked Undone');
+
+  // As administrator the service can change too.
+  await pick('service:DiagTrack');
+  await page.locator(`${pane} [data-db-admin]`).click({ timeout: WAIT }).catch(() => { throw new Error('no Restart as administrator for a picked service'); });
+  await page.waitForFunction((sel) => !document.querySelector(sel), `${pane} [data-db-admin]`, { timeout: WAIT }).catch(() => {
+    throw new Error('still asks for administrator rights after the restart');
+  });
+  await page.click(`${pane} [data-db-review]`);
+  await page.waitForSelector('#dialog [data-db-preview]', { timeout: WAIT });
+  const pv2 = await page.locator('#dialog').innerText();
+  if (!/Set to Manual: Automatic/.test(pv2)) throw new Error(`service preview: ${pv2.replace(/\s+/g, ' ')}`);
+  await page.click('#dialog [data-act="ok"]');
+  await toastSays(/Changed 1 item/, 'for the service');
+
+  // Undo all: everything but the removed app, which waits for the Store.
+  await page.click(`${pane} [data-db-undo-all]`);
+  await page.click('#dialog [data-act="ok"]');
+  await toastSays(/Undid 2 changes\. 1 removed app can come back from the Store\./, 'for Undo all');
+  await waitTitle(/^15 things/, '15 after Undo all');
+  await page.locator(`${pane} [data-db-change]`, { hasText: 'Weather' }).locator('[data-db-undo]').click();
+  await toastSays(/Opened the Store page for Weather/, 'for the Store page');
+  await waitTitle(/^16 things/, '16 once Weather is back');
+  if (!/Undone/.test(await page.locator(`${pane} [data-db-change]`, { hasText: 'Weather' }).innerText())) throw new Error('Weather not marked Undone after reinstall');
+  if (await page.locator(`${pane} [data-db-undo-all]`).isEnabled()) throw new Error('Undo all still enabled with nothing left');
+}
+
 // My Rig: seven cards from the mock, Copy specs puts the summary on the clipboard; key 0
 // opens My Rig and Ctrl+, opens Settings.
 async function myRig(page) {
@@ -416,6 +504,7 @@ try {
   await check('gpu adapters', () => gpuAdapters(page));
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
+  await check('debloat', () => debloat(page));
   await check('my rig', () => myRig(page));
   await check('motion', () => motion(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
@@ -432,4 +521,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, Defender scans, My Rig, motion on and off, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, no console errors.`);
