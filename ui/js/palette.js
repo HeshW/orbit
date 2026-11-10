@@ -34,7 +34,8 @@ const VIEWS = [
   ['network', 'Network', 'i-plug', '07', 'connections ports sockets tcp udp internet'],
   ['security', 'Security', 'i-radar', '08', 'scan signatures malware suspicious signed'],
   ['optimize', 'Optimize', 'i-gauge', '09', 'health report pc check cleanup boost drivers speed up'],
-  ['settings', 'Settings', 'i-gear', '10', 'preferences options themes'],
+  ['rig', 'My Rig', 'i-rig', '10', 'specs hardware system info cpu gpu graphics card ram memory motherboard bios drives displays windows version copy specs'],
+  ['settings', 'Settings', 'i-gear', '11', 'preferences options themes ctrl comma'],
 ];
 
 // Commands other modules add (docs/V04-CONTRACT.md "Palette registry").

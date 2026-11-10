@@ -474,7 +474,7 @@ What the code has beyond the sections above. These are part of the contract now.
 
 **v0.5: Optimize view (health report, startup suggestions, disk cleanup, game boost, driver check)**
 - Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
-  Security and Settings, numbered 09 on key 9; Settings is 10 on key 0 (`KEY_VIEWS` = `VIEW_NAMES`). The palette "Go to" group lists it, and the
+  Security and Settings, numbered 09 on key 9; Settings was 10 on key 0 (`KEY_VIEWS` = `VIEW_NAMES`; changed in v0.6, see My Rig). The palette "Go to" group lists it, and the
   palette Actions offer "Optimize: Health / Cleanup / Boost / Drivers".
 - Sub-tabs: Health, Cleanup, Boost, Drivers. `views/optimize.js` is only the frame (head, tab
   list, one pane each; last tab in localStorage `orbit.optimizeTab`) and exports
@@ -691,6 +691,41 @@ GpuAdapterLoad { luid: string, usage: number|null /*busiest engine of that adapt
 
 - Mocks: `show_properties` in `api.js`, `remove_history_app` in `mock/history.js`.
   `tests/ui-smoke.mjs` checks the menu (running and idle app, Shift+F10) and Remove.
+- My Rig (8c, `rig.rs`, `views/rig.js`, details in `docs/features/rig.md`). Sidebar: an
+  eleventh view, **My Rig** (`#view-rig`, icon `i-rig`, new sprite symbol), between Optimize
+  and Settings, numbered 10 on key 0. Settings is 11 with no number key: the sidebar, the
+  palette and **Ctrl+,** open it (`KEY_VIEWS` = `VIEW_NAMES` without `settings`). Palette:
+  "My Rig" in Go to (hint 10, Settings 11) and the action "Copy specs".
+
+| command | args | returns |
+|---|---|---|
+| `get_rig_specs` | – | `Result<RigSpecs, String>` (async; read once per run and cached, except `gpus`, which is `gpu::visible` of the cached DXGI list against the latest snapshot) |
+
+```ts
+RigSpecs { cpu: CpuSpec, memory: MemorySpec, gpus: GpuAdapter[], board: BoardSpec,
+  drives: DriveSpec[], displays: DisplaySpec[], windows: WindowsSpec, readAt: number }
+CpuSpec { name: string|null /*raw, "12th Gen Intel(R) Core(TM) i5-12400F"*/, cores: number|null,
+  threads: number|null /*summed over sockets*/, baseMhz: number|null /*MaxClockSpeed*/,
+  sockets: number }
+MemorySpec { total: number|null /*bytes, sum of modules*/, modules: number[] /*bytes each*/,
+  speed: number|null /*MT/s, ConfiguredClockSpeed else Speed, slowest module*/,
+  kind: string|null /*"DDR4"|"DDR5"|"LPDDR5"|...*/, slotsUsed: number, slotsTotal: number|null }
+BoardSpec { maker, model, biosVendor, biosVersion, biosDate /*as the firmware writes it*/,
+  systemMaker, systemModel /*null when it repeats the board or is a placeholder*/: string|null }
+DriveSpec { name: string, size: number /*bytes*/, media: "SSD"|"HDD"|"SCM"|"Unknown",
+  bus: string /*"NVMe"|"SATA"|"USB"|...|""*/ }
+DisplaySpec { name: string|null /*EDID*/, width: number, height: number,
+  refreshHz: number /*2 decimals*/, primary: boolean, internal: boolean }
+WindowsSpec { edition: string|null /*"Windows 11 Pro": ProductName, fixed for builds >= 22000*/,
+  version: string|null /*"23H2"*/, build: string|null /*"22631.4460"*/ }
+```
+- Cargo: `windows` feature `Win32_Devices_Display`. `health.rs`: `Wmi` (+ `connect`, `query`),
+  `prop`, `variant_string`, `variant_u64`, `read_physical_disks` are `pub(crate)`;
+  `drivers.rs`: `is_placeholder` is `pub(crate)`.
+- `views/rig.js` exports `tidyName`, `memSize` (binary), `driveSize` (decimal, as on the box),
+  `moduleText`, `specsText(specs)` (the Copy specs text). CSS `css/views/rig.css` (prefix
+  `rig-`). New mock module `mock/rig.js` (`?rigfail` throws). `tests/ui-smoke.mjs` visits My Rig
+  in every theme and checks the cards, Copy specs, key 0 and Ctrl+,.
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

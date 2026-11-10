@@ -6,10 +6,11 @@ import { pct, bytes, escapeHtml } from './format.js';
 
 export const views = {};
 
-// Sidebar order (docs/V04-CONTRACT.md, plus Optimize in 0.5).
-const VIEW_NAMES = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'settings'];
-// Number keys follow the sidebar: 1-9 are the first nine views, 0 is the tenth (Settings).
-const KEY_VIEWS = VIEW_NAMES;
+// Sidebar order (docs/V04-CONTRACT.md, plus Optimize in 0.5 and My Rig in 0.6).
+const VIEW_NAMES = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'rig', 'settings'];
+// Number keys follow the sidebar: 1-9 are the first nine views, 0 is the tenth (My Rig).
+// Settings (11th) has no number key: Ctrl+, opens it.
+const KEY_VIEWS = VIEW_NAMES.filter((v) => v !== 'settings');
 const VIEW_KEY = 'orbit.view';
 const SEARCH_DEBOUNCE_MS = 80;
 const WATCH_CPU = 50;
@@ -995,6 +996,11 @@ function wireKeys() {
     if (mod && !e.altKey && !e.shiftKey && (key === 'f' || key === 'F')) {
       e.preventDefault();
       focusSearch();
+      return;
+    }
+    if (mod && !e.altKey && !e.shiftKey && key === ',') {
+      e.preventDefault();
+      navigate('settings');
       return;
     }
     if (mod || e.altKey || isTyping(e.target)) return;

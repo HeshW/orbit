@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
 const ROOT = resolve(fileURLToPath(new URL('../ui/', import.meta.url)));
-const VIEWS = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'settings'];
+const VIEWS = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'rig', 'settings'];
 const OPTIMIZE_TABS = ['health', 'cleanup', 'boost', 'drivers'];
 const THEMES = ['night', 'void', 'signal', 'daylight'];
 const TYPES = {
@@ -169,6 +169,39 @@ async function historyMenu(page) {
   });
 }
 
+// My Rig: seven cards from the mock, Copy specs puts the summary on the clipboard; key 0
+// opens My Rig and Ctrl+, opens Settings.
+async function myRig(page) {
+  await showView(page, 'processes');
+  await page.keyboard.press('0');
+  await page.waitForSelector('#view-rig.is-active', { timeout: WAIT }).catch(() => {
+    throw new Error('key 0 does not open My Rig');
+  });
+  await page.waitForFunction(() => document.querySelectorAll('#view-rig .rig-card').length === 7, null, { timeout: WAIT }).catch(() => {
+    throw new Error('My Rig does not show seven cards');
+  });
+  const text = await page.locator('#view-rig .rig-grid').innerText();
+  for (const want of ['Intel Core i7-13700H', '32 GB', 'DDR5', 'RTX 4070', 'LPCN49WW', '1 TB', '3840 x 2160', 'Windows 11 Home']) {
+    if (!text.includes(want)) throw new Error(`My Rig lacks "${want}"`);
+  }
+  await page.click('#view-rig [data-copy]');
+  await page.waitForFunction(() => /Copied your specs/.test(document.getElementById('toasts')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('Copy specs showed no "Copied" toast');
+  });
+  const copied = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    const { specsText } = await import('/js/views/rig.js');
+    return specsText(await call('get_rig_specs'));
+  });
+  if (!/^PC: Legion Pro 5/.test(copied) || !/\nCPU: 13th Gen Intel Core i7-13700H \(14 cores, 20 threads, 2\.40 GHz base\)\n/.test(copied)) {
+    throw new Error(`Copy specs text: ${copied.split('\n').slice(0, 2).join(' | ')}`);
+  }
+  await page.keyboard.press('Control+,');
+  await page.waitForSelector('#view-settings.is-active', { timeout: WAIT }).catch(() => {
+    throw new Error('Ctrl+, does not open Settings');
+  });
+}
+
 async function setTheme(page, theme) {
   await showView(page, 'settings');
   await page.click(`#view-settings .lv-theme[data-pick="${theme}"]`);
@@ -233,6 +266,7 @@ try {
   }
   await check('gpu adapters', () => gpuAdapters(page));
   await check('history menu', () => historyMenu(page));
+  await check('my rig', () => myRig(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
   step = 'idle';
   await page.waitForTimeout(1500);
@@ -247,4 +281,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, GPU adapters, History menu, My Rig, no console errors.`);

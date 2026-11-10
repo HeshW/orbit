@@ -13,6 +13,7 @@ pub mod impact;
 pub mod model;
 pub mod network;
 pub mod pdh;
+pub mod rig;
 pub mod sampler;
 pub mod security;
 pub mod services;
@@ -132,6 +133,8 @@ pub fn run() {
             drivers::install_driver_update,
             // graphics adapters (v0.6)
             gpu::get_gpu_info,
+            // my rig (v0.6)
+            rig::get_rig_specs,
         ])
         .setup(|app| {
             history::init(app.handle());

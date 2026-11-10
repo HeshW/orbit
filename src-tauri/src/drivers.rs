@@ -289,7 +289,7 @@ pub fn vendor_for(provider: Option<&str>, manufacturer: Option<&str>) -> Option<
 }
 
 /// SMBIOS placeholders that name no one.
-fn is_placeholder(s: &str) -> bool {
+pub(crate) fn is_placeholder(s: &str) -> bool {
     let l = s.trim().to_ascii_lowercase();
     l.is_empty()
         || l.contains("system manufacturer")

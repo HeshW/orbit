@@ -471,7 +471,8 @@ A one-page spec sheet, with a **Copy specs** button for sharing:
 
 Likely route: WMI (`Win32_Processor`, `Win32_PhysicalMemory`, `Win32_BaseBoard`,
 `MSFT_PhysicalDisk`) plus what `StaticInfo` already has. No admin.
-**Open question:** this is the 11th tab, and only 10 number keys exist (Settings is on 0).
+**Decided:** My Rig is 10 on key 0; Settings becomes 11 with no number key (sidebar,
+palette and Ctrl+,).
 
 ### 8d. Motion like the LegacyTech site — S–M
 

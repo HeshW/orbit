@@ -1,4 +1,4 @@
-// 09 / Settings: themes, update speed, display, behavior, watchlist, permissions, shortcuts,
+// 11 / Settings: themes, update speed, display, behavior, watchlist, permissions, shortcuts,
 // backup, about. The Behavior and Backup panels come from js/panels/ (docs/V04-CONTRACT.md).
 import { call, appVersion } from '../api.js';
 import { store, on, setSettings, pinStartMatches } from '../store.js';
@@ -26,7 +26,8 @@ const SHORTCUTS = [
   { keys: ['/'], what: 'Focus search' },
   { keys: ['Ctrl', 'K'], what: 'Open the command palette' },
   { keys: ['Ctrl', 'N'], what: 'Run a new task' },
-  { keys: ['1', '9'], range: true, what: 'Switch section (0 for Settings)' },
+  { keys: ['1', '9'], range: true, what: 'Switch section (0 for My Rig)' },
+  { keys: ['Ctrl', ','], what: 'Open Settings' },
   { keys: ['Space'], what: 'Pause or resume updates' },
   { keys: ['Del'], what: 'End the selected task' },
   { keys: ['Enter'], what: 'Open details for the selected process' },
@@ -133,7 +134,7 @@ function template() {
   <div class="lv lv--settings">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">09 / Settings</p>
+        <p class="micro">11 / Settings</p>
         <h1 class="view-title">Your console. <em>Your rules.</em></h1>
       </div>
     </header>

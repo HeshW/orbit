@@ -268,7 +268,7 @@ fn variant_date(v: &VARIANT) -> Option<u64> {
     ole_date_to_unix(unsafe { v.as_raw().Anonymous.Anonymous.Anonymous.date })
 }
 
-fn variant_string(v: &VARIANT) -> Option<String> {
+pub(crate) fn variant_string(v: &VARIANT) -> Option<String> {
     if variant_vt(v) != VT_BSTR.0 {
         return None;
     }
@@ -276,7 +276,7 @@ fn variant_string(v: &VARIANT) -> Option<String> {
 }
 
 /// Numbers from WMI: uint16/uint32 arrive as VT_I4, uint64 as a decimal string.
-fn variant_u64(v: &VARIANT) -> Option<u64> {
+pub(crate) fn variant_u64(v: &VARIANT) -> Option<u64> {
     match variant_vt(v) {
         x if x == VT_BSTR.0 => variant_string(v)?.trim().parse().ok(),
         x if x == VT_I4.0 || x == VT_UI4.0 || x == VT_I2.0 || x == VT_UI2.0 => {
@@ -481,12 +481,12 @@ fn operational_problem(code: i64) -> Option<String> {
     Some(s.to_string())
 }
 
-struct Wmi {
+pub(crate) struct Wmi {
     svc: IWbemServices,
 }
 
 impl Wmi {
-    fn connect(namespace: &str) -> windows::core::Result<Self> {
+    pub(crate) fn connect(namespace: &str) -> windows::core::Result<Self> {
         let locator: IWbemLocator =
             unsafe { CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER) }?;
         let empty = BSTR::new();
@@ -510,7 +510,7 @@ impl Wmi {
         Ok(Self { svc })
     }
 
-    fn query(&self, wql: &str) -> windows::core::Result<Vec<IWbemClassObject>> {
+    pub(crate) fn query(&self, wql: &str) -> windows::core::Result<Vec<IWbemClassObject>> {
         let rows = unsafe {
             self.svc.ExecQuery(
                 &BSTR::from("WQL"),
@@ -540,7 +540,7 @@ impl Wmi {
     }
 }
 
-fn prop(obj: &IWbemClassObject, name: &str) -> VARIANT {
+pub(crate) fn prop(obj: &IWbemClassObject, name: &str) -> VARIANT {
     let mut v = VARIANT::new();
     let _ = unsafe { obj.Get(&HSTRING::from(name), 0, &mut v, None, None) };
     v
@@ -548,7 +548,7 @@ fn prop(obj: &IWbemClassObject, name: &str) -> VARIANT {
 
 /// (disks, note). Unelevated, the reliability counters are refused and the
 /// note says so; without the Storage provider the list is empty.
-fn read_physical_disks(is_admin: bool) -> (Vec<PhysicalDisk>, Option<String>) {
+pub(crate) fn read_physical_disks(is_admin: bool) -> (Vec<PhysicalDisk>, Option<String>) {
     let _com = com_init();
     let wmi = match Wmi::connect(r"ROOT\Microsoft\Windows\Storage") {
         Ok(w) => w,
