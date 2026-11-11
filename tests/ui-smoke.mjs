@@ -323,6 +323,12 @@ async function defender(page, base, watch) {
   await page.click(`${panel} [data-df-scan="full"]`);
   await page.click('#dialog [data-act="ok"]');
   await state('running');
+  // "running" shows before the (mock) backend has the scan, and mock calls take 25-95 ms, so
+  // a Cancel sent at once can overtake defender_scan and find nothing to cancel. Wait for the
+  // backend's first elapsed tick.
+  await page.waitForFunction((sel) => /^0:0[1-9]$/.test(document.querySelector(`${sel} [data-df-elapsed]`)?.textContent || ''), panel, { timeout: WAIT }).catch(() => {
+    throw new Error('full scan shows no elapsed time');
+  });
   await page.click(`${panel} [data-df-act="cancel"]`);
   await state('cancelled');
 
