@@ -1,6 +1,6 @@
 [package]
 name = "orbit"
-version = "0.6.0"
+version = "0.7.0"
 description = "Orbit, a LegacyTech task manager for Windows"
 authors = ["LegacyTech"]
 edition = "2021"
