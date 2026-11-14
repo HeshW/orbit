@@ -57,6 +57,10 @@ const MINI_HEIGHT: f64 = 170.0;
 /// Gap between the mini window and the screen edge on its first open (logical px).
 const MINI_MARGIN: f64 = 16.0;
 const TOOLTIP_EVERY: Duration = Duration::from_secs(2);
+/// How often a start in the tray retries the tray icon while the taskbar is missing.
+const TRAY_RETRY_EVERY: Duration = Duration::from_secs(1);
+/// How long a start in the tray waits for the taskbar before it shows the window.
+const TRAY_WAIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -154,7 +158,13 @@ pub fn configure(builder: Builder<Wry>, identifier: &str) -> Builder<Wry> {
     }
     forward_if_running(identifier);
     builder
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // A launch Windows made at sign-in (--minimized) must never pop
+            // the window up, e.g. when Orbit is started twice at sign-in.
+            if !args.iter().any(|a| a == MINIMIZED_FLAG) {
+                show_main(app);
+            }
+        }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -212,8 +222,11 @@ pub fn setup(app: &AppHandle) {
         });
         // The window starts hidden (tauri.conf.json) so a start in the tray never flashes.
         let launched_minimized = std::env::args().skip(1).any(|a| a == MINIMIZED_FLAG);
-        if launched_minimized && prefs.start_minimized && tray_visible(app) {
+        if launched_minimized && prefs.start_minimized && prefs.show_tray {
+            // At sign-in Orbit can start before the taskbar exists: stay hidden
+            // and wait for the tray icon instead of falling back to the window.
             set_webview_visible(&window, false);
+            spawn_tray_wait(app.clone());
         } else {
             let _ = window.show();
             let _ = window.set_focus();
@@ -361,6 +374,121 @@ fn close_to_tray(app: &AppHandle) -> bool {
 
 fn tray_visible(app: &AppHandle) -> bool {
     lock(&shell().prefs).show_tray && app.tray_by_id(TRAY_ID).is_some()
+}
+
+/// What a start in the tray does next.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum StartAction {
+    /// Show the window now.
+    Show,
+    /// Stay hidden, the tray icon is there.
+    StayHidden,
+    /// Stay hidden and look again later.
+    Wait,
+}
+
+/// The decision for the main window at launch, as a pure function.
+/// `tray_ready` means the taskbar exists and the tray icon is registered
+/// with it. Orbit is never left invisible: without the tray pref, or after
+/// the timeout, the window shows.
+pub(crate) fn start_action(
+    minimized_flag: bool,
+    start_minimized: bool,
+    show_tray: bool,
+    tray_ready: bool,
+    waited: Duration,
+    timeout: Duration,
+) -> StartAction {
+    if !(minimized_flag && start_minimized && show_tray) {
+        StartAction::Show
+    } else if tray_ready {
+        StartAction::StayHidden
+    } else if waited < timeout {
+        StartAction::Wait
+    } else {
+        StartAction::Show
+    }
+}
+
+/// Debug builds only: `ORBIT_FAKE_NO_TASKBAR_SECS=N` makes the taskbar look
+/// missing for the first N seconds after launch.
+#[cfg(debug_assertions)]
+fn fake_no_taskbar() -> bool {
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    let start = *START.get_or_init(std::time::Instant::now);
+    std::env::var("ORBIT_FAKE_NO_TASKBAR_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .is_some_and(|n| start.elapsed() < Duration::from_secs(n))
+}
+#[cfg(not(debug_assertions))]
+fn fake_no_taskbar() -> bool {
+    false
+}
+
+/// Whether Explorer's taskbar window exists yet.
+fn taskbar_exists() -> bool {
+    use windows::core::w;
+    use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+    if fake_no_taskbar() {
+        return false;
+    }
+    // SAFETY: plain Win32 lookup with a static NUL-terminated class name.
+    unsafe { FindWindowW(w!("Shell_TrayWnd"), None).is_ok_and(|h| !h.is_invalid()) }
+}
+
+/// The tray icon is registered with the taskbar (Shell_NotifyIconGetRect works).
+fn tray_registered(app: &AppHandle) -> bool {
+    app.tray_by_id(TRAY_ID).is_some_and(|t| matches!(t.rect(), Ok(Some(_))))
+}
+
+/// Keeps the window hidden while Orbit waits for the taskbar, retrying the
+/// tray icon every second; shows the window when the wait times out. The
+/// tray-icon crate also re-adds the icon itself when Explorer broadcasts
+/// `TaskbarCreated` (also after an Explorer crash), so this thread only
+/// covers the start-up gap. The hotkey works the whole time.
+fn spawn_tray_wait(app: AppHandle) {
+    let handle = app.clone();
+    let spawned = std::thread::Builder::new().name("orbit-tray-wait".into()).spawn(move || {
+        let app = handle;
+        let started = std::time::Instant::now();
+        loop {
+            if shell().exiting.load(Ordering::Relaxed) {
+                return;
+            }
+            // Shown meanwhile (hotkey, tray click): nothing left to wait for.
+            if app.get_webview_window(MAIN).is_some_and(|w| w.is_visible().unwrap_or(false)) {
+                return;
+            }
+            let (start_minimized, show_tray) = {
+                let p = lock(&shell().prefs);
+                (p.start_minimized, p.show_tray)
+            };
+            let taskbar = taskbar_exists();
+            if taskbar && show_tray {
+                if app.tray_by_id(TRAY_ID).is_some() && !tray_registered(&app) {
+                    // The icon object exists but the shell refused it earlier: add it again.
+                    let _ = app.remove_tray_by_id(TRAY_ID);
+                }
+                ensure_tray(&app);
+            }
+            let ready = taskbar && tray_registered(&app);
+            match start_action(true, start_minimized, show_tray, ready, started.elapsed(), TRAY_WAIT_TIMEOUT)
+            {
+                StartAction::StayHidden => return,
+                StartAction::Show => {
+                    eprintln!("[orbit] no tray icon after waiting; showing the window");
+                    show_main(&app);
+                    return;
+                }
+                StartAction::Wait => std::thread::sleep(TRAY_RETRY_EVERY),
+            }
+        }
+    });
+    if let Err(err) = spawned {
+        eprintln!("[orbit] tray wait thread failed: {err}");
+        show_main(&app);
+    }
 }
 
 fn pause_label(paused: bool) -> &'static str {
@@ -939,6 +1067,26 @@ mod tests {
         wait_for_exit(child.id(), 10_000);
         assert!(t.elapsed() >= Duration::from_millis(500), "returned before the child exited");
         assert!(child.try_wait().expect("try_wait").is_some(), "child still running");
+    }
+
+    #[test]
+    fn start_action_decisions() {
+        use StartAction::*;
+        let t = Duration::from_secs(60);
+        let s = Duration::from_secs;
+        // Not a sign-in launch, pref off, or no tray pref: show.
+        assert_eq!(start_action(false, true, true, true, s(0), t), Show);
+        assert_eq!(start_action(false, true, true, false, s(0), t), Show);
+        assert_eq!(start_action(true, false, true, true, s(0), t), Show);
+        assert_eq!(start_action(true, true, false, true, s(0), t), Show);
+        // Minimized with the taskbar ready: stay hidden, at any time.
+        assert_eq!(start_action(true, true, true, true, s(0), t), StayHidden);
+        assert_eq!(start_action(true, true, true, true, s(90), t), StayHidden);
+        // Minimized, no taskbar yet: wait, then show at the timeout.
+        assert_eq!(start_action(true, true, true, false, s(0), t), Wait);
+        assert_eq!(start_action(true, true, true, false, s(59), t), Wait);
+        assert_eq!(start_action(true, true, true, false, s(60), t), Show);
+        assert_eq!(start_action(true, true, true, false, s(90), t), Show);
     }
 
     #[test]

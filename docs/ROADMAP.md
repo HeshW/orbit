@@ -635,6 +635,25 @@ by hand always shows the window, by design.
 about 30 s, and re-add it when Explorer announces `TaskbarCreated`) instead of showing the
 window. Restart after an update with the same flags it was started with.
 
+**Done (0.8):** with `--minimized` and the tray pref on, Orbit now keeps the window hidden
+and retries the tray icon every second (up to 60 s) until the taskbar (`Shell_TrayWnd`) exists
+and the icon is registered; only then does it stay hidden, and only after the timeout does it
+show the window. The decision is the pure `shell::start_action` (unit tested). Findings:
+- The tray-icon crate (0.25.1) already re-adds the icon on `TaskbarCreated` (and allows the
+  message through UIPI), so Explorer restarts were already covered. A failed first `NIM_ADD`
+  leaves the `TrayIcon` object in place, so the old `tray_visible()` check was true even
+  when no icon was on screen; the old code could not have shown the window for that reason.
+  The cause on the owner's PC is therefore not proven here; likely candidates are a second
+  launch at sign-in (the single-instance callback always showed the window; it now ignores
+  launches that carry `--minimized`) and a tray build error that early. To be confirmed on
+  the real sign-in.
+- Updates: the updater runs the NSIS installer and exits Orbit; the installer relaunches
+  with the old process's own arguments (`/ARGS`), so an Orbit that was started with
+  `--minimized` comes back minimized. An Orbit started by hand comes back with the window,
+  which is right because the update is started from the window. Not changed.
+- Debug builds only: `ORBIT_FAKE_NO_TASKBAR_SECS=N` makes the taskbar look missing for the
+  first N seconds.
+
 ### 10b. Dismiss the startup suggestions card — S
 
 The "These N apps add the most to your sign-in" card in Startup has no way to close it.
