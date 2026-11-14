@@ -61,6 +61,10 @@ const TOOLTIP_EVERY: Duration = Duration::from_secs(2);
 const TRAY_RETRY_EVERY: Duration = Duration::from_secs(1);
 /// How long a start in the tray waits for the taskbar before it shows the window.
 const TRAY_WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long after the taskbar appears a start in the tray keeps re-adding an icon that
+/// reports no position. An icon in the collapsed overflow area never reports one, so after
+/// this the icon counts as placed.
+const TRAY_REGISTER_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -452,6 +456,7 @@ fn spawn_tray_wait(app: AppHandle) {
     let spawned = std::thread::Builder::new().name("orbit-tray-wait".into()).spawn(move || {
         let app = handle;
         let started = std::time::Instant::now();
+        let mut taskbar_since: Option<std::time::Instant> = None;
         loop {
             if shell().exiting.load(Ordering::Relaxed) {
                 return;
@@ -465,14 +470,20 @@ fn spawn_tray_wait(app: AppHandle) {
                 (p.start_minimized, p.show_tray)
             };
             let taskbar = taskbar_exists();
+            if !taskbar {
+                taskbar_since = None;
+            }
+            let in_grace = taskbar && taskbar_since.get_or_insert_with(std::time::Instant::now).elapsed() < TRAY_REGISTER_GRACE;
             if taskbar && show_tray {
-                if app.tray_by_id(TRAY_ID).is_some() && !tray_registered(&app) {
+                if in_grace && app.tray_by_id(TRAY_ID).is_some() && !tray_registered(&app) {
                     // The icon object exists but the shell refused it earlier: add it again.
                     let _ = app.remove_tray_by_id(TRAY_ID);
                 }
                 ensure_tray(&app);
             }
-            let ready = taskbar && tray_registered(&app);
+            // The icon is in place when the shell can place it, or (overflow area: no position
+            // is ever reported) once the grace period after the taskbar appeared has passed.
+            let ready = taskbar && app.tray_by_id(TRAY_ID).is_some() && (!in_grace || tray_registered(&app));
             match start_action(true, start_minimized, show_tray, ready, started.elapsed(), TRAY_WAIT_TIMEOUT)
             {
                 StartAction::StayHidden => return,

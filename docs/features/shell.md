@@ -120,7 +120,7 @@ refuses `set_autostart(true)` when the mock is elevated.
 
 With `--minimized`, "Start in the tray" on and the tray icon on, the window now stays hidden while
 Orbit waits for the taskbar: the `orbit-tray-wait` thread retries the icon every second, up to 60 s,
-until `Shell_TrayWnd` exists and the icon is registered; only after 60 s does it show the window
+until `Shell_TrayWnd` exists and the icon is registered (an icon in the overflow area never reports a position, so 5 s after the taskbar appears it counts as placed); only after 60 s does it show the window
 (so Orbit is never invisible with no way back). The hotkey works the whole time. The decision is the
 pure `shell::start_action` (unit tested). Debug builds only: `ORBIT_FAKE_NO_TASKBAR_SECS=N` makes
 the taskbar look missing for N seconds after launch.
