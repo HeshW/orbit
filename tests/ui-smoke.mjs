@@ -465,7 +465,12 @@ async function startupSync(page) {
   });
   if (await switchOf('Claude') !== 'true') throw new Error('the locked switch changed');
   // Right-click: only Settings and Search online.
-  await row('WhatsApp').click({ button: 'right' });
+  // The last row sits at the bottom of the table: scroll it into view and let the scroll events
+  // finish first (a late scroll event closes an open menu); click its name cell, because the toast
+  // from the click above can cover the middle of the row.
+  await row('WhatsApp').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+  await row('WhatsApp').locator('.c-name').click({ button: 'right' });
   const labels = await menuLabels(page);
   if (labels.join('|') !== 'Open Startup settings|Search online') throw new Error('Store app menu: ' + labels.join(', '));
   await page.keyboard.press('Escape');

@@ -13,7 +13,7 @@
 | 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
-| 10 | **0.8 list** | Built on the v0.8 branch: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
+| 10 | **0.8 list** | Shipped in 0.8.0: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -637,7 +637,7 @@ window. Restart after an update with the same flags it was started with.
 
 **Done (0.8):** with `--minimized` and the tray pref on, Orbit now keeps the window hidden
 and retries the tray icon every second (up to 60 s) until the taskbar (`Shell_TrayWnd`) exists
-and the icon is registered; only then does it stay hidden, and only after the timeout does it
+and the icon is registered (an overflow-area icon never reports a position, so it counts as placed 5 s after the taskbar appears); only then does it stay hidden, and only after the timeout does it
 show the window. The decision is the pure `shell::start_action` (unit tested). Findings:
 - The tray-icon crate (0.25.1) already re-adds the icon on `TaskbarCreated` (and allows the
   message through UIPI), so Explorer restarts were already covered. A failed first `NIM_ADD`
