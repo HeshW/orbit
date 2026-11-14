@@ -352,6 +352,7 @@ mod tests {
             needs_admin: false,
             impact: None,
             impact_measured_at: None,
+            packaged_state: None,
         };
         let mut list = vec![entry(Some(r"C:\Apps\Big.exe")), entry(Some(r"C:\Apps\Other.exe")), entry(None)];
         let file = ImpactFile {

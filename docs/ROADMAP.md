@@ -13,7 +13,7 @@
 | 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
-| 10 | **0.8 list** | Planned: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync. See section 10. |
+| 10 | **0.8 list** | Built on the v0.8 branch: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -687,3 +687,11 @@ Orbit see it?
 - List packaged startup tasks (`Windows.ApplicationModel.StartupTask` per package) with their
   on/off state. Turning one on from Orbit isn't allowed by Windows for other apps, so Orbit can
   only show it and point to Settings > Apps > Startup.
+**Done (0.8):** the Startup tab re-reads when it is shown and reloads on `orbit://startup-changed`,
+which a background watcher sends (Run keys, StartupApproved, Startup folders, packaged task
+state; one thread blocked in `WaitForMultipleObjects`, 500 ms debounce, no polling). Store app
+startup tasks are listed read only with their state and an "Open Startup settings" button; the
+state comes from the registry value Windows keeps per task and the task list from each package's
+manifest (this PC: 12 tasks, see `docs/features/startup.md`). Debloat, suggestions and the impact
+measurement do not see them. Details in `docs/features/startup.md`.
+

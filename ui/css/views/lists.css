@@ -410,7 +410,7 @@
 .lv-table--startup .c-cmd { width: auto; }
 .lv-table--startup .c-loc { width: 222px; }
 .lv-table--startup .c-impact { width: 128px; }
-.lv-table--startup .c-status { width: 88px; }
+.lv-table--startup .c-status { width: 140px; }
 .lv-table--startup .c-more { width: 48px; text-align: center; }
 
 .lv-impact-none {
@@ -1260,4 +1260,13 @@ html.reduce-motion .lv-textlink:hover .icon {
   .lv-textlink:hover .icon {
     transform: none;
   }
+}
+
+/* Store app startup tasks (read only): the switch shows the state but does not move. */
+.lv-table .switch.is-locked {
+  opacity: 0.55;
+}
+
+.lv-table .row--packaged .c-cmd .btn {
+  max-width: 100%;
 }

@@ -140,7 +140,8 @@ export default {
     const dr = drives();
     const dk = disks(admin);
     const diskNote = admin ? null : 'Restart as administrator to see wear, temperature and error counts.';
-    const startup = await ctx.call('list_startup');
+    // Store app startup tasks are not part of the startup load (read only, no measurement).
+    const startup = (await ctx.call('list_startup')).filter((e) => !e.packagedState);
     const picks = await suggestions(ctx);
     let findings = [];
     let scanError = null;

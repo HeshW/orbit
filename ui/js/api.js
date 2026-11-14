@@ -445,6 +445,10 @@ const mock = (() => {
       { id: 'UserFolder\\OBS Studio.lnk', name: 'OBS Studio', command: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', location: 'Startup folder', enabled: true, path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', needsAdmin: false },
       { id: 'UserFolder\\Orbit.lnk', name: 'Orbit', command: 'E:\\Work\\LegacyHub\\apps\\orbit\\src-tauri\\target\\release\\orbit.exe', location: 'Startup folder', enabled: false, path: 'E:\\Work\\LegacyHub\\apps\\orbit\\src-tauri\\target\\release\\orbit.exe', needsAdmin: false },
       { id: 'CommonFolder\\Send to OneNote.lnk', name: 'Send to OneNote', command: 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\Send to OneNote.lnk', location: 'Startup folder (all users)', enabled: true, path: null, needsAdmin: true },
+      // Store (packaged) startup tasks: read only, state from Windows (startup/packaged.rs).
+      { id: 'Packaged\\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\\2defd21c-0b9e-4e4e-873a-2a68c47d7da5', name: 'WhatsApp', command: '', location: 'Store app', enabled: false, path: null, needsAdmin: false, packagedState: 'disabled' },
+      { id: 'Packaged\\Claude_pzs8sxrjxfjjc\\ClaudeStartup', name: 'Claude', command: 'Claude.exe', location: 'Store app', enabled: true, path: null, needsAdmin: false, packagedState: 'enabled' },
+      { id: 'Packaged\\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe\\WebViewHostStartupId', name: 'Microsoft 365 Copilot', command: '', location: 'Store app', enabled: false, path: null, needsAdmin: false, packagedState: 'disabledByUser' },
     ];
     // Sample startup impact, as if Orbit measured the last sign-in (impact.rs).
     const measuredAt = Math.floor(now() / 1000) - 26 * 3600;
@@ -1004,8 +1008,20 @@ const mock = (() => {
     set_startup_enabled({ id, enabled }) {
       const e = state.startup.find((x) => x.id === id);
       if (!e) throw 'Startup entry not found.';
+      if (e.packagedState) throw "Windows doesn't let other apps change a Store app's startup. Use Startup settings.";
       if (e.needsAdmin && !state.isAdmin) throw DENIED;
       e.enabled = !!enabled;
+      return null;
+    },
+
+    // Test hook (no such command in Rust): change an entry the way another app would, then send
+    // orbit://startup-changed like the backend's watcher does.
+    mock_startup_external_change({ id, enabled, packagedState }, ctx) {
+      const e = state.startup.find((x) => x.id === id);
+      if (!e) throw 'Startup entry not found.';
+      e.enabled = !!enabled;
+      if (e.packagedState) e.packagedState = packagedState || (enabled ? 'enabled' : 'disabled');
+      ctx.emit('orbit://startup-changed', null);
       return null;
     },
 

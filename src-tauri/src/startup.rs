@@ -16,7 +16,7 @@ use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW,
     RegSetValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_READ,
-    KEY_SET_VALUE, KEY_WOW64_64KEY, REG_BINARY, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE,
+    KEY_NOTIFY, KEY_SET_VALUE, KEY_WOW64_64KEY, REG_BINARY, REG_DWORD, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE,
     REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE,
 };
 use windows::Win32::UI::Shell::{
@@ -24,6 +24,11 @@ use windows::Win32::UI::Shell::{
 };
 
 use crate::model::*;
+
+mod packaged;
+mod watch;
+
+pub use watch::start as start_watch;
 
 const ACCESS_DENIED_MSG: &str = "Access denied. Try Restart as administrator.";
 
@@ -582,6 +587,7 @@ fn registry_entries(source: Source, out: &mut Vec<StartupEntry>) {
             needs_admin: source.needs_admin(),
             impact: None,
             impact_measured_at: None,
+            packaged_state: None,
         });
     }
     entries.sort_by_cached_key(|e| e.name.to_lowercase());
@@ -635,6 +641,7 @@ fn folder_entries(source: Source, out: &mut Vec<StartupEntry>) {
             needs_admin: source.needs_admin(),
             impact: None,
             impact_measured_at: None,
+            packaged_state: None,
         });
     }
     entries.sort_by_cached_key(|e| e.name.to_lowercase());
@@ -689,12 +696,17 @@ fn approved_payload(enabled: bool) -> [u8; 12] {
 // Commands
 // ---------------------------------------------------------------------------
 
-/// Startup entries with the impact from Orbit's last measurement (impact.rs).
+/// Startup entries with the impact from Orbit's last measurement (impact.rs),
+/// then this user's Store app startup tasks (read only, `packagedState` set).
+/// Only `collect_startup` feeds Debloat, the suggestions and the measurement, so
+/// those never see the packaged rows.
 #[tauri::command]
 pub async fn list_startup() -> Result<Vec<StartupEntry>, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let mut list = collect_startup();
         crate::impact::apply(&mut list, crate::impact::load().as_ref());
+        list.extend(packaged::collect_packaged_startup(true));
+        watch::note_list(&list);
         list
     })
     .await
@@ -754,6 +766,9 @@ pub fn cancel_startup_measure() -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_startup_enabled(id: String, enabled: bool) -> Result<(), String> {
+    if id.starts_with(packaged::PREFIX) {
+        return Err("Windows doesn't let other apps change a Store app's startup. Use Startup settings.".to_string());
+    }
     let (source, value_name) =
         parse_id(&id).ok_or_else(|| "Unknown startup entry.".to_string())?;
 

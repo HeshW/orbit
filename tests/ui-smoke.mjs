@@ -416,6 +416,101 @@ async function suggestionsHide(page, base) {
   }, gone.id);
 }
 
+// Startup (0.8): Store app startup tasks are listed read only with their state and an "Open
+// Startup settings" button; the list is re-read when the tab is shown again and when the
+// backend announces orbit://startup-changed (the mock sends it from a test hook).
+async function startupSync(page) {
+  const sid = (...parts) => parts.join(String.fromCharCode(92)); // backslash-joined ids
+  const rows = '#view-startup tbody tr.row';
+  const row = (name) => page.locator(rows, { hasText: name }).first();
+  const api = (fn, arg) => page.evaluate(async ([f, a]) => {
+    const { call } = await import('/js/api.js');
+    return call(f, a);
+  }, [fn, arg]);
+  const switchOf = (name) => row(name).locator('.switch').getAttribute('aria-checked');
+  const waitSwitch = (name, value, what) => page.waitForFunction(([n, v]) => {
+    const tr = [...document.querySelectorAll('#view-startup tbody tr.row')].find((r) => r.textContent.includes(n));
+    return tr?.querySelector('.switch')?.getAttribute('aria-checked') === v;
+  }, [name, value], { timeout: WAIT }).catch(() => {
+    throw new Error(what);
+  });
+
+  await showView(page, 'startup');
+  await page.waitForFunction(() => document.querySelectorAll('#view-startup tbody tr.row').length > 3, null, { timeout: WAIT });
+
+  // Packaged rows: read only, labelled "Store app", state in words, Settings button.
+  const packaged = page.locator('#view-startup tbody tr.row--packaged');
+  if (await packaged.count() !== 3) throw new Error('expected 3 Store app rows, got ' + await packaged.count());
+  const text = (await packaged.allInnerTexts()).join(' | ').replace(/\s+/g, ' ');
+  for (const need of ['WhatsApp', 'Claude', 'Microsoft 365 Copilot', 'Store app', 'Disabled by you', 'Open Startup settings']) {
+    if (!text.toLowerCase().includes(need.toLowerCase())) throw new Error('Store app rows miss "' + need + '": ' + text);
+  }
+  if (await page.locator('#view-startup tr.row--packaged .switch[data-act="toggle"]').count()) throw new Error('a Store app row has a working switch');
+  const locked = page.locator('#view-startup tr.row--packaged .switch');
+  for (let i = 0; i < 3; i++) {
+    if (await locked.nth(i).getAttribute('aria-disabled') !== 'true') throw new Error('a Store app switch is not marked disabled');
+  }
+  const settingsPage = [];
+  const onConsole = (m) => { if (m.type() === 'info' && /ms-settings:startupapps/.test(m.text())) settingsPage.push(m.text()); };
+  page.on('console', onConsole);
+  await row('WhatsApp').locator('[data-act="settings"]').click();
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(300);
+  page.off('console', onConsole);
+  if (!settingsPage.length) throw new Error('"Open Startup settings" did not open ms-settings:startupapps');
+  // Clicking the locked switch explains instead of changing anything.
+  await row('Claude').locator('.switch').click({ force: true }); // aria-disabled: Playwright would wait forever
+  await page.waitForFunction(() => /Startup settings/.test(document.getElementById('toasts')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('the locked switch did not explain itself');
+  });
+  if (await switchOf('Claude') !== 'true') throw new Error('the locked switch changed');
+  // Right-click: only Settings and Search online.
+  await row('WhatsApp').click({ button: 'right' });
+  const labels = await menuLabels(page);
+  if (labels.join('|') !== 'Open Startup settings|Search online') throw new Error('Store app menu: ' + labels.join(', '));
+  await page.keyboard.press('Escape');
+  // The backend refuses a change too.
+  const refused = await page.evaluate(async (id) => {
+    const { call } = await import('/js/api.js');
+    try {
+      await call('set_startup_enabled', { id, enabled: false });
+      return '';
+    } catch (e) {
+      return String(e);
+    }
+  }, sid('Packaged', 'Claude_pzs8sxrjxfjjc', 'ClaudeStartup'));
+  if (!/Startup settings/.test(refused)) throw new Error('set_startup_enabled did not refuse a Store app: ' + refused);
+
+  // Re-read on show: a change made while the tab was hidden is there when it is opened.
+  await showView(page, 'processes');
+  await api('set_startup_enabled', { id: sid('HKCU', 'Run', 'Steam'), enabled: true });
+  await showView(page, 'startup');
+  await waitSwitch('Steam', 'true', 'Startup did not re-read when the tab was shown again');
+
+  // Live: the event reloads the visible list, packaged rows included.
+  await api('mock_startup_external_change', { id: sid('HKCU', 'Run', 'Steam'), enabled: false });
+  await waitSwitch('Steam', 'false', 'Startup did not update on orbit://startup-changed');
+  await api('mock_startup_external_change', { id: sid('Packaged', '5319275A.WhatsAppDesktop_cv1g1gvanyjgm', '2defd21c-0b9e-4e4e-873a-2a68c47d7da5'), enabled: true, packagedState: 'enabled' });
+  await waitSwitch('WhatsApp', 'true', 'a Store app row did not update on orbit://startup-changed');
+  const status = await row('WhatsApp').locator('.lv-status').innerText();
+  if (status.trim() !== 'Enabled') throw new Error('WhatsApp status: ' + status);
+  await api('mock_startup_external_change', { id: sid('Packaged', '5319275A.WhatsAppDesktop_cv1g1gvanyjgm', '2defd21c-0b9e-4e4e-873a-2a68c47d7da5'), enabled: false, packagedState: 'disabledByPolicy' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#view-startup tbody tr.row')].find((r) => r.textContent.includes('WhatsApp'))?.textContent.includes('Disabled by policy'), null, { timeout: WAIT }).catch(() => {
+    throw new Error('"Disabled by policy" did not show');
+  });
+  await api('mock_startup_external_change', { id: sid('Packaged', '5319275A.WhatsAppDesktop_cv1g1gvanyjgm', '2defd21c-0b9e-4e4e-873a-2a68c47d7da5'), enabled: false, packagedState: 'disabled' });
+
+  // Health's startup count and the suggestions never include Store app rows.
+  await showView(page, 'optimize');
+  await page.click('#view-optimize .op-tabs [data-tab="health"]');
+  await page.waitForSelector('#op-pane-health .hl-item', { timeout: WAIT });
+  const ids = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    return (await call('get_startup_suggestions')).map((x) => x.id);
+  });
+  if (ids.some((id) => id.startsWith('Packaged'))) throw new Error('a Store app was suggested: ' + ids.join(', '));
+}
+
 // Optimize > Debloat (mock): Health's startup warning links here; Analyze groups the PC with
 // every verdict; only Safe items can be ticked; Review changes previews exactly what changes
 // (admin-only items skipped); applying lists the changes; Undo and Undo all put things back;
@@ -837,6 +932,7 @@ try {
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));
+  await check('startup sync', () => startupSync(page));
   await check('debloat', () => debloat(page));
   await check('my rig', () => myRig(page));
   await check('motion', () => motion(page));
@@ -855,4 +951,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);

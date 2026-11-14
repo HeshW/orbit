@@ -395,6 +395,11 @@ pub struct StartupEntry {
     pub impact: Option<String>,
     /// Seconds since the Unix epoch of that measurement, `None` with `impact`.
     pub impact_measured_at: Option<u64>,
+    /// Set only for Store (packaged) startup tasks, which are read only in Orbit:
+    /// "enabled" | "disabled" | "disabledByUser" | "disabledByPolicy" | "enabledByPolicy".
+    /// `None` for Run keys and Startup folders.
+    #[serde(default)]
+    pub packaged_state: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

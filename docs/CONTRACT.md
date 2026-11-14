@@ -940,6 +940,37 @@ GpuSensors { luid: string|null /*DXGI adapter, gpu::luid_key*/, name: string, so
   `?nocputemp` (cpu null), `?hot` (past the hot thresholds), `?nogpu` (gpus []).
   `tests/ui-smoke.mjs` "<theme>: temperatures" and "temperatures".
 
+**v0.8**
+- Start in the tray at sign-in (10a, `shell.rs`, `docs/features/shell.md`). No new command or
+  setting. `--minimized` + `startMinimized` + `showTray`: the window stays hidden and the
+  `orbit-tray-wait` thread retries the tray icon every 1 s (up to 60 s) until `Shell_TrayWnd`
+  exists and the icon is registered (`Shell_NotifyIconGetRect`), then stops; after 60 s it shows
+  the window. Decision = pure `shell::start_action(minimizedFlag, startMinimized, showTray,
+  trayReady, waited, timeout) -> Show | StayHidden | Wait`. The single-instance callback ignores
+  a launch that carries `--minimized`. Debug builds only: `ORBIT_FAKE_NO_TASKBAR_SECS=N`.
+- Startup suggestions card can be hidden (10b). UI setting `hiddenSuggestions` (string, default
+  `""`): `suggestionKey(list)` = `s<count>-<FNV-1a hex>` of the sorted suggested ids; the card
+  is not drawn while the setting equals the key of the current list. In Export / Import like
+  any other remembered view choice. `createSuggestions` renders `button.sg-hide[data-sg-hide]`
+  (`aria-label="Hide these suggestions"`) in `.sg-head`.
+- Startup stays in sync (10c, `startup.rs`, `startup/packaged.rs`, `startup/watch.rs`,
+  `docs/features/startup.md`).
+  - Event `orbit://startup-changed` (no payload): the backend watcher saw a change in the Run
+    keys, StartupApproved, the packaged-task state tree or a Startup folder (500 ms debounce,
+    and only when the list differs from the last `list_startup`). `views/startup.js` reloads
+    when visible; it also reloads every time the tab is shown.
+  - `StartupEntry.packagedState?: "enabled"|"disabled"|"disabledByUser"|"disabledByPolicy"|
+    "enabledByPolicy"`: set only on Store app startup tasks. Those rows have id
+    `Packaged\<PackageFamilyName>\<TaskId>`, `location "Store app"`, `path null`, `impact null`,
+    `needsAdmin false`; `enabled` is true for `enabled` and `enabledByPolicy`.
+    `set_startup_enabled` refuses them ("Use Startup settings"); the UI shows a locked switch,
+    the state in words and `Open Startup settings` (`open_settings_page("ms-settings:startupapps")`).
+  - `collect_startup()` (Debloat, suggestions, impact measurement) still returns only Run key
+    and Startup folder entries; only `list_startup` adds the packaged rows.
+  - Mock: three packaged rows in `api.js` `seedStartup`; `mock_startup_external_change({ id,
+    enabled, packagedState? })` changes a row and sends `orbit://startup-changed` (test hook,
+    no Rust command). `tests/ui-smoke.mjs` "suggestions hide" and "startup sync".
+
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`
   (masks are decimal u64 strings, bit n = CPU n; JS uses BigInt). `StartupEntry` gains

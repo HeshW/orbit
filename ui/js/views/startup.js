@@ -1,6 +1,6 @@
 // 04 / Startup: every Run key and Startup folder entry, with on/off switches ("Apps"),
 // plus read-only autoruns tabs: scheduled tasks, services, logon keys and image hijacks.
-import { call } from '../api.js';
+import { call, onEvent } from '../api.js';
 import { store, on, setQuery } from '../store.js';
 import { escapeHtml, fuzzy, time } from '../format.js';
 import { toast, showMenu } from '../app.js';
@@ -13,6 +13,18 @@ const FILTERS = [
   { id: 'disabled', label: 'Disabled', test: (e) => !e.enabled },
   { id: 'admin', label: 'Needs admin', test: (e) => e.needsAdmin },
 ];
+
+// Store (packaged) startup tasks are read only: Windows lets only the app, or the user in
+// Settings, change one (startup/packaged.rs). packagedState is set only on those rows.
+const PACKAGED_STATES = {
+  enabled: 'Enabled',
+  disabled: 'Disabled',
+  disabledByUser: 'Disabled by you',
+  disabledByPolicy: 'Disabled by policy',
+  enabledByPolicy: 'Enabled by policy',
+};
+const STARTUP_SETTINGS = 'ms-settings:startupapps';
+const LOCKED_HINT = "Windows doesn't let other apps change a Store app's startup. Use Startup settings.";
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 
@@ -216,8 +228,20 @@ function computeRows() {
 
 /* ---------- actions ---------- */
 
+async function openStartupSettings() {
+  try {
+    await call('open_settings_page', { page: STARTUP_SETTINGS });
+  } catch (err) {
+    toast(errMsg(err), 'error');
+  }
+}
+
 async function toggle(entry) {
   if (!entry || busy.has(entry.id)) return;
+  if (entry.packagedState) {
+    toast(LOCKED_HINT, 'info');
+    return;
+  }
   const next = !entry.enabled;
   entry.enabled = next;
   busy.add(entry.id);
@@ -278,6 +302,12 @@ async function copyCommand(entry) {
 }
 
 function menuItems(entry) {
+  if (entry.packagedState) {
+    return [
+      { label: 'Open Startup settings', icon: 'i-gear', action: () => openStartupSettings() },
+      { label: 'Search online', icon: 'i-globe', action: () => searchOnline(entry) },
+    ];
+  }
   return [
     {
       label: entry.enabled ? 'Disable' : 'Enable',
@@ -329,7 +359,22 @@ function renderMeasure() {
   els.when.title = t ? `Startup impact was measured at the sign-in on ${time(t)}.` : 'Orbit has not measured startup impact yet.';
 }
 
+function packagedRowHtml(e, i) {
+  const label = PACKAGED_STATES[e.packagedState] || 'Disabled';
+  return `<tr class="row row--packaged" data-i="${i}">
+    <td class="c-toggle"><button type="button" class="switch is-locked" role="switch" data-act="locked"
+      aria-checked="${e.enabled}" aria-disabled="true" aria-label="${attr(e.name)} starts with Windows: ${attr(label)}. Read only." title="${attr(LOCKED_HINT)}"><span class="switch-thumb" aria-hidden="true"></span></button></td>
+    <td class="c-name"><div class="lv-namecell"><span class="lv-ico lv-ico--blank" aria-hidden="true">${icon('i-rocket')}</span><span class="lv-primary" title="${attr(e.name)}">${text(e.name)}</span></div></td>
+    <td class="c-cmd"><button type="button" class="btn btn--ghost btn--sm" data-act="settings" aria-label="Open Startup settings to change ${attr(e.name)}"><span>Open Startup settings</span></button></td>
+    <td class="c-loc"><div class="lv-loccell"><span class="chip lv-chip">${text(e.location)}</span></div></td>
+    <td class="c-impact"><span class="lv-impact-none">Not measured</span></td>
+    <td class="c-status"><span class="lv-status ${e.enabled ? 'lv-status--on' : 'lv-status--off'}">${text(label)}</span></td>
+    <td class="c-more"><button type="button" class="icon-btn lv-more" data-act="menu" aria-label="More actions for ${attr(e.name)}" title="More actions">${icon('i-more')}</button></td>
+  </tr>`;
+}
+
 function rowHtml(e, i) {
+  if (e.packagedState) return packagedRowHtml(e, i);
   const pending = busy.has(e.id);
   const iconUrl = e.path ? icons.get(e.path) : null;
   const ico = iconUrl
@@ -1003,6 +1048,10 @@ export function mount(rootEl) {
     if (btn.dataset.act === 'toggle') {
       if (btn.getAttribute('aria-disabled') === 'true') return;
       toggle(entry);
+    } else if (btn.dataset.act === 'locked') {
+      toast(LOCKED_HINT, 'info');
+    } else if (btn.dataset.act === 'settings') {
+      openStartupSettings();
     } else if (btn.dataset.act === 'menu') {
       const r = btn.getBoundingClientRect();
       openMenuFor(entry, r.right, r.bottom + 4);
@@ -1037,6 +1086,12 @@ export function mount(rootEl) {
     if (visible) render(); else dirty = true;
   });
 
+  // Another app (or Task Manager, or Settings) changed a startup entry: the backend's
+  // watcher sends this once per change. Hidden: the next onShow re-reads anyway.
+  onEvent('orbit://startup-changed', () => {
+    if (visible && loaded) load();
+  });
+
   render();
 }
 
@@ -1044,7 +1099,12 @@ export function onShow() {
   visible = true;
   if (!arLoaded && !arLoading) loadAutoruns();
   if (!loaded && !loading) load();
-  else if (dirty) render();
+  else {
+    // Re-read each time the tab is shown (cheap); the old rows stay up until the new ones
+    // arrive, so scroll position and focus are kept.
+    if (dirty) render();
+    if (loaded) load();
+  }
 }
 
 export function onHide() {

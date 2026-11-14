@@ -1500,6 +1500,7 @@ mod tests {
             needs_admin: false,
             impact: None,
             impact_measured_at: None,
+            packaged_state: None,
         }
     }
 

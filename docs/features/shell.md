@@ -115,3 +115,21 @@ refuses `set_autostart(true)` when the mock is elevated.
   (seen once in eight presses); the window is shown either way.
 - Updates exit with `process::exit(0)` and skip `RunEvent::Exit`, so the tray icon can linger
   as a ghost until hovered after an update (Windows clears it).
+
+## 0.8: Start in the tray at sign-in
+
+With `--minimized`, "Start in the tray" on and the tray icon on, the window now stays hidden while
+Orbit waits for the taskbar: the `orbit-tray-wait` thread retries the icon every second, up to 60 s,
+until `Shell_TrayWnd` exists and the icon is registered; only after 60 s does it show the window
+(so Orbit is never invisible with no way back). The hotkey works the whole time. The decision is the
+pure `shell::start_action` (unit tested). Debug builds only: `ORBIT_FAKE_NO_TASKBAR_SECS=N` makes
+the taskbar look missing for N seconds after launch.
+
+Findings: tray-icon 0.25.1 already re-adds the icon on `TaskbarCreated` (also after an Explorer
+crash); a failed first `Shell_NotifyIcon` leaves the `TrayIcon` object in place, so the old
+`tray_visible()` check was true even with no icon on screen; a second launch at sign-in used to
+show the window through the single-instance callback and now does not when it carries
+`--minimized`. The updater runs the NSIS installer, which relaunches with the old process's own
+arguments, so a sign-in start stays minimized after an update; an Orbit opened by hand comes back
+with its window (the update is started from the window). Not changed. Still to confirm on a real
+sign-in.

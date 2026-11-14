@@ -158,6 +158,7 @@ pub fn run() {
             boost::init(app.handle());
             sampler::start(app.handle().clone());
             shell::setup(app.handle());
+            startup::start_watch(app.handle().clone());
             if let Some(window) = app.get_webview_window("main") {
                 hide_webview_when_minimized(&window);
             }
