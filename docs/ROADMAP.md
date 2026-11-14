@@ -618,7 +618,8 @@ The owner's notes after 0.7.0.
 
 ### 10a. "Start in tray" opens the window anyway — S (bug)
 
-**Seen:** with "Start minimized to tray" on, Orbit's window opens on start.
+**Seen:** with "Start minimized to tray" on, Orbit's window opens after Windows sign-in
+(confirmed by the owner).
 
 **What the code does today:** the setting only applies when Windows starts Orbit at sign-in
 (the Run entry passes `--minimized`; checked on the owner's PC, it does). Orbit then stays in the
