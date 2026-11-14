@@ -660,6 +660,12 @@ The "These N apps add the most to your sign-in" card in Startup has no way to cl
 - Add a close button ("Hide"). Remember it per set of apps: the card comes back only when
   the suggested apps change.
 - Same for the compact card in Health.
+**Done (0.8):** the card has a close button ("Hide these suggestions", an x in its corner). Hiding
+stores a short hash of the suggested apps' ids in the UI setting `hiddenSuggestions`; the card
+shows again as soon as the set of suggested apps differs (an app turned off, a new heavy app,
+a new measurement). Startup and Health share the setting, so hiding in one hides in both.
+The setting is part of Export / Import settings like the other remembered view choices.
+
 
 ### 10c. Startup list stays in sync with changes made elsewhere — S–M
 

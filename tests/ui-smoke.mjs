@@ -367,6 +367,55 @@ async function defender(page, base, watch) {
   }
 }
 
+// Startup suggestions card (0.8): the Hide button (labelled) hides it in Startup and in
+// Health, the choice survives a reload, and a changed set of apps brings the card back.
+async function suggestionsHide(page, base) {
+  const card = '#view-startup .sg';
+  const rows = () => page.locator(`${card} .sg-row`).count();
+  await page.evaluate(() => import('/js/store.js').then((m) => m.setSettings({ hiddenSuggestions: '' })));
+  await showView(page, 'startup');
+  await page.waitForSelector(`${card}:not([hidden]) .sg-row`, { timeout: WAIT });
+  const n = await rows();
+  if (n < 2) throw new Error(`expected at least 2 suggestions, got ${n}`);
+  const hide = page.locator(`${card} [data-sg-hide]`);
+  const label = await hide.getAttribute('aria-label');
+  if (!/hide/i.test(label || '')) throw new Error(`Hide button has no accessible label: ${label}`);
+  await hide.click();
+  await page.waitForFunction((sel) => document.querySelector(sel)?.hidden === true, card, { timeout: WAIT }).catch(() => {
+    throw new Error('Hide did not hide the card in Startup');
+  });
+  // Health's compact card follows (same set of apps).
+  await showView(page, 'optimize');
+  await page.click('#view-optimize .op-tabs [data-tab="health"]');
+  await page.waitForSelector('#op-pane-health .hl-item', { timeout: WAIT });
+  if (await page.locator('#op-pane-health .sg:not([hidden])').count()) throw new Error('Health still shows the card after Hide');
+  // It stays hidden after a reload.
+  await page.goto(base, { waitUntil: 'load' });
+  await showView(page, 'startup');
+  await page.waitForFunction(() => document.querySelectorAll('#view-startup tbody tr.row').length > 0, null, { timeout: WAIT });
+  await page.waitForTimeout(400);
+  if (await page.locator(`${card}:not([hidden])`).count()) throw new Error('card came back after a reload with the same apps');
+  // A changed set (one suggested app turned off elsewhere) brings it back, without the app that was turned off.
+  const gone = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    const list = await call('get_startup_suggestions');
+    await call('set_startup_enabled', { id: list[0].id, enabled: false });
+    return { id: list[0].id, count: list.length };
+  });
+  await page.click('#view-startup [data-refresh]');
+  await page.waitForFunction((sel) => document.querySelector(sel)?.hidden === false, card, { timeout: WAIT }).catch(() => {
+    throw new Error('card did not return after the suggested apps changed');
+  });
+  const ids = await page.locator(`${card} .sg-row [data-id]`).evaluateAll((els) => els.map((e) => e.dataset.id));
+  if (!ids.length || ids.includes(gone.id)) throw new Error(`suggested after the change: ${ids.join(', ')}`);
+  // Put the mock back.
+  await page.evaluate(async (id) => {
+    const { call } = await import('/js/api.js');
+    await call('set_startup_enabled', { id, enabled: true });
+    (await import('/js/store.js')).setSettings({ hiddenSuggestions: '' });
+  }, gone.id);
+}
+
 // Optimize > Debloat (mock): Health's startup warning links here; Analyze groups the PC with
 // every verdict; only Safe items can be ticked; Review changes previews exactly what changes
 // (admin-only items skipped); applying lists the changes; Undo and Undo all put things back;
@@ -787,6 +836,7 @@ try {
   await check('temperatures', () => sensors(page, base, watch));
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
+  await check('suggestions hide', () => suggestionsHide(page, base));
   await check('debloat', () => debloat(page));
   await check('my rig', () => myRig(page));
   await check('motion', () => motion(page));

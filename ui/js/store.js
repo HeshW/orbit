@@ -44,6 +44,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   boostPower: true,
   // v0.7 Performance temperatures: 'c' or 'f' (readings stay °C, only the text changes)
   tempUnit: 'c',
+  // v0.8: the startup suggestions card was hidden for this exact set of apps (a short hash of
+  // their ids). The card returns when the suggested apps change. '' = not hidden.
+  hiddenSuggestions: '',
 });
 
 function sanitize(raw) {
@@ -57,6 +60,7 @@ function sanitize(raw) {
   if (typeof raw.reducedMotion === 'boolean') s.reducedMotion = raw.reducedMotion;
   if (GROUPINGS.includes(raw.grouping)) s.grouping = raw.grouping;
   if (raw.tempUnit === 'c' || raw.tempUnit === 'f') s.tempUnit = raw.tempUnit;
+  if (typeof raw.hiddenSuggestions === 'string') s.hiddenSuggestions = raw.hiddenSuggestions.slice(0, 64);
   if (typeof raw.alwaysOnTop === 'boolean') s.alwaysOnTop = raw.alwaysOnTop;
   if (typeof raw.autoUpdate === 'boolean') s.autoUpdate = raw.autoUpdate;
   for (const k of ['showTray', 'closeToTray', 'startWithWindows', 'startMinimized', 'hotkeyEnabled', 'historyEnabled', 'boostAuto', 'boostPause', 'boostPower']) {

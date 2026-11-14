@@ -357,6 +357,23 @@
   color: var(--cyan-ink);
 }
 
+.sg-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sg-hide {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin: -2px -4px 0 0;
+}
+
+.sg-hide .icon {
+  width: 14px;
+  height: 14px;
+}
+
 .sg-title {
   margin: 0 0 3px;
   font-family: var(--font-display);

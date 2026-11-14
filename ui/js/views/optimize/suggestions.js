@@ -4,7 +4,7 @@
 // set_startup_enabled; nothing is ever turned off automatically. Used by the Startup view
 // and by Optimize > Health.
 import { call } from '../../api.js';
-import { store } from '../../store.js';
+import { store, setSettings, on } from '../../store.js';
 import { escapeHtml, bytes } from '../../format.js';
 import { toast } from '../../app.js';
 
@@ -18,6 +18,17 @@ function errMsg(err) {
 
 function attr(s) {
   return escapeHtml(String(s ?? '')).replace(/"/g, '&quot;');
+}
+
+/** A short, stable hash of the suggested apps (their ids, in any order). */
+export function suggestionKey(list) {
+  const ids = list.map((s) => String(s.id)).sort().join('|');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < ids.length; i++) {
+    h ^= ids.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `s${list.length}-${h.toString(16)}`;
 }
 
 function seconds(ms) {
@@ -58,7 +69,8 @@ export function createSuggestions(el, opts = {}) {
   function render() {
     const rows = [...list];
     for (const s of off.values()) if (!rows.some((r) => r.id === s.id)) rows.push(s);
-    if (!loaded || !rows.length) {
+    // Hidden by the user for exactly this set of apps; a different set brings the card back.
+    if (!loaded || !rows.length || (store.settings.hiddenSuggestions && store.settings.hiddenSuggestions === suggestionKey(list))) {
       el.hidden = true;
       el.innerHTML = '';
       return;
@@ -71,10 +83,11 @@ export function createSuggestions(el, opts = {}) {
     el.innerHTML = `
       <div class="sg-head">
         <svg class="icon" aria-hidden="true"><use href="#i-rocket"/></svg>
-        <div>
+        <div class="sg-head-text">
           <p class="sg-title">${title}</p>
           ${opts.compact ? '' : `<p class="sg-help">Measured by Orbit at a sign-in. Turning an app off only stops it starting with Windows; you can still open it yourself. Orbit never turns anything off on its own and never suggests Windows or security apps.</p>`}
         </div>
+        <button type="button" class="icon-btn sg-hide" data-sg-hide aria-label="Hide these suggestions" title="Hide until the suggestions change"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>
       <ul class="sg-list">${rows.map(rowHtml).join('')}</ul>`;
   }
@@ -102,6 +115,10 @@ export function createSuggestions(el, opts = {}) {
   }
 
   el.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-sg-hide]')) {
+      setSettings({ hiddenSuggestions: suggestionKey(list) });
+      return;
+    }
     const btn = ev.target.closest('[data-sg]');
     if (!btn || btn.disabled) return;
     const id = btn.dataset.id;
@@ -121,7 +138,9 @@ export function createSuggestions(el, opts = {}) {
     render();
   }
 
+  // Hidden here or in the other view (Startup / Health share the setting).
+  on('settings', () => loaded && render());
   el.classList.add('sg');
   el.hidden = true;
-  return { load, isEmpty: () => !list.length && !off.size };
+  return { load, isEmpty: () => (!list.length && !off.size) || el.hidden };
 }
