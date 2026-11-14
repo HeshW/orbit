@@ -12,6 +12,7 @@
 | 6 | v1 gaps | Per-process network done (#3). The rest are Windows limits, unchanged. |
 | 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
+| 10 | **0.8 list** | Planned: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync. See section 10. |
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
@@ -608,3 +609,55 @@ has °C / °F. Details in `docs/features/sensors.md`.
 1. **Animated logo (9a):** small and self-contained.
 2. **GPU temperatures (9b, GPU part).**
 3. **CPU temperatures (9b, CPU part):** route 1 first, then decide on 2 and 3.
+
+---
+
+## 10. Next release (planned for 0.8)
+
+The owner's notes after 0.7.0.
+
+### 10a. "Start in tray" opens the window anyway — S (bug)
+
+**Seen:** with "Start minimized to tray" on, Orbit's window opens on start.
+
+**What the code does today:** the setting only applies when Windows starts Orbit at sign-in
+(the Run entry passes `--minimized`; checked on the owner's PC, it does). Orbit then stays in the
+tray only if the tray icon exists at that moment (`shell.rs`, `tray_visible`). Opening Orbit
+by hand always shows the window, by design.
+
+**Likely causes, to confirm:**
+- At sign-in Orbit can start before the taskbar is ready, so the tray icon isn't there yet and
+  Orbit falls back to showing the window.
+- An auto-update restarts Orbit without `--minimized`.
+
+**Fix:** when started with `--minimized`, wait for the taskbar (retry the tray icon for up to
+about 30 s, and re-add it when Explorer announces `TaskbarCreated`) instead of showing the
+window. Restart after an update with the same flags it was started with.
+
+### 10b. Dismiss the startup suggestions card — S
+
+The "These N apps add the most to your sign-in" card in Startup has no way to close it.
+- Add a close button ("Hide"). Remember it per set of apps: the card comes back only when
+  the suggested apps change.
+- Same for the compact card in Health.
+
+### 10c. Startup list stays in sync with changes made elsewhere — S–M
+
+**Question asked:** if an app's own setting (for example Claude's "open at login") is changed, does
+Orbit see it?
+
+**Today:**
+- Orbit reads the same places Windows and Task Manager use: the Run keys, the Startup folders,
+  and the StartupApproved on/off switches. Claude's setting writes its own Run entry, so Orbit
+  does see it.
+- But the Startup tab loads once and only re-reads on **Refresh**, so a change made while
+  Orbit is open shows up late.
+- Store apps that start through a packaged startup task (WhatsApp, Spotify from the Store,
+  and so on) aren't listed at all.
+
+**Fix:**
+- Re-read the list each time the Startup tab opens, and watch the Run and StartupApproved keys
+  (`RegNotifyChangeKeyValue`) so a change made elsewhere appears within a second.
+- List packaged startup tasks (`Windows.ApplicationModel.StartupTask` per package) with their
+  on/off state. Turning one on from Orbit isn't allowed by Windows for other apps, so Orbit can
+  only show it and point to Settings > Apps > Startup.
