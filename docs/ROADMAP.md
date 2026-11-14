@@ -12,8 +12,8 @@
 | 6 | v1 gaps | Per-process network done (#3). The rest are Windows limits, unchanged. |
 | 7 | **Optimize** | Shipped in 0.5.0: health report, startup suggestions, cleanup, boost, driver check. See section 7 and `docs/features/`. |
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
-| 10 | **0.8 list** | Planned: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync. See section 10. |
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
+| 10 | **0.8 list** | Planned: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync. See section 10. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
