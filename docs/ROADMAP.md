@@ -14,6 +14,7 @@
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
 | 10 | **0.8 list** | Shipped in 0.8.0: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
+| 11 | **0.9 list** | Planned: per-app rules (priority, affinity, efficiency mode) applied automatically. See section 11. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -695,3 +696,81 @@ state comes from the registry value Windows keeps per task and the task list fro
 manifest (this PC: 12 tasks, see `docs/features/startup.md`). Debloat, suggestions and the impact
 measurement do not see them. Details in `docs/features/startup.md`.
 
+
+---
+
+## 11. Next release (planned for 0.9): per-app rules
+
+The owner's spec: set an app's CPU priority (and related settings) once, and Orbit applies it
+every time the app starts. Example: "League of Legends.exe" sometimes starts at low priority
+(a known bug); it should go to High automatically on every launch.
+
+### 11a. Rules — M–L
+
+- **Making a rule:** from the Processes right-click menu ("Always use this priority…"), or from
+  a **Rules** list (a new Optimize sub-tab next to Boost).
+- **Matching:** by full exe path, or by exe name (any folder).
+- **What a rule sets:**
+  - CPU priority: Low, Below normal, Normal, Above normal, High. **Never Realtime.**
+  - CPU affinity: which cores the app may use.
+  - Efficiency mode (Windows 11 only; hidden on Windows 10).
+- **Applying:**
+  - Within about a second of the app starting.
+  - Re-applied if the app or something else changes it back, checking only processes that have
+    a rule.
+  - If it keeps getting changed back (say 3 times in a minute), Orbit stops for that process
+    and says so, instead of fighting in a loop.
+- **Showing it:** a small badge on the process row, and a log of when each rule was applied
+  or failed.
+- **When it's blocked:** say plainly why, once.
+  - "Access denied" from an app running as administrator → "Run Orbit as administrator to
+    change this app".
+  - Anti-cheat (for example Riot Vanguard) refusing the change → say so.
+  - No retry loop.
+
+**Likely route.** New-process detection reuses what Orbit already does: the sampler lists
+processes every tick, and Boost already spots new ones by PID + start time (`boost.rs`). Rules
+hook into the same snapshot, so detecting new processes costs nothing extra (no WMI or ETW
+watchers). Priority and affinity reuse `actions.rs` (`SetPriorityClass`,
+`SetProcessAffinityMask`) with its critical-process guard. Efficiency mode:
+`SetProcessInformation(ProcessPowerThrottling)` plus Idle priority, as Task Manager does
+**(unverified)**.
+
+**Never touched:** Windows and security processes (the existing guard, plus Orbit itself,
+csrss, lsass, services, Defender, anti-cheat services).
+
+### 11b. Related, included where they fit — S each
+
+- **"Only while in front":** the rule's priority applies while the app's window is in the
+  foreground, and drops back to Normal (or Below normal) when it isn't. Foreground changes come
+  from a Windows event hook (`SetWinEventHook`, `EVENT_SYSTEM_FOREGROUND`), so no polling.
+- **Boost:** a game in Boost's list can carry its own rule, applied when Boost starts for it.
+- **Backup:** rules go into Settings export and import.
+- **Reset to default** per rule (puts the running app back to Normal and all cores), and a
+  **master switch** to turn all rules off.
+
+### 11c. "Apply even without Orbit" — needs the owner's decision first
+
+Windows has its own per-exe setting: `Image File Execution Options\<exe>\PerfOptions`
+(`CpuPriorityClass`) under HKLM. Windows applies it every time the exe starts, even if Orbit
+isn't running.
+
+Trade-offs:
+- It needs admin to write.
+- It covers priority only (and I/O priority), not affinity, efficiency mode or "only while in
+  front".
+- The same registry area (Image File Execution Options) is a well-known malware hook (its
+  "Debugger" value hijacks programs). Security tools and anti-cheat watch it, and an app that
+  writes there can look suspicious.
+- Orbit's own safety rules so far say never to write IFEO keys.
+
+**Recommendation:** skip it. Orbit starts with Windows, so rules already work almost all the
+time. If it's built later: opt-in per rule, admin only, writes only `PerfOptions` values
+(never `Debugger`), and removes them on Reset or when the rule is deleted.
+
+### Order
+
+1. Rules engine and the Rules list (11a), with priority first, then affinity.
+2. Processes menu entry, badge and log.
+3. "Only while in front", Boost link, backup, reset, master switch (11b).
+4. Efficiency mode (Windows 11 only).
