@@ -1,5 +1,5 @@
 # Runs the UI smoke test and the Rust unit tests on pushes and pull requests to main.
-# The same checks gate every release (release.yml); release branches use branch.yml.
+# The same checks gate every release (release.yml).
 name: CI
 
 on:

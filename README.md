@@ -70,10 +70,7 @@ cargo build --release
 `tests/ui-smoke.mjs` serves `ui/` with the mock backend, opens it in Chromium, visits every
 view in all four themes, opens the palette and the details drawer, and fails on any console
 error, page error or empty view. CI (`.github/workflows/ci.yml`) runs it and `cargo test` on
-pushes and pull requests to `main`, and a release only builds when both pass. Pushes to a
-release branch (`v0.9` and the like) run `.github/workflows/branch.yml` on Windows: `cargo test`,
-the smoke test in Microsoft Edge and a release build, with `orbit.exe` kept as a download for
-7 days so it can be tried on a real PC before the release.
+pushes and pull requests to `main`, and a release only builds when both pass.
 
 ```
 npm install
