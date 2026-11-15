@@ -15,6 +15,7 @@
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
 | 10 | **0.8 list** | Shipped in 0.8.0: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
 | 11 | **0.9 list** | Shipped in 0.9.0: per-app rules (priority, processors, efficiency mode on Windows 11, only while in front, only while Boost is on, reset, master switch, backup), see `docs/features/rules.md`. 11c is declined. See section 11. |
+| 12 | **1.0 list** | Collecting. Not started; the owner says when 1.0 work begins. See section 12. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -794,3 +795,12 @@ time. If it's built later: opt-in per rule, admin only, writes only `PerfOptions
 2. Processes menu entry, badge and log.
 3. "Only while in front", Boost link, backup, reset, master switch (11b).
 4. Efficiency mode (Windows 11 only).
+
+## 12. Next release (planned for 1.0): collecting
+
+The owner adds items over time. Nothing here is started until the owner says 1.0 work begins.
+
+- **Set priority on grouped app rows.** Right-clicking a grouped app (like Chrome with 12
+  processes) offers only "Always use this priority…"; "Set priority" is only on single process
+  rows. Add "Set priority" to the group menu: it sets every process of that app, like "End all",
+  and says how many changed when Windows blocks some (an elevated helper, for example).
