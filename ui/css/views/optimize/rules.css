@@ -1,4 +1,4 @@
-/* Orbit / optimize/rules.css: Optimize > Rules (0.9, 11a), per-app priority and processors.
+/* Orbit / optimize/rules.css: Optimize > Rules (0.9), per-app priority, processors and efficiency mode.
    Used by ui/js/views/optimize/rules.js and the rule dialog in ui/js/rules.js. Prefix: ru-. */
 
 #op-pane-rules {
@@ -29,6 +29,42 @@
   padding: 4px 16px;
 }
 
+/* The master switch: all rules on or off. */
+.ru-master {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ru-off {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--warn);
+}
+
+.ru-off[hidden] {
+  display: none;
+}
+
+.ru-all-off .ru-rules {
+  opacity: 0.55;
+}
+
+/* The dialog: "When it's behind" sits under its checkbox. */
+.ru-sub {
+  margin-left: 26px;
+}
+
+.ru-sub[hidden] {
+  display: none;
+}
+
 .ru-rules {
   display: flex;
   flex-direction: column;
@@ -39,7 +75,7 @@
 
 .ru-rule {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.4fr) auto auto auto;
+  grid-template-columns: 28px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.4fr) auto auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 12px 0;
@@ -234,7 +270,7 @@
 
 @media (max-width: 900px) {
   .ru-rule {
-    grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
+    grid-template-columns: 28px minmax(0, 1fr) auto auto auto auto;
   }
 
   .ru-sets,
