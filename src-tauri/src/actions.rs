@@ -27,7 +27,8 @@ use windows::Win32::Foundation::{
     ERROR_PATH_NOT_FOUND, FILETIME, HANDLE, HWND, WIN32_ERROR,
 };
 use windows::Win32::Security::{
-    GetTokenInformation, LookupAccountSidW, TokenUser, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER,
+    GetTokenInformation, LookupAccountSidW, TokenElevation, TokenUser, SID_NAME_USE, TOKEN_ELEVATION,
+    TOKEN_QUERY, TOKEN_USER,
 };
 use windows::Win32::System::Com::{
     CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT, COINIT_APARTMENTTHREADED,
@@ -2071,6 +2072,42 @@ pub fn set_affinity(pid: u32, mask: String, start_time: Option<u64>) -> Result<(
     let m = validate_mask(&mask, system)?;
     unsafe { SetProcessAffinityMask(handle.0, m as usize) }
         .map_err(|e| describe(&e, "change the affinity"))
+}
+
+/// Refuses a change to a process Windows needs (csrss, lsass, ... in System32,
+/// or one Windows marks critical), for callers that change priority as well
+/// as affinity (the per-app rules). A process that can't be opened passes:
+/// the change itself then fails with its own error.
+pub(crate) fn refuse_critical_change(pid: u32) -> Result<(), String> {
+    let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION).ok();
+    let raw = handle.as_ref().map(|h| h.0);
+    refuse_windows_critical(pid, raw).map_err(|_| CRITICAL_UNCHANGED.to_string())?;
+    if raw.is_some_and(is_critical_process) {
+        return Err(CRITICAL_UNCHANGED.to_string());
+    }
+    Ok(())
+}
+
+/// Whether the process runs elevated (as administrator). `None` when its token
+/// can't be read.
+pub(crate) fn process_elevated(pid: u32) -> Option<bool> {
+    let process = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION).ok()?;
+    unsafe {
+        let mut raw_token = HANDLE::default();
+        OpenProcessToken(process.0, TOKEN_QUERY, &mut raw_token).ok()?;
+        let token = OwnedHandle(raw_token);
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut needed = 0u32;
+        GetTokenInformation(
+            token.0,
+            TokenElevation,
+            Some((&mut elevation as *mut TOKEN_ELEVATION).cast()),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut needed,
+        )
+        .ok()?;
+        Some(elevation.TokenIsElevated != 0)
+    }
 }
 
 #[cfg(test)]

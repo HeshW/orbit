@@ -35,6 +35,9 @@ const USERS_REFRESH_TICKS: u64 = 30;
 const FREQ_REFRESH_TICKS: u64 = 5;
 /// How long `get_snapshot` waits for the very first sample.
 const FIRST_SAMPLE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often per-app rules look at the process list when the sampler is
+/// paused or slower than this (see `rules::light_tick`).
+const RULES_TICK: Duration = Duration::from_secs(1);
 
 /// Core Windows processes that may not live under %SystemRoot% or whose path
 /// is unreadable without elevation. Lowercase.
@@ -259,6 +262,8 @@ fn run_loop(app: AppHandle, latest: Arc<Mutex<Option<Snapshot>>>, control: Arc<C
     // pid -> start time of the rows sent in the previous event.
     let mut emitted: HashMap<u32, u64> = HashMap::new();
     let mut delta_mode = false;
+    // When the rules last looked at the process list (full sample or light tick).
+    let mut last_rules = Instant::now();
 
     loop {
         let interval = control.interval().max(MINIMUM_CPU_UPDATE_INTERVAL);
@@ -270,11 +275,22 @@ fn run_loop(app: AppHandle, latest: Arc<Mutex<Option<Snapshot>>>, control: Arc<C
         };
 
         if !due {
-            let wait = if paused {
+            let mut wait = if paused {
                 Duration::from_secs(3600)
             } else {
                 interval.saturating_sub(last_sample.map(|at| at.elapsed()).unwrap_or_default())
             };
+            // Per-app rules still apply within about a second while updates are
+            // paused or slower than that: a light, rules-only tick (v0.9).
+            if crate::rules::wants_ticks() {
+                let since = last_rules.elapsed();
+                if since >= RULES_TICK && wait > Duration::ZERO {
+                    crate::rules::light_tick(&app);
+                    last_rules = Instant::now();
+                    continue;
+                }
+                wait = wait.min(RULES_TICK.saturating_sub(since));
+            }
             control.sleep(wait);
             continue;
         }
@@ -296,6 +312,7 @@ fn run_loop(app: AppHandle, latest: Arc<Mutex<Option<Snapshot>>>, control: Arc<C
         crate::boost::on_snapshot(&app, &snapshot);
         // Per-app rules look at the same list for new processes (v0.9).
         crate::rules::on_snapshot(&app, &snapshot);
+        last_rules = Instant::now();
 
         if control.delta.load(Ordering::Relaxed) {
             if !delta_mode {

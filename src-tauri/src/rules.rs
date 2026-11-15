@@ -1,28 +1,37 @@
-//! Per-app rules (v0.9, 11a), Optimize > Rules.
+//! Per-app rules (v0.9), Optimize > Rules.
 //!
 //! A rule says "whenever this app runs, give it this CPU priority (and these
-//! cores)". It matches by full exe path or by exe name, sets a priority
-//! (Low to High, never Realtime) and/or an affinity mask, and Orbit applies it
-//! to every matching process.
+//! cores)". It matches by full exe path or by exe name and sets a priority
+//! (Low to High, never Realtime), an affinity mask, or efficiency mode
+//! (Windows 11). A rule can apply only while the app's window is in front, or
+//! only while Boost is on.
 //!
-//! No thread, watcher or extra query of its own: the sampler calls
-//! `on_snapshot` after every tick, and a process that appears there (new pid
-//! + start time, like Boost's detection) is checked against the rules and
-//! changed within that same tick. Processes that have a rule are then
-//! re-checked each tick with one cheap read (`GetPriorityClass` / the affinity
-//! mask). If something changed the value back, Orbit sets it again; if that
-//! happens 3 times within 60 seconds it stops for that process and says so,
-//! instead of fighting in a loop.
+//! No watcher or extra query of its own for new processes: the sampler calls
+//! `on_snapshot` after every tick, and a process that appears there (a new pid
+//! and start time, like Boost's detection) is checked against the rules and
+//! changed within that same tick. When the sampler is paused or slower than a
+//! second, it calls `light_tick` about once a second instead, which lists
+//! processes with one Toolhelp snapshot and opens only the new ones. Processes
+//! that have a rule are then re-checked each tick with one cheap read
+//! (priority class, affinity mask, power throttling). If something changed a
+//! value Orbit set, Orbit sets it again; if that happens 3 times within 60
+//! seconds it stops for that process and says so, instead of fighting in a
+//! loop. Orbit's own changes (the window moving to the back, Boost ending)
+//! never count.
+//!
+//! "Only while in front" listens to `EVENT_SYSTEM_FOREGROUND` with
+//! `SetWinEventHook` on one thread that sleeps in `GetMessageW` (no polling).
 //!
 //! Safety:
 //! - Every change goes through `actions::set_priority` / `actions::set_affinity`
-//!   (so `guard_pid` and the critical-process guard apply). On top of that a
-//!   rule can never name Orbit, Windows' own processes, Windows Security
-//!   (Defender) or anti-cheat services, and rows grouped as Windows are never
-//!   touched.
-//! - Realtime is rejected, and so is an affinity that leaves no core.
+//!   (so `guard_pid` applies) after `actions::refuse_critical_change`. On top
+//!   of that a rule can never name Orbit, Windows' own processes or anything
+//!   under %SystemRoot%, Windows Security or anti-cheat software, and rows
+//!   grouped as Windows are never touched.
+//! - Realtime is rejected everywhere, and so is an affinity that leaves no core.
 //! - A failure is recorded once per process instance with a plain reason and
 //!   is not retried.
+//! - This module never writes Image File Execution Options.
 //!
 //! Rules live in `rules.json` under `<app local data>\rules`, or under
 //! `ORBIT_RULES_DIR` in debug builds. The log and the per-process status are
@@ -31,13 +40,23 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use windows::core::w;
+use windows::Win32::Foundation::{HMODULE, HWND};
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetPriorityClass, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentProcess, GetPriorityClass, GetProcessInformation, ProcessPowerThrottling,
+    SetProcessInformation, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+    PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
+};
+use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+    EVENT_SYSTEM_FOREGROUND, MSG, WINEVENT_OUTOFCONTEXT,
 };
 
 use crate::actions::{self, ACCESS_DENIED, EXITED};
@@ -52,17 +71,27 @@ const MAX_LOG: usize = 200;
 /// Reverts within this window make Orbit stop for that process.
 const REVERT_WINDOW_MS: u64 = 60_000;
 const REVERT_LIMIT: usize = 3;
+/// Windows 11 starts at build 22000; efficiency mode is offered from there.
+const WINDOWS_11_BUILD: u32 = 22_000;
 
 pub const PRIORITIES: [&str; 5] = ["low", "belowNormal", "normal", "aboveNormal", "high"];
+/// What an "only while in front" rule uses while the app is behind.
+pub const BEHIND: [&str; 2] = ["normal", "belowNormal"];
 
 pub const NEEDS_ADMIN: &str = "This app runs as administrator. Restart Orbit as administrator to change it.";
 pub const BLOCKED: &str = "Windows or the app's protection blocked this change.";
 pub const CHANGED_BACK: &str = "Kept being changed back by something else.";
+const NO_REALTIME: &str = "Orbit never sets Realtime. It can freeze Windows.";
+const NO_ECO: &str = "Efficiency mode needs Windows 11.";
 
 const WHY_ORBIT: &str = "Orbit can't change itself.";
 const WHY_WINDOWS: &str = "Windows needs this process. Orbit won't change it.";
 const WHY_DEFENDER: &str = "Windows Security protects itself. Orbit won't change it.";
 const WHY_ANTICHEAT: &str = "Anti-cheat software blocks changes like this. Orbit won't try.";
+
+/// True while at least one enabled rule exists and the master switch is on,
+/// so the sampler knows whether `light_tick` is worth calling.
+static WANTS_TICKS: AtomicBool = AtomicBool::new(false);
 
 // ---------------------------------------------------------------------------
 // Shapes
@@ -86,6 +115,14 @@ pub struct Rule {
     pub priority: Option<String>,
     /// Core mask as a decimal string (like `set_affinity`), `None` leaves it alone.
     pub affinity: Option<String>,
+    /// Efficiency mode (Windows 11): EcoQoS plus Low priority, as Task Manager does.
+    pub efficiency: bool,
+    /// The priority applies only while the app's window is in front.
+    pub in_front: bool,
+    /// The priority while it is behind ("normal" or "belowNormal"); `in_front` only.
+    pub behind: Option<String>,
+    /// The rule applies only while Boost is on.
+    pub boost_only: bool,
     pub enabled: bool,
 }
 
@@ -96,6 +133,10 @@ impl Default for Rule {
             matcher: RuleMatch { kind: "name".into(), value: String::new() },
             priority: None,
             affinity: None,
+            efficiency: false,
+            in_front: false,
+            behind: None,
+            boost_only: false,
             enabled: true,
         }
     }
@@ -104,6 +145,11 @@ impl Default for Rule {
 impl Rule {
     fn mask(&self) -> Option<u64> {
         self.affinity.as_deref().and_then(|m| m.trim().parse().ok())
+    }
+
+    /// Same settings, ignoring the id (for imports).
+    fn same_settings(&self, other: &Rule) -> bool {
+        Rule { id: String::new(), ..self.clone() } == Rule { id: String::new(), ..other.clone() }
     }
 }
 
@@ -140,10 +186,12 @@ pub struct RulesState {
     pub rules_enabled: bool,
     pub is_admin: bool,
     pub logical_cores: u32,
+    /// Windows 11: efficiency mode can be offered.
+    pub efficiency_supported: bool,
     pub rules: Vec<RuleView>,
 }
 
-/// "applied" | "blocked" | "reverted".
+/// "applied" | "blocked" | "reverted" | "reset".
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
@@ -177,6 +225,27 @@ struct RulesEvent {
     statuses: Vec<ProcStatus>,
 }
 
+/// The `rules` part of Settings > Backup > Export, and what Import reads.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RulesBackup {
+    pub rules_enabled: Option<bool>,
+    pub rules: Vec<Rule>,
+}
+
+/// What an import changes (or would change, with `apply: false`).
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportReport {
+    pub added: u32,
+    pub replaced: u32,
+    pub unchanged: u32,
+    /// "csrss.exe: Windows needs this process. Orbit won't change it."
+    pub skipped: Vec<String>,
+    /// The master switch value the file sets, when it differs from now.
+    pub switch_to: Option<bool>,
+}
+
 // ---------------------------------------------------------------------------
 // Which names a rule may never target
 // ---------------------------------------------------------------------------
@@ -186,14 +255,56 @@ const WINDOWS_NAMES: &[&str] = &[
     "winlogon.exe", "svchost.exe", "dwm.exe", "fontdrvhost.exe", "system",
     "system idle process", "registry", "secure system", "memory compression",
 ];
-const DEFENDER_NAMES: &[&str] = &["msmpeng.exe", "nissrv.exe", "mpdefendercoreservice.exe"];
+const DEFENDER_NAMES: &[&str] = &[
+    "msmpeng.exe", "nissrv.exe", "mpdefendercoreservice.exe", "mpcmdrun.exe", "mssense.exe",
+    "sensecncproxy.exe", "securityhealthservice.exe", "securityhealthsystray.exe",
+];
+/// Folders of Windows Security outside %SystemRoot% (Defender's platform updates).
+const DEFENDER_DIRS: &[&str] = &[r"\windows defender\", r"\windows defender advanced threat protection\"];
 const ANTICHEAT_NAMES: &[&str] = &["vgc.exe", "vgtray.exe"];
-const ANTICHEAT_PREFIXES: &[&str] =
-    &["vgk", "easyanticheat", "beservice", "bedaisy", "equ8", "xigncode", "gameguard", "faceit"];
+/// Exe name prefix and the product, for the refusal and the "blocked" message.
+const ANTICHEAT_PREFIXES: &[(&str, &str)] = &[
+    ("vgc", "Riot Vanguard"),
+    ("vgtray", "Riot Vanguard"),
+    ("vgk", "Riot Vanguard"),
+    ("easyanticheat", "Easy Anti-Cheat"),
+    ("eac_", "Easy Anti-Cheat"),
+    ("beservice", "BattlEye"),
+    ("bedaisy", "BattlEye"),
+    ("battleye", "BattlEye"),
+    ("eaanticheat", "EA Anti-Cheat"),
+    ("equ8", "EQU8"),
+    ("xigncode", "XIGNCODE3"),
+    ("gameguard", "GameGuard"),
+    ("npgg", "GameGuard"),
+    ("faceit", "FACEIT"),
+    ("pnkbstr", "PunkBuster"),
+    ("sguard", "ACE anti-cheat"),
+    ("ace-", "ACE anti-cheat"),
+    ("mhyprot", "HoYoverse anti-cheat"),
+];
 
 /// File name part of a Windows path or a bare name.
 fn file_name(s: &str) -> &str {
     s.trim().trim_matches('"').rsplit(['\\', '/']).next().unwrap_or("").trim()
+}
+
+/// Lowercase "%SystemRoot%\" (with the trailing backslash), read once.
+fn system_root() -> &'static str {
+    static ROOT: OnceLock<String> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = std::env::var("SystemRoot").or_else(|_| std::env::var("windir")).unwrap_or_else(|_| r"C:\Windows".into());
+        format!("{}\\", actions::normalize_path(&root).trim_end_matches('\\'))
+    })
+}
+
+/// The anti-cheat product an exe name belongs to.
+fn anticheat_product(name: &str) -> Option<&'static str> {
+    let lower = name.to_lowercase();
+    if ANTICHEAT_NAMES.contains(&lower.as_str()) {
+        return Some("Riot Vanguard");
+    }
+    ANTICHEAT_PREFIXES.iter().find(|(p, _)| lower.starts_with(p)).map(|(_, product)| *product)
 }
 
 /// Why `value` (an exe name or a full path) may not be the target of a rule.
@@ -208,18 +319,24 @@ pub fn refusal(value: &str) -> Option<&'static str> {
     if DEFENDER_NAMES.contains(&name.as_str()) {
         return Some(WHY_DEFENDER);
     }
-    if ANTICHEAT_NAMES.contains(&name.as_str()) || ANTICHEAT_PREFIXES.iter().any(|p| name.starts_with(p)) {
+    if anticheat_product(&name).is_some() {
         return Some(WHY_ANTICHEAT);
     }
     if value.contains(['\\', '/']) {
         let path = actions::normalize_path(value);
-        let root = std::env::var("SystemRoot").or_else(|_| std::env::var("windir")).unwrap_or_else(|_| r"C:\Windows".into());
-        let root = format!("{}\\", actions::normalize_path(&root).trim_end_matches('\\'));
-        if path.starts_with(&root) {
+        if path.starts_with(system_root()) {
             return Some(WHY_WINDOWS);
+        }
+        if DEFENDER_DIRS.iter().any(|d| path.contains(d)) {
+            return Some(WHY_DEFENDER);
         }
     }
     None
+}
+
+/// A refusal for a running process: its path when known, else its name.
+fn row_refused(row: &ProcessRow) -> bool {
+    refusal(&row.name).is_some() || row.exe.as_deref().is_some_and(|p| refusal(p).is_some())
 }
 
 // ---------------------------------------------------------------------------
@@ -247,15 +364,38 @@ pub fn rule_matches(rule: &Rule, name: &str, exe: Option<&str>) -> bool {
     }
 }
 
+/// Whether a rule is in force right now.
+fn active(rule: &Rule, boost_on: bool) -> bool {
+    rule.enabled && (!rule.boost_only || boost_on)
+}
+
 /// The rule for a process: a path rule beats a name rule; otherwise the first.
-fn find_rule<'a>(rules: &'a [Rule], row: &ProcessRow) -> Option<&'a Rule> {
-    let hit = |r: &&Rule| r.enabled && rule_matches(r, &row.name, row.exe.as_deref());
+fn find_rule<'a>(rules: &'a [Rule], row: &ProcessRow, boost_on: bool) -> Option<&'a Rule> {
+    let exe = row.exe.as_deref().map(actions::normalize_path);
+    let hit = |r: &&Rule| {
+        active(r, boost_on)
+            && if r.matcher.kind == "path" {
+                exe.as_deref().is_some_and(|e| e == actions::normalize_path(&r.matcher.value))
+            } else {
+                row.name.trim().eq_ignore_ascii_case(r.matcher.value.trim())
+            }
+    };
     rules.iter().filter(|r| r.matcher.kind == "path").find(hit).or_else(|| rules.iter().filter(|r| r.matcher.kind == "name").find(hit))
 }
 
-/// Checks a rule from the UI and returns the cleaned version. `others` are the
-/// existing rules (the one being edited excluded) for the duplicate check.
-pub fn validate(input: &Rule, others: &[Rule], system_mask: u64) -> Result<Rule, String> {
+fn clean_priority(p: Option<&str>, allowed: &[&str]) -> Result<Option<String>, String> {
+    match p.map(str::trim).filter(|p| !p.is_empty()) {
+        None => Ok(None),
+        Some("realtime") => Err(NO_REALTIME.into()),
+        Some(p) if allowed.contains(&p) => Ok(Some(p.to_string())),
+        Some(_) => Err("That priority is not valid.".into()),
+    }
+}
+
+/// Checks a rule from the UI (or a file) and returns the cleaned version.
+/// `others` are the existing rules (the one being edited excluded) for the
+/// duplicate check. `eco` is whether this PC supports efficiency mode.
+pub fn validate(input: &Rule, others: &[Rule], system_mask: u64, eco: bool) -> Result<Rule, String> {
     let kind = input.matcher.kind.trim();
     if kind != "path" && kind != "name" {
         return Err("Pick whether the rule matches a path or a name.".into());
@@ -283,17 +423,38 @@ pub fn validate(input: &Rule, others: &[Rule], system_mask: u64) -> Result<Rule,
     if let Some(why) = refusal(&value) {
         return Err(why.into());
     }
-    let priority = match input.priority.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
-        None => None,
-        Some("realtime") => return Err("Orbit never sets Realtime. It can freeze Windows.".into()),
-        Some(p) if PRIORITIES.contains(&p) => Some(p.to_string()),
-        Some(_) => return Err("That priority is not valid.".into()),
-    };
+    let mut priority = clean_priority(input.priority.as_deref(), &PRIORITIES)?;
     let affinity = match input.affinity.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         None => None,
         Some(m) => Some(actions::validate_mask(m, system_mask)?.to_string()),
     };
-    if priority.is_none() && affinity.is_none() {
+    let mut behind = None;
+    if input.efficiency {
+        if !eco {
+            return Err(NO_ECO.into());
+        }
+        if input.in_front {
+            return Err("Efficiency mode can't be used with \"Only while in front\".".into());
+        }
+        if priority.as_deref().is_some_and(|p| p != "low") {
+            return Err("Efficiency mode runs the app at Low priority, so leave the priority as it is.".into());
+        }
+        // Efficiency mode sets Low itself.
+        priority = None;
+    }
+    if input.in_front {
+        let Some(front) = priority.as_deref() else {
+            return Err("Pick a priority to use while the app is in front.".into());
+        };
+        let back = clean_priority(input.behind.as_deref(), &BEHIND)
+            .map_err(|e| if e == NO_REALTIME { e } else { "Pick Normal or Below normal for when it's behind.".into() })?
+            .unwrap_or_else(|| "normal".to_string());
+        if back == front {
+            return Err("Pick a different priority for when the app is in front.".into());
+        }
+        behind = Some(back);
+    }
+    if priority.is_none() && affinity.is_none() && !input.efficiency {
         return Err("Pick a priority or some processors to set.".into());
     }
     let rule = Rule {
@@ -301,6 +462,10 @@ pub fn validate(input: &Rule, others: &[Rule], system_mask: u64) -> Result<Rule,
         matcher: RuleMatch { kind: kind.to_string(), value },
         priority,
         affinity,
+        efficiency: input.efficiency,
+        in_front: input.in_front,
+        behind,
+        boost_only: input.boost_only,
         enabled: input.enabled,
     };
     if others.iter().any(|o| o.id != rule.id && same_target(&o.matcher, &rule.matcher)) {
@@ -320,17 +485,136 @@ pub fn priority_label(p: &str) -> &'static str {
     }
 }
 
-/// "High priority, 4 cores".
+fn cores_text(mask: u64) -> String {
+    let n = mask.count_ones();
+    format!("{n} {}", if n == 1 { "core" } else { "cores" })
+}
+
+/// "High priority, 4 cores", "High priority in front, Normal behind",
+/// "Efficiency mode, while Boost is on".
 pub fn summary(rule: &Rule) -> String {
     let mut parts = Vec::new();
+    if rule.efficiency {
+        parts.push("Efficiency mode".to_string());
+    }
     if let Some(p) = &rule.priority {
-        parts.push(format!("{} priority", priority_label(p)));
+        if rule.in_front {
+            let back = rule.behind.as_deref().unwrap_or("normal");
+            parts.push(format!("{} priority in front, {} behind", priority_label(p), priority_label(back)));
+        } else {
+            parts.push(format!("{} priority", priority_label(p)));
+        }
     }
     if let Some(m) = rule.mask() {
-        let n = m.count_ones();
-        parts.push(format!("{n} {}", if n == 1 { "core" } else { "cores" }));
+        parts.push(cores_text(m));
+    }
+    if rule.boost_only {
+        parts.push("while Boost is on".to_string());
     }
     parts.join(", ")
+}
+
+// ---------------------------------------------------------------------------
+// What a process should have
+// ---------------------------------------------------------------------------
+
+/// The values a rule asks for right now. `None` leaves that value alone.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Want {
+    pub priority: Option<&'static str>,
+    pub mask: Option<u64>,
+    /// Efficiency mode on (Some(true)) or off (Some(false), used by Reset).
+    pub eco: Option<bool>,
+}
+
+fn canon(p: &str) -> Option<&'static str> {
+    PRIORITIES.iter().find(|x| **x == p).copied()
+}
+
+/// What `rule` asks of a process that is (or is not) in front.
+pub fn want_of(rule: &Rule, in_front: bool) -> Want {
+    if rule.efficiency {
+        return Want { priority: Some("low"), mask: rule.mask(), eco: Some(true) };
+    }
+    let priority = match (rule.priority.as_deref(), rule.in_front) {
+        (Some(_), true) if !in_front => canon(rule.behind.as_deref().unwrap_or("normal")).or(Some("normal")),
+        (Some(p), _) => canon(p),
+        (None, _) => None,
+    };
+    Want { priority, mask: rule.mask(), eco: None }
+}
+
+/// What Reset (and Boost ending) puts back: Normal priority, every core,
+/// efficiency mode off, for the values the rule sets.
+pub fn reset_want(rule: &Rule, system_mask: u64) -> Want {
+    Want {
+        priority: (rule.priority.is_some() || rule.efficiency).then_some("normal"),
+        mask: rule.affinity.is_some().then_some(system_mask),
+        eco: rule.efficiency.then_some(false),
+    }
+}
+
+/// "High priority, 2 cores" for a `Want`.
+fn want_text(w: &Want) -> String {
+    let mut parts = Vec::new();
+    if w.eco == Some(true) {
+        parts.push("Efficiency mode".to_string());
+    } else if let Some(p) = w.priority {
+        parts.push(format!("{} priority", priority_label(p)));
+    }
+    if let Some(m) = w.mask {
+        parts.push(cores_text(m));
+    }
+    parts.join(", ")
+}
+
+/// "Normal priority and all cores" for what Reset puts back.
+fn reset_text(w: &Want) -> String {
+    let mut parts = Vec::new();
+    if w.priority.is_some() {
+        parts.push("Normal priority");
+    }
+    if w.mask.is_some() {
+        parts.push("all cores");
+    }
+    if w.eco == Some(false) {
+        parts.push("efficiency mode off");
+    }
+    match parts.len() {
+        0 => String::new(),
+        1 => parts[0].to_string(),
+        n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
+    }
+}
+
+/// What a process has now. `eco` is `None` when it can't be read.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Current {
+    pub priority: String,
+    pub mask: u64,
+    pub eco: Option<bool>,
+}
+
+/// What differs between what Orbit set (`last`) and what the process has now,
+/// in plain words. Empty when nothing was changed back.
+fn drift(last: &Want, cur: &Current) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(p) = last.priority {
+        if cur.priority != p {
+            out.push(format!("The priority was changed to {}.", priority_label(&cur.priority)));
+        }
+    }
+    if let Some(m) = last.mask {
+        if cur.mask != m {
+            out.push("The processors were changed.".to_string());
+        }
+    }
+    if let (Some(want), Some(now)) = (last.eco, cur.eco) {
+        if want != now {
+            out.push(if want { "Efficiency mode was turned off." } else { "Efficiency mode was turned on." }.to_string());
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -371,12 +655,23 @@ enum State {
 
 struct Tracked {
     rule_id: String,
+    name: String,
     state: State,
     summary: String,
     reason: Option<String>,
     needs_admin: bool,
     at: u64,
     reverts: Vec<u64>,
+    /// What Orbit set last. A difference from this is a revert; a new `Want`
+    /// (the window moved, Boost ended) is not.
+    last: Want,
+}
+
+/// A process seen by `light_tick`: name, start time (Unix s) and path.
+struct LightProc {
+    name: String,
+    start: u64,
+    exe: Option<String>,
 }
 
 pub struct Engine {
@@ -391,11 +686,17 @@ pub struct Engine {
     stats: HashMap<String, RuleStat>,
     admin: bool,
     system_mask: u64,
+    eco_supported: bool,
     next_id: u64,
+    /// Pid of the window in front (0 when unknown).
+    foreground: u32,
+    /// Boost's state at the last tick, to re-check processes when it changes.
+    boost_seen: bool,
+    light: HashMap<u32, LightProc>,
 }
 
 impl Engine {
-    pub fn new(admin: bool, system_mask: u64) -> Self {
+    pub fn new(admin: bool, system_mask: u64, eco_supported: bool) -> Self {
         Self {
             dir: None,
             initialized: false,
@@ -407,7 +708,11 @@ impl Engine {
             stats: HashMap::new(),
             admin,
             system_mask,
+            eco_supported,
             next_id: 0,
+            foreground: 0,
+            boost_seen: false,
+            light: HashMap::new(),
         }
     }
 
@@ -436,9 +741,27 @@ impl Engine {
         had
     }
 
+    /// Keeps `WANTS_TICKS` in step with the rules and the master switch.
+    fn publish(&self) {
+        WANTS_TICKS.store(self.initialized && self.enabled && self.rules.iter().any(|r| r.enabled), Ordering::Relaxed);
+    }
+
     fn new_id(&mut self, now: u64) -> String {
         self.next_id += 1;
         format!("r{:x}{:x}", now, self.next_id)
+    }
+
+    /// The rule of the process in front, when it has one: every process of
+    /// that rule counts as in front (an app can have several processes).
+    fn front_rule(&self) -> Option<&str> {
+        if self.foreground == 0 {
+            return None;
+        }
+        self.tracked.iter().find(|(k, _)| k.0 == self.foreground).map(|(_, t)| t.rule_id.as_str())
+    }
+
+    fn is_front(&self, key: Key, rule_id: &str) -> bool {
+        key.0 == self.foreground || self.front_rule() == Some(rule_id)
     }
 
     pub fn statuses(&self) -> Vec<ProcStatus> {
@@ -468,170 +791,244 @@ impl Engine {
 
 /// What the engine needs from Windows (a fake in unit tests).
 pub trait Ops {
+    /// Refuses Orbit, its helpers and processes Windows needs.
     fn guard(&self, pid: u32) -> Result<(), String>;
-    /// "low" | "belowNormal" | "normal" | "aboveNormal" | "high" | "realtime".
-    fn priority(&self, pid: u32, start: u64) -> Result<String, String>;
+    /// Priority ("low" for Idle; "realtime" possible), affinity mask and,
+    /// when `eco` is true, efficiency mode.
+    fn read(&self, pid: u32, start: u64, eco: bool) -> Result<Current, String>;
     fn set_priority(&self, pid: u32, start: u64, name: &str) -> Result<(), String>;
-    fn affinity(&self, pid: u32, start: u64) -> Result<u64, String>;
     fn set_affinity(&self, pid: u32, start: u64, mask: u64) -> Result<(), String>;
+    fn set_eco(&self, pid: u32, start: u64, on: bool) -> Result<(), String>;
+    /// Whether the process runs as administrator, when that can be read.
+    fn elevated(&self, pid: u32) -> Option<bool>;
 }
 
 /// Turns an error from `actions` into the text the owner sees. `None` means the
-/// process is gone and nothing should be said.
-fn explain(err: &str, admin: bool) -> Option<(String, bool)> {
+/// process is gone and nothing should be said. `anticheat` is the anti-cheat
+/// product running on this PC, if any.
+fn explain(err: &str, admin: bool, target_elevated: Option<bool>, anticheat: Option<&str>) -> Option<(String, bool)> {
     if err == EXITED {
         return None;
     }
-    if err == ACCESS_DENIED {
-        return Some(if admin { (BLOCKED.to_string(), false) } else { (NEEDS_ADMIN.to_string(), true) });
+    if err != ACCESS_DENIED {
+        return Some((err.to_string(), false));
     }
-    Some((err.to_string(), false))
+    if !admin && target_elevated == Some(true) {
+        return Some((NEEDS_ADMIN.to_string(), true));
+    }
+    if let Some(product) = anticheat {
+        return Some((format!("{product} (anti-cheat) blocked this change. Orbit won't keep trying."), false));
+    }
+    if admin || target_elevated == Some(false) {
+        return Some((BLOCKED.to_string(), false));
+    }
+    Some((NEEDS_ADMIN.to_string(), true))
 }
 
-/// Compares a process with its rule and fixes what differs. Returns whether
-/// anything was changed, or the error.
-fn apply_rule(rule: &Rule, row: &ProcessRow, ops: &dyn Ops) -> Result<bool, String> {
-    ops.guard(row.pid)?;
+/// The anti-cheat product among the running processes, if any.
+fn anticheat_running(rows: &[ProcessRow]) -> Option<&'static str> {
+    rows.iter().find_map(|r| anticheat_product(&r.name))
+}
+
+/// Sets what differs from `want`. Returns whether anything was changed.
+fn apply(want: &Want, pid: u32, start: u64, ops: &dyn Ops) -> Result<bool, String> {
+    if want.priority == Some("realtime") {
+        return Err(NO_REALTIME.into());
+    }
+    ops.guard(pid)?;
+    let cur = ops.read(pid, start, want.eco.is_some())?;
     let mut changed = false;
-    if let Some(p) = &rule.priority {
-        if ops.priority(row.pid, row.start_time)? != *p {
-            ops.set_priority(row.pid, row.start_time, p)?;
+    if let Some(p) = want.priority {
+        if cur.priority != p {
+            ops.set_priority(pid, start, p)?;
             changed = true;
         }
     }
-    if let Some(m) = rule.mask() {
-        if ops.affinity(row.pid, row.start_time)? != m {
-            ops.set_affinity(row.pid, row.start_time, m)?;
+    if let Some(m) = want.mask {
+        if cur.mask != m {
+            ops.set_affinity(pid, start, m)?;
+            changed = true;
+        }
+    }
+    if let Some(on) = want.eco {
+        if cur.eco != Some(on) {
+            ops.set_eco(pid, start, on)?;
             changed = true;
         }
     }
     Ok(changed)
 }
 
-fn app_log(kind: &str, rule_id: &str, row_name: &str, pid: u32, now: u64, text: String, needs_admin: bool) -> LogEntry {
-    LogEntry { at: now, kind: kind.into(), rule_id: rule_id.to_string(), app: row_name.to_string(), pid, text, needs_admin }
+fn app_log(kind: &str, rule_id: &str, app: &str, pid: u32, now: u64, text: String, needs_admin: bool) -> LogEntry {
+    LogEntry { at: now, kind: kind.into(), rule_id: rule_id.to_string(), app: app.to_string(), pid, text, needs_admin }
+}
+
+/// " (in front)" / " (behind)" for "only while in front" rules.
+fn front_note(rule: &Rule, front: bool) -> &'static str {
+    match (rule.in_front, front) {
+        (true, true) => " It's in front.",
+        (true, false) => " It's behind.",
+        _ => "",
+    }
 }
 
 /// One tick: new processes get their rule, tracked ones are re-checked.
 /// Returns true when a status changed (so the UI should hear about it).
-pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pid: u32) -> bool {
+pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pid: u32, boost_on: bool) -> bool {
     if !e.enabled || !e.rules.iter().any(|r| r.enabled) {
         e.checked.clear();
+        e.boost_seen = boost_on;
         let had = !e.tracked.is_empty();
         e.tracked.clear();
         return had;
     }
     let mut changed = false;
-
-    // Processes that ended.
-    let before = e.tracked.len();
-    e.tracked.retain(|k, _| rows.iter().any(|r| r.pid == k.0 && r.start_time == k.1));
-    changed |= e.tracked.len() != before;
-    if e.checked.len() > rows.len() + 64 {
-        let live: HashSet<Key> = rows.iter().map(|r| (r.pid, r.start_time)).collect();
-        e.checked.retain(|k| live.contains(k));
+    if boost_on != e.boost_seen {
+        // Boost-only rules start or stop: compare everything again.
+        e.boost_seen = boost_on;
+        e.checked.clear();
     }
 
-    // New processes.
+    // Processes that ended.
+    if !e.tracked.is_empty() || e.checked.len() > rows.len() + 64 {
+        let live: HashSet<Key> = rows.iter().map(|r| (r.pid, r.start_time)).collect();
+        let before = e.tracked.len();
+        e.tracked.retain(|k, _| live.contains(k));
+        changed |= e.tracked.len() != before;
+        if e.checked.len() > rows.len() + 64 {
+            e.checked.retain(|k| live.contains(k));
+        }
+    }
+
+    // Rules no longer in force (Boost ended): put back what they set.
+    let released: Vec<Key> = e
+        .tracked
+        .iter()
+        .filter(|(_, t)| e.rules.iter().find(|r| r.id == t.rule_id).is_none_or(|r| !active(r, boost_on)))
+        .map(|(k, _)| *k)
+        .collect();
+    for key in released {
+        let t = e.tracked.remove(&key).expect("tracked");
+        changed = true;
+        e.checked.insert(key);
+        let Some(rule) = e.rules.iter().find(|r| r.id == t.rule_id).cloned() else { continue };
+        if t.state != State::Applied || !rule.enabled || !rule.boost_only {
+            continue;
+        }
+        let back = reset_want(&rule, e.system_mask);
+        match apply(&back, key.0, key.1, ops) {
+            Ok(_) => e.push_log(app_log("reset", &rule.id, &t.name, key.0, now, format!("Boost ended. Put back to {}.", reset_text(&back)), false)),
+            Err(err) => {
+                if let Some((reason, needs_admin)) = explain(&err, e.admin, ops.elevated(key.0), None) {
+                    e.push_log(app_log("blocked", &rule.id, &t.name, key.0, now, reason, needs_admin));
+                }
+            }
+        }
+    }
+
+    // New processes. Most have no rule: two hash lookups and a name compare.
+    let mut anticheat: Option<Option<&'static str>> = None;
     for row in rows {
         let key = (row.pid, row.start_time);
         if e.tracked.contains_key(&key) || e.checked.contains(&key) {
             continue;
         }
-        if row.pid <= 4 || row.pid == own_pid || row.kind == ProcessKind::Windows || refusal(&row.name).is_some() {
+        if row.pid <= 4 || row.pid == own_pid || row.kind == ProcessKind::Windows {
             e.checked.insert(key);
             continue;
         }
-        let Some(rule) = find_rule(&e.rules, row).cloned() else {
+        let Some(rule) = find_rule(&e.rules, row, boost_on).cloned() else {
             e.checked.insert(key);
             continue;
         };
+        if row_refused(row) {
+            e.checked.insert(key);
+            continue;
+        }
+        let front = e.is_front(key, &rule.id);
+        let want = want_of(&rule, front);
         let sum = summary(&rule);
-        match apply_rule(&rule, row, ops) {
+        match apply(&want, row.pid, row.start_time, ops) {
             Ok(did) => {
-                let text = if did { format!("Set to {sum}.") } else { format!("Already set to {sum}.") };
-                e.push_log(app_log("applied", &rule.id, &row.name, row.pid, now, text, false));
+                let text = if did { format!("Set to {}.", want_text(&want)) } else { format!("Already set to {}.", want_text(&want)) };
+                e.push_log(app_log("applied", &rule.id, &row.name, row.pid, now, format!("{text}{}", front_note(&rule, front)), false));
                 e.applied(&rule.id, now);
-                e.tracked.insert(key, Tracked { rule_id: rule.id, state: State::Applied, summary: sum, reason: None, needs_admin: false, at: now, reverts: Vec::new() });
+                e.tracked.insert(key, Tracked { rule_id: rule.id, name: row.name.clone(), state: State::Applied, summary: sum, reason: None, needs_admin: false, at: now, reverts: Vec::new(), last: want });
                 changed = true;
             }
-            Err(err) => match explain(&err, e.admin) {
-                None => {
-                    e.checked.insert(key);
+            Err(err) => {
+                let ac = *anticheat.get_or_insert_with(|| anticheat_running(rows));
+                match explain(&err, e.admin, ops.elevated(row.pid), ac) {
+                    None => {
+                        e.checked.insert(key);
+                    }
+                    Some((reason, needs_admin)) => {
+                        e.push_log(app_log("blocked", &rule.id, &row.name, row.pid, now, reason.clone(), needs_admin));
+                        e.failed(&rule.id, now, &reason, needs_admin);
+                        e.tracked.insert(key, Tracked { rule_id: rule.id, name: row.name.clone(), state: State::Failed, summary: sum, reason: Some(reason), needs_admin, at: now, reverts: Vec::new(), last: want });
+                        changed = true;
+                    }
                 }
-                Some((reason, needs_admin)) => {
-                    e.push_log(app_log("blocked", &rule.id, &row.name, row.pid, now, reason.clone(), needs_admin));
-                    e.failed(&rule.id, now, &reason, needs_admin);
-                    e.tracked.insert(key, Tracked { rule_id: rule.id, state: State::Failed, summary: sum, reason: Some(reason), needs_admin, at: now, reverts: Vec::new() });
-                    changed = true;
-                }
-            },
+            }
         }
     }
 
     // Re-check the ones that hold a rule.
     let keys: Vec<Key> = e.tracked.iter().filter(|(_, t)| t.state == State::Applied).map(|(k, _)| *k).collect();
     for key in keys {
-        let Some(row) = rows.iter().find(|r| r.pid == key.0 && r.start_time == key.1) else { continue };
-        let Some(rule) = e.tracked.get(&key).and_then(|t| e.rules.iter().find(|r| r.id == t.rule_id)).cloned() else {
-            e.tracked.remove(&key);
-            changed = true;
-            continue;
+        let Some(rule) = e.tracked.get(&key).and_then(|t| e.rules.iter().find(|r| r.id == t.rule_id)).cloned() else { continue };
+        let front = e.is_front(key, &rule.id);
+        let want = want_of(&rule, front);
+        let (last, name) = {
+            let t = &e.tracked[&key];
+            (t.last.clone(), t.name.clone())
         };
-        // What drifted. A failed read is skipped: it worked when the rule was applied.
-        let mut drift: Vec<String> = Vec::new();
-        let mut gone = false;
-        if let Some(p) = &rule.priority {
-            match ops.priority(key.0, key.1) {
-                Ok(cur) if cur != *p => drift.push(format!("The priority was changed to {}.", priority_label(&cur))),
-                Err(err) if err == EXITED => gone = true,
-                _ => {}
+        // A failed read is skipped: it worked when the rule was applied.
+        let cur = match ops.read(key.0, key.1, last.eco.is_some()) {
+            Ok(cur) => cur,
+            Err(err) if err == EXITED => {
+                e.tracked.remove(&key);
+                changed = true;
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let moved = drift(&last, &cur);
+        if moved.is_empty() && want == last {
+            continue;
+        }
+        if !moved.is_empty() {
+            changed = true;
+            let verdict = note_revert(&mut e.tracked.get_mut(&key).expect("tracked").reverts, now);
+            if verdict == Revert::GiveUp {
+                let t = e.tracked.get_mut(&key).expect("tracked");
+                t.state = State::GaveUp;
+                t.reason = Some(CHANGED_BACK.to_string());
+                t.at = now;
+                e.push_log(app_log("reverted", &rule.id, &name, key.0, now, format!("{CHANGED_BACK} Orbit stopped for this run."), false));
+                e.failed(&rule.id, now, CHANGED_BACK, false);
+                continue;
             }
         }
-        if let Some(m) = rule.mask() {
-            match ops.affinity(key.0, key.1) {
-                Ok(cur) if cur != m => drift.push("The processors were changed.".to_string()),
-                Err(err) if err == EXITED => gone = true,
-                _ => {}
-            }
-        }
-        if gone {
-            e.tracked.remove(&key);
-            changed = true;
-            continue;
-        }
-        if drift.is_empty() {
-            continue;
-        }
-        let sum = summary(&rule);
-        let verdict = {
-            let t = e.tracked.get_mut(&key).expect("tracked");
-            note_revert(&mut t.reverts, now)
-        };
-        changed = true;
-        if verdict == Revert::GiveUp {
-            let t = e.tracked.get_mut(&key).expect("tracked");
-            t.state = State::GaveUp;
-            t.reason = Some(CHANGED_BACK.to_string());
-            t.at = now;
-            e.push_log(app_log("reverted", &rule.id, &row.name, row.pid, now, format!("{CHANGED_BACK} Orbit stopped for this run."), false));
-            e.failed(&rule.id, now, CHANGED_BACK, false);
-            continue;
-        }
-        match apply_rule(&rule, row, ops) {
+        match apply(&want, key.0, key.1, ops) {
             Ok(_) => {
-                e.push_log(app_log("reverted", &rule.id, &row.name, row.pid, now, format!("{} Orbit set {sum} again.", drift.join(" ")), false));
-                e.applied(&rule.id, now);
+                if !moved.is_empty() {
+                    e.push_log(app_log("reverted", &rule.id, &name, key.0, now, format!("{} Orbit set {} again.", moved.join(" "), want_text(&want)), false));
+                    e.applied(&rule.id, now);
+                }
                 if let Some(t) = e.tracked.get_mut(&key) {
                     t.at = now;
+                    t.last = want;
                 }
             }
-            Err(err) => match explain(&err, e.admin) {
+            Err(err) => match explain(&err, e.admin, ops.elevated(key.0), anticheat_running(rows)) {
                 None => {
                     e.tracked.remove(&key);
+                    changed = true;
                 }
                 Some((reason, needs_admin)) => {
-                    e.push_log(app_log("blocked", &rule.id, &row.name, row.pid, now, reason.clone(), needs_admin));
+                    changed = true;
+                    e.push_log(app_log("blocked", &rule.id, &name, key.0, now, reason.clone(), needs_admin));
                     e.failed(&rule.id, now, &reason, needs_admin);
                     if let Some(t) = e.tracked.get_mut(&key) {
                         t.state = State::Failed;
@@ -646,6 +1043,142 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
     changed
 }
 
+/// The window in front moved to `pid`: processes of "only while in front"
+/// rules that just moved to the front or the back get their priority now,
+/// without waiting for the next tick. Not a revert. Returns true when a
+/// status changed.
+pub fn front_changed(e: &mut Engine, pid: u32, now: u64, ops: &dyn Ops) -> bool {
+    if pid == e.foreground {
+        return false;
+    }
+    let old_rule = e.front_rule().map(str::to_string);
+    let old_pid = e.foreground;
+    e.foreground = pid;
+    if !e.enabled || !e.rules.iter().any(|r| r.enabled && r.in_front) {
+        return false;
+    }
+    let new_rule = e.front_rule().map(str::to_string);
+    let touched: Vec<Key> = e
+        .tracked
+        .iter()
+        .filter(|(k, t)| {
+            t.state == State::Applied
+                && (k.0 == old_pid || k.0 == pid || Some(&t.rule_id) == old_rule.as_ref() || Some(&t.rule_id) == new_rule.as_ref())
+        })
+        .map(|(k, _)| *k)
+        .collect();
+    let mut changed = false;
+    for key in touched {
+        let Some(rule) = e.tracked.get(&key).and_then(|t| e.rules.iter().find(|r| r.id == t.rule_id)).cloned() else { continue };
+        if !rule.in_front {
+            continue;
+        }
+        let want = want_of(&rule, e.is_front(key, &rule.id));
+        let last = e.tracked[&key].last.clone();
+        let (Some(p), true) = (want.priority, want.priority != last.priority) else { continue };
+        match ops.set_priority(key.0, key.1, p) {
+            Ok(()) => {
+                if let Some(t) = e.tracked.get_mut(&key) {
+                    t.last = want;
+                    t.at = now;
+                }
+            }
+            Err(err) => {
+                let name = e.tracked[&key].name.clone();
+                if let Some((reason, needs_admin)) = explain(&err, e.admin, ops.elevated(key.0), None) {
+                    e.push_log(app_log("blocked", &rule.id, &name, key.0, now, reason.clone(), needs_admin));
+                    e.failed(&rule.id, now, &reason, needs_admin);
+                    if let Some(t) = e.tracked.get_mut(&key) {
+                        t.state = State::Failed;
+                        t.reason = Some(reason);
+                        t.needs_admin = needs_admin;
+                        t.at = now;
+                    }
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
+/// Reset for one rule: running processes it covers go back to Normal
+/// priority, every core and efficiency mode off (only what the rule sets),
+/// and the rule is switched off so it doesn't apply again. Returns how many
+/// processes were put back and the problems, one line each.
+pub fn reset_rule(e: &mut Engine, id: &str, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pid: u32) -> Result<(u32, Vec<String>), String> {
+    let Some(pos) = e.rules.iter().position(|r| r.id == id) else {
+        return Err("That rule no longer exists.".into());
+    };
+    let rule = e.rules[pos].clone();
+    let back = reset_want(&rule, e.system_mask);
+    let mut done = 0;
+    let mut problems = Vec::new();
+    for row in rows.iter().filter(|r| r.pid > 4 && r.pid != own_pid && r.kind != ProcessKind::Windows && rule_matches(&rule, &r.name, r.exe.as_deref())) {
+        if row_refused(row) {
+            continue;
+        }
+        match apply(&back, row.pid, row.start_time, ops) {
+            Ok(_) => {
+                done += 1;
+                e.push_log(app_log("reset", &rule.id, &row.name, row.pid, now, format!("Put back to {}. The rule is off.", reset_text(&back)), false));
+            }
+            Err(err) => {
+                if let Some((reason, needs_admin)) = explain(&err, e.admin, ops.elevated(row.pid), anticheat_running(rows)) {
+                    e.push_log(app_log("blocked", &rule.id, &row.name, row.pid, now, reason.clone(), needs_admin));
+                    problems.push(format!("{}: {reason}", row.name));
+                }
+            }
+        }
+    }
+    e.rules[pos].enabled = false;
+    e.tracked.retain(|_, t| t.rule_id != rule.id);
+    e.checked.clear();
+    Ok((done, problems))
+}
+
+/// Merges rules from a backup into `existing`: a rule for an app that already
+/// has one replaces its settings (the id stays), the rest are added. Invalid
+/// or refused rules are skipped with the reason.
+pub fn merge(existing: &[Rule], incoming: &[Rule], system_mask: u64, eco: bool, mut new_id: impl FnMut() -> String) -> (Vec<Rule>, ImportReport) {
+    let mut out = existing.to_vec();
+    let mut report = ImportReport::default();
+    let mut seen: Vec<RuleMatch> = Vec::new();
+    for raw in incoming {
+        let label = file_name(&raw.matcher.value).to_string();
+        let label = if label.is_empty() { "A rule".to_string() } else { label };
+        let probe = Rule { id: String::new(), ..raw.clone() };
+        let clean = match validate(&probe, &[], system_mask, eco) {
+            Ok(c) => c,
+            Err(why) => {
+                report.skipped.push(format!("{label}: {why}"));
+                continue;
+            }
+        };
+        if seen.iter().any(|m| same_target(m, &clean.matcher)) {
+            report.skipped.push(format!("{label}: That file has two rules for this app; the first was used."));
+            continue;
+        }
+        seen.push(clean.matcher.clone());
+        match out.iter().position(|r| same_target(&r.matcher, &clean.matcher)) {
+            Some(i) => {
+                if out[i].same_settings(&clean) {
+                    report.unchanged += 1;
+                } else {
+                    out[i] = Rule { id: out[i].id.clone(), ..clean };
+                    report.replaced += 1;
+                }
+            }
+            None if out.len() >= MAX_RULES => report.skipped.push(format!("{label}: Orbit keeps at most {MAX_RULES} rules.")),
+            None => {
+                out.push(Rule { id: new_id(), ..clean });
+                report.added += 1;
+            }
+        }
+    }
+    (out, report)
+}
+
 // ---------------------------------------------------------------------------
 // Real OS calls
 // ---------------------------------------------------------------------------
@@ -653,8 +1186,8 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
 pub struct RealOps;
 
 impl RealOps {
-    fn open(pid: u32, start: u64) -> Result<actions::OwnedHandle, String> {
-        let h = actions::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
+    fn open(pid: u32, start: u64, access: windows::Win32::System::Threading::PROCESS_ACCESS_RIGHTS) -> Result<actions::OwnedHandle, String> {
+        let h = actions::open_process(pid, access)?;
         actions::verify_identity(h.0, Some(start))?;
         Ok(h)
     }
@@ -662,39 +1195,77 @@ impl RealOps {
 
 impl Ops for RealOps {
     fn guard(&self, pid: u32) -> Result<(), String> {
-        actions::guard_pid(pid, "changed")
+        actions::guard_pid(pid, "changed")?;
+        actions::refuse_critical_change(pid)
     }
 
-    fn priority(&self, pid: u32, start: u64) -> Result<String, String> {
-        let h = Self::open(pid, start)?;
+    fn read(&self, pid: u32, start: u64, eco: bool) -> Result<Current, String> {
+        let h = Self::open(pid, start, PROCESS_QUERY_LIMITED_INFORMATION)?;
         let class = unsafe { GetPriorityClass(h.0) };
         if class == 0 {
             let err = windows::core::Error::from_win32();
             return Err(actions::describe(&err, "read the priority"));
         }
-        Ok(match actions::priority_name(class) {
+        let priority = match actions::priority_name(class) {
             Some("idle") => "low".to_string(),
             Some(name) => name.to_string(),
             None => "unknown".to_string(),
-        })
+        };
+        let (mask, _) = actions::read_affinity(h.0)?;
+        let eco = if eco {
+            let mut state = PROCESS_POWER_THROTTLING_STATE { Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION, ..Default::default() };
+            unsafe {
+                GetProcessInformation(h.0, ProcessPowerThrottling, (&mut state as *mut PROCESS_POWER_THROTTLING_STATE).cast(), size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32)
+            }
+            .ok()
+            .map(|_| {
+                let bit = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+                state.ControlMask & bit != 0 && state.StateMask & bit != 0
+            })
+        } else {
+            None
+        };
+        Ok(Current { priority, mask, eco })
     }
 
     fn set_priority(&self, pid: u32, start: u64, name: &str) -> Result<(), String> {
-        let name = if name == "low" { "idle" } else { name };
-        if name == "realtime" {
-            return Err("Orbit never sets Realtime.".into());
-        }
+        let name = match name {
+            "low" => "idle",
+            "realtime" => return Err(NO_REALTIME.into()),
+            other => other,
+        };
         actions::set_priority(pid, name.to_string(), Some(start))
-    }
-
-    fn affinity(&self, pid: u32, start: u64) -> Result<u64, String> {
-        let h = Self::open(pid, start)?;
-        actions::read_affinity(h.0).map(|(process, _)| process)
     }
 
     fn set_affinity(&self, pid: u32, start: u64, mask: u64) -> Result<(), String> {
         actions::set_affinity(pid, mask.to_string(), Some(start))
     }
+
+    /// On: EcoQoS (execution speed throttled), as Task Manager's efficiency
+    /// mode. Off: Windows decides again (no explicit setting).
+    fn set_eco(&self, pid: u32, start: u64, on: bool) -> Result<(), String> {
+        actions::guard_pid(pid, "changed")?;
+        let h = Self::open(pid, start, PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION)?;
+        let bit = if on { PROCESS_POWER_THROTTLING_EXECUTION_SPEED } else { 0 };
+        let state = PROCESS_POWER_THROTTLING_STATE { Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION, ControlMask: bit, StateMask: bit };
+        unsafe {
+            SetProcessInformation(h.0, ProcessPowerThrottling, (&state as *const PROCESS_POWER_THROTTLING_STATE).cast(), size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32)
+        }
+        .map_err(|e| actions::describe(&e, "change efficiency mode"))
+    }
+
+    fn elevated(&self, pid: u32) -> Option<bool> {
+        actions::process_elevated(pid)
+    }
+}
+
+/// Windows 11 (build 22000 or later).
+fn is_windows_11() -> bool {
+    const NT: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+    crate::rig::reg_sz(NT, "CurrentBuildNumber")
+        .or_else(|| crate::rig::reg_sz(NT, "CurrentBuild"))
+        .and_then(|b| b.trim().parse::<u32>().ok())
+        .is_some_and(|b| b >= WINDOWS_11_BUILD)
 }
 
 // ---------------------------------------------------------------------------
@@ -726,14 +1297,14 @@ fn rules_dir(local_data: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 /// Reads the rules file, dropping anything that is no longer valid.
-fn load(dir: &Path, system_mask: u64) -> (bool, Vec<Rule>) {
+fn load(dir: &Path, system_mask: u64, eco: bool) -> (bool, Vec<Rule>) {
     let stored: Stored = fs::read(dir.join(FILE_NAME)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let mut rules: Vec<Rule> = Vec::new();
     for r in &stored.rules {
-        if r.id.is_empty() {
+        if r.id.is_empty() || rules.iter().any(|o| o.id == r.id) {
             continue;
         }
-        if let Ok(clean) = validate(r, &rules, system_mask) {
+        if let Ok(clean) = validate(r, &rules, system_mask, eco) {
             rules.push(clean);
         }
         if rules.len() == MAX_RULES {
@@ -744,6 +1315,7 @@ fn load(dir: &Path, system_mask: u64) -> (bool, Vec<Rule>) {
 }
 
 fn save(e: &Engine) -> Result<(), String> {
+    e.publish();
     let Some(dir) = e.dir.as_deref() else {
         return Ok(());
     };
@@ -766,23 +1338,30 @@ fn engine() -> MutexGuard<'static, Engine> {
         .get_or_init(|| {
             let system = actions::read_affinity(unsafe { GetCurrentProcess() }).map(|(_, s)| s).unwrap_or(1);
             let admin = unsafe { windows::Win32::UI::Shell::IsUserAnAdmin() }.as_bool();
-            Mutex::new(Engine::new(admin, system))
+            Mutex::new(Engine::new(admin, system, is_windows_11()))
         })
         .lock()
         .unwrap_or_else(|p| p.into_inner())
 }
 
-/// Setup hook: loads the saved rules.
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+/// Setup hook: loads the saved rules and starts the foreground listener.
 pub fn init(app: &AppHandle) {
+    let _ = APP.set(app.clone());
     let dir = rules_dir(app.path().app_local_data_dir().ok());
-    let mut e = engine();
-    if let Some(d) = dir.as_deref() {
-        let (enabled, rules) = load(d, e.system_mask);
-        e.enabled = enabled;
-        e.rules = rules;
+    {
+        let mut e = engine();
+        if let Some(d) = dir.as_deref() {
+            let (enabled, rules) = load(d, e.system_mask, e.eco_supported);
+            e.enabled = enabled;
+            e.rules = rules;
+        }
+        e.dir = dir;
+        e.initialized = true;
+        e.publish();
     }
-    e.dir = dir;
-    e.initialized = true;
+    start_foreground_hook();
 }
 
 fn emit_status(app: &AppHandle) {
@@ -790,18 +1369,77 @@ fn emit_status(app: &AppHandle) {
     let _ = app.emit(RULES_EVENT, RulesEvent { statuses });
 }
 
-/// Called by the sampler after every snapshot (no thread of its own).
-pub fn on_snapshot(app: &AppHandle, snapshot: &Snapshot) {
+fn on_rows(app: &AppHandle, rows: &[ProcessRow]) {
     let changed = {
         let mut e = engine();
-        if !e.initialized {
-            false
-        } else {
-            step(&mut e, &snapshot.processes, now_ms(), &RealOps, std::process::id())
-        }
+        e.initialized && step(&mut e, rows, now_ms(), &RealOps, std::process::id(), crate::boost::is_active())
     };
     if changed {
         emit_status(app);
+    }
+}
+
+/// Called by the sampler after every snapshot.
+pub fn on_snapshot(app: &AppHandle, snapshot: &Snapshot) {
+    on_rows(app, &snapshot.processes);
+}
+
+/// True when the sampler should call `light_tick` while it isn't sampling.
+pub fn wants_ticks() -> bool {
+    WANTS_TICKS.load(Ordering::Relaxed)
+}
+
+/// A tick without a full sample (the sampler is paused or slower than a
+/// second): one Toolhelp snapshot, and only processes not seen before are
+/// opened for their start time and path.
+pub fn light_tick(app: &AppHandle) {
+    let Ok(entries) = actions::snapshot_processes() else { return };
+    let rows: Vec<ProcessRow> = {
+        let mut e = engine();
+        let live: HashSet<u32> = entries.iter().map(|p| p.pid).collect();
+        e.light.retain(|pid, _| live.contains(pid));
+        let mut rows = Vec::with_capacity(entries.len());
+        for p in entries {
+            if p.pid <= 4 {
+                continue;
+            }
+            let fresh = e.light.get(&p.pid).is_none_or(|l| l.name != p.name);
+            if fresh {
+                let Ok(h) = actions::open_process(p.pid, PROCESS_QUERY_LIMITED_INFORMATION) else { continue };
+                let Some(created) = actions::handle_creation_filetime(h.0) else { continue };
+                let exe = actions::image_path(h.0);
+                e.light.insert(p.pid, LightProc { name: p.name.clone(), start: actions::filetime_to_unix(created), exe });
+            }
+            let l = &e.light[&p.pid];
+            rows.push(light_row(p.pid, l));
+        }
+        rows
+    };
+    on_rows(app, &rows);
+}
+
+fn light_row(pid: u32, l: &LightProc) -> ProcessRow {
+    ProcessRow {
+        pid,
+        parent_pid: None,
+        name: l.name.clone(),
+        exe: l.exe.clone(),
+        cmd: String::new(),
+        user: None,
+        cpu: 0.0,
+        memory: 0,
+        disk_read_bps: 0.0,
+        disk_write_bps: 0.0,
+        gpu: None,
+        status: "running".into(),
+        start_time: l.start,
+        kind: ProcessKind::Background,
+        window_title: None,
+        not_responding: false,
+        suspended: false,
+        session_id: None,
+        net_rx_bps: None,
+        net_tx_bps: None,
     }
 }
 
@@ -811,6 +1449,52 @@ fn reevaluate(app: &AppHandle) {
         on_snapshot(app, &snap);
     }
     emit_status(app);
+}
+
+fn window_pid(hwnd: HWND) -> u32 {
+    if hwnd.is_invalid() {
+        return 0;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    pid
+}
+
+fn on_front(hwnd: HWND) {
+    let pid = window_pid(hwnd);
+    let changed = {
+        let mut e = engine();
+        e.initialized && front_changed(&mut e, pid, now_ms(), &RealOps)
+    };
+    if changed {
+        if let Some(app) = APP.get() {
+            emit_status(app);
+        }
+    }
+}
+
+unsafe extern "system" fn win_event(_hook: HWINEVENTHOOK, _event: u32, hwnd: HWND, _object: i32, _child: i32, _thread: u32, _time: u32) {
+    on_front(hwnd);
+}
+
+/// One thread with an out-of-context `EVENT_SYSTEM_FOREGROUND` hook; it
+/// sleeps in `GetMessageW` and wakes only when the window in front changes.
+fn start_foreground_hook() {
+    let spawned = std::thread::Builder::new().name("orbit-rules-front".into()).spawn(|| unsafe {
+        let hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, HMODULE::default(), Some(win_event), 0, 0, WINEVENT_OUTOFCONTEXT);
+        if hook.is_invalid() {
+            eprintln!("[orbit] rules: the foreground hook failed; \"only while in front\" rules use the priority for the back");
+            return;
+        }
+        on_front(GetForegroundWindow());
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            DispatchMessageW(&msg);
+        }
+    });
+    if let Err(err) = spawned {
+        eprintln!("[orbit] rules: could not start the foreground thread: {err}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -831,7 +1515,13 @@ fn state_of(e: &Engine) -> RulesState {
             RuleView { rule: r.clone(), last_applied: stat.last_applied, last_failed: stat.last_failed, running }
         })
         .collect();
-    RulesState { rules_enabled: e.enabled, is_admin: e.admin, logical_cores: e.system_mask.count_ones(), rules: views }
+    RulesState {
+        rules_enabled: e.enabled,
+        is_admin: e.admin,
+        logical_cores: e.system_mask.count_ones(),
+        efficiency_supported: e.eco_supported,
+        rules: views,
+    }
 }
 
 #[tauri::command]
@@ -852,11 +1542,12 @@ pub async fn rules_create(app: AppHandle, rule: Rule) -> Result<RuleView, String
         if e.rules.len() >= MAX_RULES {
             return Err("That is the most rules Orbit keeps.".into());
         }
-        let mut clean = validate(&rule, &e.rules, e.system_mask)?;
+        let mut clean = validate(&rule, &e.rules, e.system_mask, e.eco_supported)?;
         clean.id = e.new_id(now_ms());
         e.rules.push(clean.clone());
         if let Err(err) = save(&e) {
             e.rules.pop();
+            e.publish();
             return Err(format!("Could not save the rule: {err}."));
         }
         e.reset_tracking();
@@ -875,10 +1566,11 @@ pub async fn rules_update(app: AppHandle, rule: Rule) -> Result<RuleView, String
             return Err("That rule no longer exists.".into());
         };
         let others: Vec<Rule> = e.rules.iter().filter(|r| r.id != rule.id).cloned().collect();
-        let clean = validate(&rule, &others, e.system_mask)?;
+        let clean = validate(&rule, &others, e.system_mask, e.eco_supported)?;
         let old = std::mem::replace(&mut e.rules[pos], clean.clone());
         if let Err(err) = save(&e) {
             e.rules[pos] = old;
+            e.publish();
             return Err(format!("Could not save the rule: {err}."));
         }
         e.reset_tracking();
@@ -900,6 +1592,7 @@ pub async fn rules_delete(app: AppHandle, id: String) -> Result<(), String> {
         let old = e.rules.remove(pos);
         if let Err(err) = save(&e) {
             e.rules.insert(pos, old);
+            e.publish();
             return Err(format!("Could not save the change: {err}."));
         }
         e.stats.remove(&id);
@@ -911,6 +1604,34 @@ pub async fn rules_delete(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetReport {
+    pub reset: u32,
+    pub problems: Vec<String>,
+}
+
+/// Puts the running app back to Normal priority and all cores (what the rule
+/// sets) and switches the rule off.
+#[tauri::command]
+pub async fn rules_reset(app: AppHandle, id: String) -> Result<ResetReport, String> {
+    let rows = app.state::<AppState>().latest_snapshot().map(|s| s.processes).unwrap_or_default();
+    let report = blocking(move || -> Result<ResetReport, String> {
+        let mut e = engine();
+        let before = e.rules.clone();
+        let (reset, problems) = reset_rule(&mut e, &id, &rows, now_ms(), &RealOps, std::process::id())?;
+        if let Err(err) = save(&e) {
+            e.rules = before;
+            e.publish();
+            return Err(format!("Put the app back, but could not switch the rule off: {err}."));
+        }
+        Ok(ResetReport { reset, problems })
+    })
+    .await??;
+    emit_status(&app);
+    Ok(report)
+}
+
 /// The master switch (setting `rulesEnabled`). Off: no rule is applied.
 #[tauri::command]
 pub async fn rules_set_enabled(app: AppHandle, enabled: bool) -> Result<RulesState, String> {
@@ -920,6 +1641,7 @@ pub async fn rules_set_enabled(app: AppHandle, enabled: bool) -> Result<RulesSta
         e.enabled = enabled;
         if let Err(err) = save(&e) {
             e.enabled = old;
+            e.publish();
             return Err(format!("Could not save the change: {err}."));
         }
         e.reset_tracking();
@@ -928,6 +1650,56 @@ pub async fn rules_set_enabled(app: AppHandle, enabled: bool) -> Result<RulesSta
     .await??;
     reevaluate(&app);
     Ok(state)
+}
+
+/// The rules for Settings > Backup > Export.
+#[tauri::command]
+pub async fn rules_export() -> Result<RulesBackup, String> {
+    blocking(|| {
+        let e = engine();
+        RulesBackup { rules_enabled: Some(e.enabled), rules: e.rules.clone() }
+    })
+    .await
+}
+
+/// Settings > Backup > Import. `apply: false` only reports what would change.
+#[tauri::command]
+pub async fn rules_import(app: AppHandle, backup: RulesBackup, apply: bool) -> Result<ImportReport, String> {
+    let report = blocking(move || -> Result<ImportReport, String> {
+        let mut e = engine();
+        if backup.rules.len() > MAX_RULES * 2 {
+            return Err("That file has too many rules.".into());
+        }
+        let now = now_ms();
+        let mut next = e.next_id;
+        let (merged, mut report) = merge(&e.rules, &backup.rules, e.system_mask, e.eco_supported, || {
+            next += 1;
+            format!("r{now:x}{next:x}")
+        });
+        report.switch_to = backup.rules_enabled.filter(|&on| on != e.enabled);
+        if !apply {
+            return Ok(report);
+        }
+        let (old_rules, old_enabled) = (e.rules.clone(), e.enabled);
+        e.rules = merged;
+        e.next_id = next;
+        if let Some(on) = report.switch_to {
+            e.enabled = on;
+        }
+        if let Err(err) = save(&e) {
+            e.rules = old_rules;
+            e.enabled = old_enabled;
+            e.publish();
+            return Err(format!("Could not save the rules: {err}."));
+        }
+        e.reset_tracking();
+        Ok(report)
+    })
+    .await??;
+    if apply {
+        reevaluate(&app);
+    }
+    Ok(report)
 }
 
 #[tauri::command]
@@ -958,493 +1730,4 @@ pub async fn rules_pick_exe(app: AppHandle) -> Result<Option<String>, String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
-
-    const ME: u32 = 99;
-
-    fn row(pid: u32, name: &str, exe: Option<&str>) -> ProcessRow {
-        ProcessRow {
-            pid,
-            parent_pid: None,
-            name: name.to_string(),
-            exe: exe.map(str::to_string),
-            cmd: String::new(),
-            user: None,
-            cpu: 0.0,
-            memory: 0,
-            disk_read_bps: 0.0,
-            disk_write_bps: 0.0,
-            gpu: None,
-            status: "running".into(),
-            start_time: 1000 + pid as u64,
-            kind: ProcessKind::Background,
-            window_title: None,
-            not_responding: false,
-            suspended: false,
-            session_id: Some(1),
-            net_rx_bps: None,
-            net_tx_bps: None,
-        }
-    }
-
-    fn rule(id: &str, kind: &str, value: &str, priority: Option<&str>, mask: Option<&str>) -> Rule {
-        Rule {
-            id: id.into(),
-            matcher: RuleMatch { kind: kind.into(), value: value.into() },
-            priority: priority.map(str::to_string),
-            affinity: mask.map(str::to_string),
-            enabled: true,
-        }
-    }
-
-    #[derive(Default)]
-    struct Fake {
-        prio: RefCell<HashMap<u32, String>>,
-        mask: RefCell<HashMap<u32, u64>>,
-        fail: RefCell<Option<String>>,
-        sets: RefCell<u32>,
-    }
-
-    impl Ops for Fake {
-        fn guard(&self, _: u32) -> Result<(), String> {
-            Ok(())
-        }
-        fn priority(&self, pid: u32, _: u64) -> Result<String, String> {
-            self.prio.borrow().get(&pid).cloned().ok_or_else(|| EXITED.to_string())
-        }
-        fn set_priority(&self, pid: u32, _: u64, name: &str) -> Result<(), String> {
-            if let Some(e) = self.fail.borrow().clone() {
-                return Err(e);
-            }
-            *self.sets.borrow_mut() += 1;
-            self.prio.borrow_mut().insert(pid, name.to_string());
-            Ok(())
-        }
-        fn affinity(&self, pid: u32, _: u64) -> Result<u64, String> {
-            self.mask.borrow().get(&pid).copied().ok_or_else(|| EXITED.to_string())
-        }
-        fn set_affinity(&self, pid: u32, _: u64, mask: u64) -> Result<(), String> {
-            *self.sets.borrow_mut() += 1;
-            self.mask.borrow_mut().insert(pid, mask);
-            Ok(())
-        }
-    }
-
-    fn engine_with(rules: Vec<Rule>, admin: bool) -> Engine {
-        let mut e = Engine::new(admin, 0b1111);
-        e.rules = rules;
-        e.initialized = true;
-        e
-    }
-
-    // ---- matching
-
-    #[test]
-    fn name_matches_ignore_case_and_folder() {
-        let r = rule("a", "name", "League of Legends.exe", Some("high"), None);
-        assert!(rule_matches(&r, "league of legends.EXE", Some(r"D:\Games\Riot\League of Legends.exe")));
-        assert!(rule_matches(&r, "League of Legends.exe", None));
-        assert!(!rule_matches(&r, "league.exe", None));
-    }
-
-    #[test]
-    fn path_matches_normalise_slashes_case_and_prefix() {
-        let r = rule("a", "path", r"D:\Games\Riot\LoL.exe", Some("high"), None);
-        assert!(rule_matches(&r, "LoL.exe", Some(r"d:/games/riot/lol.EXE")));
-        assert!(rule_matches(&r, "LoL.exe", Some(r"\\?\D:\Games\Riot\LoL.exe")));
-        assert!(!rule_matches(&r, "LoL.exe", Some(r"E:\Games\Riot\LoL.exe")));
-        // A path rule never matches a process whose path is hidden.
-        assert!(!rule_matches(&r, "LoL.exe", None));
-    }
-
-    #[test]
-    fn a_path_rule_beats_a_name_rule() {
-        let rules = vec![
-            rule("n", "name", "game.exe", Some("low"), None),
-            rule("p", "path", r"C:\Games\game.exe", Some("high"), None),
-        ];
-        let r = row(5, "game.exe", Some(r"C:\Games\game.exe"));
-        assert_eq!(find_rule(&rules, &r).unwrap().id, "p");
-        let other = row(6, "game.exe", Some(r"D:\game.exe"));
-        assert_eq!(find_rule(&rules, &other).unwrap().id, "n");
-    }
-
-    #[test]
-    fn disabled_rules_do_not_match() {
-        let mut r = rule("n", "name", "game.exe", Some("low"), None);
-        r.enabled = false;
-        assert!(find_rule(&[r], &row(5, "game.exe", None)).is_none());
-    }
-
-    // ---- validation
-
-    #[test]
-    fn validation_cleans_and_rejects() {
-        let ok = validate(&rule("", "name", "  game.exe ", Some("high"), Some("3")), &[], 0b1111).unwrap();
-        assert_eq!(ok.matcher.value, "game.exe");
-        assert_eq!(ok.affinity.as_deref(), Some("3"));
-        let err = |r: Rule| validate(&r, &[], 0b1111).unwrap_err();
-        assert!(err(rule("", "name", "game.exe", Some("realtime"), None)).contains("Realtime"));
-        assert!(err(rule("", "name", "game.exe", Some("turbo"), None)).contains("not valid"));
-        assert!(err(rule("", "name", "game.exe", None, None)).contains("Pick a priority"));
-        assert!(err(rule("", "name", "", Some("high"), None)).contains("Pick an app"));
-        assert!(err(rule("", "name", "game.txt", Some("high"), None)).contains(".exe"));
-        assert!(err(rule("", "name", r"C:\game.exe", Some("high"), None)).contains("file name"));
-        assert!(err(rule("", "path", "game.exe", Some("high"), None)).contains("full path"));
-        assert!(err(rule("", "folder", "game.exe", Some("high"), None)).contains("path or a name"));
-    }
-
-    #[test]
-    fn affinity_must_fit_the_machine_and_keep_a_core() {
-        let err = |m: &str| validate(&rule("", "name", "g.exe", None, Some(m)), &[], 0b1111).unwrap_err();
-        assert_eq!(err("0"), "Pick at least one processor.");
-        assert!(err("16").contains("processors this PC does not have"));
-        assert!(err("abc").contains("not valid"));
-        assert!(validate(&rule("", "name", "g.exe", None, Some("15")), &[], 0b1111).is_ok());
-    }
-
-    #[test]
-    fn duplicates_are_refused_but_editing_yourself_is_fine() {
-        let a = rule("a", "name", "Game.exe", Some("high"), None);
-        let dup = rule("", "name", "game.EXE", Some("low"), None);
-        assert!(validate(&dup, &[a.clone()], 15).unwrap_err().contains("already a rule"));
-        let edit = rule("a", "name", "game.exe", Some("low"), None);
-        assert!(validate(&edit, &[a], 15).is_ok());
-    }
-
-    // ---- guard list
-
-    #[test]
-    fn the_guard_list_refuses_system_security_and_anti_cheat() {
-        for n in ["orbit.exe", "ORBIT.EXE", r"C:\x\Orbit.exe"] {
-            assert_eq!(refusal(n), Some(WHY_ORBIT), "{n}");
-        }
-        for n in ["csrss.exe", "lsass.exe", "smss.exe", "wininit.exe", "services.exe", "winlogon.exe", "svchost.exe", "System"] {
-            assert_eq!(refusal(n), Some(WHY_WINDOWS), "{n}");
-        }
-        for n in ["MsMpEng.exe", "NisSrv.exe", "MpDefenderCoreService.exe"] {
-            assert_eq!(refusal(n), Some(WHY_DEFENDER), "{n}");
-        }
-        for n in ["vgc.exe", "vgk.sys", "EasyAntiCheat.exe", "EasyAntiCheat_EOS.exe", "BEService.exe", "BEService_x64.exe", "BEDaisy.sys"] {
-            assert_eq!(refusal(n), Some(WHY_ANTICHEAT), "{n}");
-        }
-        assert_eq!(refusal(r"C:\Windows\System32\notepad.exe"), Some(WHY_WINDOWS));
-        assert_eq!(refusal("League of Legends.exe"), None);
-        assert_eq!(refusal(r"D:\Games\game.exe"), None);
-        // Refused by validate() too, with the plain reason.
-        assert_eq!(validate(&rule("", "name", "csrss.exe", Some("high"), None), &[], 15).unwrap_err(), WHY_WINDOWS);
-        assert_eq!(validate(&rule("", "name", "vgc.exe", Some("high"), None), &[], 15).unwrap_err(), WHY_ANTICHEAT);
-    }
-
-    // ---- revert counter
-
-    #[test]
-    fn three_reverts_inside_a_minute_give_up() {
-        let mut r = Vec::new();
-        assert_eq!(note_revert(&mut r, 1_000), Revert::Reapply);
-        assert_eq!(note_revert(&mut r, 20_000), Revert::Reapply);
-        assert_eq!(note_revert(&mut r, 59_999), Revert::GiveUp);
-    }
-
-    #[test]
-    fn old_reverts_fall_out_of_the_window() {
-        let mut r = Vec::new();
-        assert_eq!(note_revert(&mut r, 0), Revert::Reapply);
-        assert_eq!(note_revert(&mut r, 30_000), Revert::Reapply);
-        // The first is 61 s old by now.
-        assert_eq!(note_revert(&mut r, 61_000), Revert::Reapply);
-        assert_eq!(r.len(), 2);
-    }
-
-    // ---- engine with fake OS calls
-
-    #[test]
-    fn a_new_matching_process_is_set_in_the_same_tick() {
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), Some("3"))], true);
-        let ops = Fake::default();
-        ops.prio.borrow_mut().insert(10, "low".into());
-        ops.mask.borrow_mut().insert(10, 15);
-        let rows = vec![row(10, "game.exe", Some(r"C:\g\game.exe")), row(11, "other.exe", None)];
-        assert!(step(&mut e, &rows, 5_000, &ops, ME));
-        assert_eq!(ops.prio.borrow()[&10], "high");
-        assert_eq!(ops.mask.borrow()[&10], 3);
-        let st = e.statuses();
-        assert_eq!(st.len(), 1);
-        assert_eq!((st[0].pid, st[0].state.as_str(), st[0].summary.as_str()), (10, "applied", "High priority, 2 cores"));
-        assert_eq!(e.log.back().unwrap().kind, "applied");
-        assert_eq!(e.stats["a"].last_applied, Some(5_000));
-        // Nothing to do next tick.
-        assert!(!step(&mut e, &rows, 6_000, &ops, ME));
-        assert_eq!(*ops.sets.borrow(), 2);
-    }
-
-    #[test]
-    fn an_app_already_at_the_value_is_logged_not_touched() {
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None)], true);
-        let ops = Fake::default();
-        ops.prio.borrow_mut().insert(10, "high".into());
-        step(&mut e, &[row(10, "game.exe", None)], 1, &ops, ME);
-        assert_eq!(*ops.sets.borrow(), 0);
-        assert!(e.log.back().unwrap().text.starts_with("Already set"));
-    }
-
-    #[test]
-    fn reapplies_twice_then_stops_on_the_third_revert() {
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None)], true);
-        let ops = Fake::default();
-        ops.prio.borrow_mut().insert(10, "low".into());
-        let rows = vec![row(10, "game.exe", None)];
-        step(&mut e, &rows, 0, &ops, ME);
-        for (i, t) in [10_000u64, 20_000].into_iter().enumerate() {
-            ops.prio.borrow_mut().insert(10, "normal".into());
-            assert!(step(&mut e, &rows, t, &ops, ME), "revert {i}");
-            assert_eq!(ops.prio.borrow()[&10], "high");
-            assert_eq!(e.statuses()[0].state, "applied");
-        }
-        ops.prio.borrow_mut().insert(10, "normal".into());
-        assert!(step(&mut e, &rows, 30_000, &ops, ME));
-        assert_eq!(ops.prio.borrow()[&10], "normal", "not set a third time");
-        let s = &e.statuses()[0];
-        assert_eq!((s.state.as_str(), s.reason.as_deref()), ("gaveUp", Some(CHANGED_BACK)));
-        assert_eq!(e.stats["a"].last_failed.as_ref().unwrap().reason, CHANGED_BACK);
-        // Stays stopped, and checks nothing more for this run.
-        ops.prio.borrow_mut().insert(10, "low".into());
-        assert!(!step(&mut e, &rows, 40_000, &ops, ME));
-        assert_eq!(ops.prio.borrow()[&10], "low");
-        // A new run of the app (new start time) gets the rule again.
-        let mut again = row(10, "game.exe", None);
-        again.start_time += 500;
-        step(&mut e, &[again], 50_000, &ops, ME);
-        assert_eq!(ops.prio.borrow()[&10], "high");
-    }
-
-    #[test]
-    fn an_affinity_that_changes_back_is_set_again() {
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", None, Some("3"))], true);
-        let ops = Fake::default();
-        ops.mask.borrow_mut().insert(10, 15);
-        let rows = vec![row(10, "game.exe", None)];
-        step(&mut e, &rows, 0, &ops, ME);
-        ops.mask.borrow_mut().insert(10, 15);
-        step(&mut e, &rows, 5_000, &ops, ME);
-        assert_eq!(ops.mask.borrow()[&10], 3);
-        assert!(e.log.back().unwrap().text.contains("processors"));
-    }
-
-    #[test]
-    fn access_denied_says_why_once_and_does_not_retry() {
-        for (admin, want, flag) in [(false, NEEDS_ADMIN, true), (true, BLOCKED, false)] {
-            let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None)], admin);
-            let ops = Fake::default();
-            ops.prio.borrow_mut().insert(10, "normal".into());
-            *ops.fail.borrow_mut() = Some(ACCESS_DENIED.to_string());
-            let rows = vec![row(10, "game.exe", None)];
-            assert!(step(&mut e, &rows, 1, &ops, ME));
-            let s = &e.statuses()[0];
-            assert_eq!((s.state.as_str(), s.reason.as_deref(), s.needs_admin), ("failed", Some(want), flag));
-            let entry = e.log.back().unwrap();
-            assert_eq!((entry.kind.as_str(), entry.needs_admin), ("blocked", flag));
-            assert_eq!(e.stats["a"].last_failed.as_ref().unwrap().reason, want);
-            // No retry on later ticks, no second log line.
-            *ops.fail.borrow_mut() = None;
-            assert!(!step(&mut e, &rows, 2_000, &ops, ME));
-            assert_eq!(e.log.len(), 1);
-            assert_eq!(*ops.sets.borrow(), 0);
-        }
-    }
-
-    #[test]
-    fn exited_processes_are_forgotten_quietly() {
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None)], true);
-        let ops = Fake::default();
-        ops.prio.borrow_mut().insert(10, "low".into());
-        step(&mut e, &[row(10, "game.exe", None)], 0, &ops, ME);
-        assert_eq!(e.tracked.len(), 1);
-        assert!(step(&mut e, &[], 1_000, &ops, ME));
-        assert!(e.tracked.is_empty());
-        // The pid vanished from the OS before the new-process apply: no log line.
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None)], true);
-        step(&mut e, &[row(77, "game.exe", None)], 0, &Fake::default(), ME);
-        assert!(e.log.is_empty() && e.tracked.is_empty());
-    }
-
-    #[test]
-    fn never_touches_orbit_windows_rows_or_refused_names() {
-        let mut e = engine_with(vec![
-            rule("a", "name", "game.exe", Some("high"), None),
-            rule("b", "name", "csrss.exe", Some("high"), None),
-            rule("c", "name", "vgc.exe", Some("high"), None),
-        ], true);
-        let ops = Fake::default();
-        let mut win = row(20, "game.exe", None);
-        win.kind = ProcessKind::Windows;
-        let rows = vec![row(ME, "game.exe", None), win, row(21, "csrss.exe", None), row(22, "vgc.exe", None), row(3, "game.exe", None)];
-        for r in &rows {
-            ops.prio.borrow_mut().insert(r.pid, "normal".into());
-        }
-        step(&mut e, &rows, 0, &ops, ME);
-        assert_eq!(*ops.sets.borrow(), 0);
-        assert!(e.statuses().is_empty());
-    }
-
-    #[test]
-    fn the_master_switch_and_disabled_rules_stop_everything() {
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None)], true);
-        let ops = Fake::default();
-        ops.prio.borrow_mut().insert(10, "low".into());
-        let rows = vec![row(10, "game.exe", None)];
-        step(&mut e, &rows, 0, &ops, ME);
-        e.enabled = false;
-        assert!(step(&mut e, &rows, 1_000, &ops, ME), "statuses cleared");
-        assert!(e.statuses().is_empty());
-        ops.prio.borrow_mut().insert(10, "low".into());
-        step(&mut e, &rows, 2_000, &ops, ME);
-        assert_eq!(ops.prio.borrow()[&10], "low");
-        e.enabled = true;
-        e.reset_tracking();
-        step(&mut e, &rows, 3_000, &ops, ME);
-        assert_eq!(ops.prio.borrow()[&10], "high");
-    }
-
-    #[test]
-    fn the_log_keeps_the_last_200() {
-        let mut e = engine_with(vec![], true);
-        for i in 0..250 {
-            e.push_log(app_log("applied", "a", "x.exe", i, i as u64, String::new(), false));
-        }
-        assert_eq!(e.log.len(), MAX_LOG);
-        assert_eq!(e.log.front().unwrap().pid, 50);
-    }
-
-    // ---- files
-
-    #[test]
-    fn rules_round_trip_through_the_file_and_bad_ones_are_dropped() {
-        let dir = std::env::temp_dir().join(format!("orbit-rules-file-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), Some("3"))], true);
-        e.dir = Some(dir.clone());
-        e.enabled = false;
-        save(&e).unwrap();
-        let (enabled, rules) = load(&dir, 15);
-        assert!(!enabled);
-        assert_eq!(rules, e.rules);
-        let junk = r#"{"rules":[
-            {"id":"x","match":{"kind":"name","value":"csrss.exe"},"priority":"high"},
-            {"id":"y","match":{"kind":"name","value":"ok.exe"},"priority":"realtime"},
-            {"id":"z","match":{"kind":"name","value":"fine.exe"},"priority":"low"}]}"#;
-        fs::write(dir.join(FILE_NAME), junk).unwrap();
-        let (enabled, rules) = load(&dir, 15);
-        assert!(enabled, "defaults to on");
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].id, "z");
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    // ---- against a real process
-
-    use std::os::windows::process::CommandExt;
-    use windows::Win32::System::Threading::{
-        ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS,
-        IDLE_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
-    };
-
-    /// A scratch copy of PING.EXE, killed and deleted when dropped.
-    struct Scratch {
-        dir: PathBuf,
-        child: std::process::Child,
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-            let _ = fs::remove_dir_all(&self.dir);
-        }
-    }
-
-    fn class_of(pid: u32) -> u32 {
-        let h = actions::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION).unwrap();
-        unsafe { GetPriorityClass(h.0) }
-    }
-
-    fn mask_of(pid: u32) -> u64 {
-        let h = actions::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION).unwrap();
-        actions::read_affinity(h.0).unwrap().0
-    }
-
-    fn start_of(pid: u32) -> u64 {
-        let h = actions::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION).unwrap();
-        actions::filetime_to_unix(actions::handle_creation_filetime(h.0).unwrap())
-    }
-
-    /// The scratch process only: this test never touches any other process.
-    #[test]
-    fn engine_against_a_real_scratch_process() {
-        let dir = std::env::temp_dir().join(format!("orbit-rules-live-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        let exe = dir.join("orbit-rule-test.exe");
-        fs::copy(format!(r"{root}\System32\PING.EXE"), &exe).unwrap();
-        let child = std::process::Command::new(&exe)
-            .args(["-n", "600", "127.0.0.1"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null())
-            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        let _scratch = Scratch { dir: dir.clone(), child };
-        let r = {
-            let mut r = row(pid, "orbit-rule-test.exe", exe.to_str());
-            r.start_time = start_of(pid);
-            r
-        };
-        let rows = vec![r];
-        let (_, system) = actions::read_affinity(unsafe { GetCurrentProcess() }).unwrap();
-        let mut e = Engine::new(false, system);
-        e.initialized = true;
-        e.rules = vec![rule("t", "name", "orbit-rule-test.exe", Some("high"), Some("1"))];
-        let own = std::process::id();
-        let set = |class| {
-            let name = actions::priority_name(class).unwrap();
-            actions::set_priority(pid, name.to_string(), None).unwrap();
-        };
-
-        // Start at normal, apply: High and one core.
-        set(NORMAL_PRIORITY_CLASS.0);
-        assert!(step(&mut e, &rows, 0, &RealOps, own));
-        assert_eq!(class_of(pid), HIGH_PRIORITY_CLASS.0, "set to High");
-        assert_eq!(mask_of(pid), 1, "limited to core 0");
-        assert_eq!(e.statuses()[0].state, "applied");
-        println!("scratch pid {pid}: applied -> High, core mask 1");
-
-        // Something changes the cores back: re-applied (1st revert).
-        let h = actions::open_process(pid, windows::Win32::System::Threading::PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION).unwrap();
-        unsafe { windows::Win32::System::Threading::SetProcessAffinityMask(h.0, system as usize) }.unwrap();
-        drop(h);
-        assert_ne!(mask_of(pid), 1);
-        step(&mut e, &rows, 10_000, &RealOps, own);
-        assert_eq!(mask_of(pid), 1, "affinity re-applied");
-        // Something changes the priority back: re-applied (2nd revert).
-        set(BELOW_NORMAL_PRIORITY_CLASS.0);
-        step(&mut e, &rows, 20_000, &RealOps, own);
-        assert_eq!(class_of(pid), HIGH_PRIORITY_CLASS.0, "priority re-applied");
-        assert_eq!(e.statuses()[0].state, "applied");
-
-        // 3rd revert inside a minute: Orbit stops and leaves it alone.
-        set(IDLE_PRIORITY_CLASS.0);
-        step(&mut e, &rows, 30_000, &RealOps, own);
-        assert_eq!(class_of(pid), IDLE_PRIORITY_CLASS.0, "not set a third time");
-        assert_eq!(e.statuses()[0].state, "gaveUp");
-        assert_eq!(e.statuses()[0].reason.as_deref(), Some(CHANGED_BACK));
-        set(ABOVE_NORMAL_PRIORITY_CLASS.0);
-        step(&mut e, &rows, 40_000, &RealOps, own);
-        assert_eq!(class_of(pid), ABOVE_NORMAL_PRIORITY_CLASS.0, "no fight after giving up");
-        println!("scratch pid {pid}: log = {:?}", e.log.iter().map(|l| (&l.kind, &l.text)).collect::<Vec<_>>());
-    }
-}
+mod tests;
