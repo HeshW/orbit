@@ -98,12 +98,17 @@ export function badgeOf(s) {
 const fileName = (p) => String(p || '').trim().replace(/^"|"$/g, '').split(/[\\/]/).pop();
 const normPath = (p) => String(p || '').trim().replace(/^"|"$/g, '').replace(/\//g, '\\').toLowerCase().replace(/^\\\\\?\\/, '');
 
-/** The existing rule that covers a process row, if any (a path rule first). */
+/**
+ * The existing rule that covers a process row, if any: an enabled one first (a path rule
+ * before a name rule), else one that is switched off, so the dialog edits it instead of
+ * trying to add a second rule for the same app.
+ */
 export function ruleForRow(rules, row) {
-  const hit = (r) => r.enabled !== false && (r.match.kind === 'path'
+  const hit = (r) => (r.match.kind === 'path'
     ? !!row.exe && normPath(row.exe) === normPath(r.match.value)
     : r.match.value.toLowerCase() === row.name.toLowerCase());
-  return rules.find((r) => r.match.kind === 'path' && hit(r)) || rules.find((r) => r.match.kind === 'name' && hit(r)) || null;
+  const pick = (list) => list.find((r) => r.match.kind === 'path' && hit(r)) || list.find((r) => r.match.kind === 'name' && hit(r));
+  return pick(rules.filter((r) => r.enabled !== false)) || pick(rules) || null;
 }
 
 /** The rule for an exe name (Boost's game list): a name rule, or a path rule for that file. */

@@ -41,8 +41,10 @@ behind?, boostOnly, enabled }`
   goes back to Normal priority and every core ("Boost ended. Put back to ...").
 - At least one of priority, affinity and efficiency. One rule per app (same kind and value).
 - Stored in `rules.json` in `<app local data>\rules` (`{ rulesEnabled, rules }`). Debug builds
-  only: `ORBIT_RULES_DIR` overrides the folder. Bad or refused entries in the file are dropped
-  on load; a 0.9 part 1 file (without the new fields) loads as it was.
+  only: `ORBIT_RULES_DIR` overrides the folder. Each rule is read on its own: a bad or refused
+  entry is dropped on load and the rest are kept; a file that isn't JSON is moved to
+  `rules.bad.json` rather than overwritten. A 0.9 part 1 file (without the new fields) loads as
+  it was.
 
 ## How it applies (no WMI, no ETW, no polling)
 
@@ -53,12 +55,17 @@ The sampler calls `rules::on_snapshot` after each tick, the same list Boost read
    so it costs two hash lookups on later ticks (the set is pruned when it outgrows the process
    list). The guard list is only consulted for rows that match a rule. Saving, switching or
    deleting a rule clears what was learned, so the running processes are compared again at
-   once: a new rule applies to the running app right away. Boost turning on or off does the same.
+   once: a new rule applies to the running app right away. A process whose own rule did not
+   change keeps its state (one Orbit gave up on stays given up; a blocked one is not retried).
+   Boost turning on or off does the same, and a process whose winning rule changed (a Boost-only
+   path rule over a name rule) moves to the new one.
 2. **Paused or slow updates**: the sampler's interval can be 0.25 to 10 s, and Pause stops it.
    While an enabled rule exists and no full sample is due within a second, the sampler calls
    `rules::light_tick` about once a second instead: one Toolhelp snapshot, and only pids not
-   seen before are opened (start time and path). The start time is the same conversion sysinfo
-   uses, so a process keeps its key when updates resume (unit tested against sysinfo).
+   seen before are opened (start time and path); one that can't be opened is remembered, not
+   retried every second. The start time is the same conversion sysinfo uses, so a process keeps
+   its key when updates resume (unit tested against sysinfo). Making or changing a rule wakes the
+   sampler, so a paused one starts these ticks at once.
 3. **Kept applied**: each tick, for processes that hold a rule only, one handle reads the
    priority class, the affinity mask and (efficiency rules) the power throttling state. Orbit
    remembers what it set last. If the process differs from that, something else changed it:
@@ -67,7 +74,8 @@ The sampler calls `rules::on_snapshot` after each tick, the same list Boost read
    of that run ("Kept being changed back by something else."). The first two are re-applied.
    A new run of the app (new start time) gets the rule again. Orbit's own changes (the window
    moving, Boost ending) never count, because only a difference from what Orbit set last is a
-   revert.
+   revert. A process Boost has lowered or paused is Boost's while Boost is on (`boost::touched`):
+   the rule neither fights it nor counts it, and Boost puts it back when it turns off.
 5. **In front**: one thread holds an out-of-context `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)`
    and sleeps in `GetMessageW`; it wakes only when the window in front changes. Every process of
    the rule that owns the front window counts as in front (an app can have several). The
@@ -94,10 +102,13 @@ services, winlogon, svchost, dwm, fontdrvhost, System, Registry, Memory Compress
 anything under `%SystemRoot%` (checked on the running process's path too, so a name rule for
 notepad.exe never touches Windows' own copy), rows grouped as Windows, Windows Security
 (MsMpEng, NisSrv, MpDefenderCoreService, SecurityHealthService, Sense, and anything in a Windows
-Defender folder), and anti-cheat (vgc.exe, vgtray.exe, `vgk*`, `EasyAntiCheat*`, `EAC_*`,
+Defender folder or the Windows Security app's package), and anti-cheat (vgc.exe, vgtray.exe, `vgk*`, `EasyAntiCheat*`, `EAC_*`,
 `BEService*`, `BEDaisy*`, `BattlEye*`, `EAAntiCheat*`, `EQU8*`, `xigncode*`, `gameguard*`,
 `npgg*`, `faceit*`, `PnkBstr*`, `SGuard*`, `ACE-*`, `mhyprot*`). The create command returns the
-plain reason (see `rules::refusal`).
+plain reason (see `rules::refusal`). A **name** rule for an exe Windows ships (one in
+%SystemRoot%, System32 or SysWOW64, like cmd.exe or explorer.exe) is refused too
+(`rules::rule_refusal`), since it could only ever meet Windows' copy; a path rule for someone
+else's copy elsewhere is fine.
 
 This feature never writes Image File Execution Options (the "apply even without Orbit" idea,
 11c, was declined) and installs no driver.
@@ -111,11 +122,14 @@ This feature never writes Image File Execution Options (the "apply even without 
   collapsible **Log** (last 200 lines: applied, blocked, changed back, put back).
 - **Reset** (per rule, with a confirmation): the running app goes back to Normal priority, every
   core and efficiency mode off (only what the rule sets), and the rule switches off so Orbit
-  doesn't apply it again. Delete leaves a running app as it is.
+  doesn't apply it again. It reads a fresh process list (the sampler's may be old while paused)
+  and only touches processes this rule holds; one another rule wins keeps that rule's values.
+  Delete leaves a running app as it is.
 - **Processes right-click > "Always use this priority..."** (single processes and app
   groups): the same dialog, filled in for that exe (name or this file only, priority without
   Realtime, only while in front, efficiency mode on Windows 11, processors, only while Boost
-  is on). If a rule already covers the process, it opens that rule to edit.
+  is on). If a rule already covers the process, it opens that rule to edit (a switched-off
+  one too).
 - **Boost**: each game in Boost's list has a rule button. "Add rule" opens the dialog for that
   game with "Only while Boost is on" ticked; a game that has a rule shows "Rule" (tooltip: what
   it sets) and opens it.
@@ -160,6 +174,6 @@ on Windows 11 (the leaf in Task Manager).
 
 ## Notes
 
-- Boost and rules both change priority. A rule does not know about Boost's app list: if Boost
-  lowers an app a rule raised, the rule puts it back (one revert counts toward the 3).
+- Boost and rules both change priority. While Boost holds an app it lowered or paused, a rule for
+  that app waits; when Boost turns off and puts it back, the rule carries on.
 - The master switch off stops applying rules; it does not put apps back (use Reset per rule).

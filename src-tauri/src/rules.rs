@@ -51,7 +51,7 @@ use windows::Win32::System::Threading::{
     GetCurrentProcess, GetPriorityClass, GetProcessInformation, ProcessPowerThrottling,
     SetProcessInformation, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
     PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
+    PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
 };
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -61,11 +61,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::actions::{self, ACCESS_DENIED, EXITED};
 use crate::model::{ProcessKind, ProcessRow, Snapshot};
-use crate::sampler::AppState;
 
 /// Sent when a process's rule status changes (applied, failed, stopped, gone).
 pub const RULES_EVENT: &str = "orbit://rules";
 const FILE_NAME: &str = "rules.json";
+const BAD_FILE_NAME: &str = "rules.bad.json";
 const MAX_RULES: usize = 200;
 const MAX_LOG: usize = 200;
 /// Reverts within this window make Orbit stop for that process.
@@ -257,10 +257,11 @@ const WINDOWS_NAMES: &[&str] = &[
 ];
 const DEFENDER_NAMES: &[&str] = &[
     "msmpeng.exe", "nissrv.exe", "mpdefendercoreservice.exe", "mpcmdrun.exe", "mssense.exe",
-    "sensecncproxy.exe", "securityhealthservice.exe", "securityhealthsystray.exe",
+    "sensecncproxy.exe", "securityhealthservice.exe", "securityhealthsystray.exe", "sechealthui.exe",
 ];
-/// Folders of Windows Security outside %SystemRoot% (Defender's platform updates).
-const DEFENDER_DIRS: &[&str] = &[r"\windows defender\", r"\windows defender advanced threat protection\"];
+/// Folders of Windows Security outside %SystemRoot% (Defender's platform updates,
+/// the Windows Security app's package).
+const DEFENDER_DIRS: &[&str] = &[r"\windows defender\", r"\windows defender advanced threat protection\", r"\microsoft.sechealthui_"];
 const ANTICHEAT_NAMES: &[&str] = &["vgc.exe", "vgtray.exe"];
 /// Exe name prefix and the product, for the refusal and the "blocked" message.
 const ANTICHEAT_PREFIXES: &[(&str, &str)] = &[
@@ -334,6 +335,20 @@ pub fn refusal(value: &str) -> Option<&'static str> {
     None
 }
 
+/// True when Windows itself ships an exe of this name (in %SystemRoot%,
+/// System32 or SysWOW64). A name rule for it would only ever meet Windows'
+/// copy, so it is refused up front. Only called when a rule is made or checked.
+fn windows_ships(name: &str) -> bool {
+    let name = file_name(name);
+    !name.is_empty() && ["", "system32\\", "syswow64\\"].iter().any(|d| Path::new(&format!("{}{d}{name}", system_root())).is_file())
+}
+
+/// The refusal for a rule target: `refusal`, plus exe names Windows ships
+/// for name rules.
+pub fn rule_refusal(kind: &str, value: &str) -> Option<&'static str> {
+    refusal(value).or_else(|| (kind == "name" && windows_ships(value)).then_some(WHY_WINDOWS))
+}
+
 /// A refusal for a running process: its path when known, else its name.
 fn row_refused(row: &ProcessRow) -> bool {
     refusal(&row.name).is_some() || row.exe.as_deref().is_some_and(|p| refusal(p).is_some())
@@ -371,13 +386,17 @@ fn active(rule: &Rule, boost_on: bool) -> bool {
 
 /// The rule for a process: a path rule beats a name rule; otherwise the first.
 fn find_rule<'a>(rules: &'a [Rule], row: &ProcessRow, boost_on: bool) -> Option<&'a Rule> {
-    let exe = row.exe.as_deref().map(actions::normalize_path);
+    find_rule_for(rules, &row.name, row.exe.as_deref(), boost_on)
+}
+
+fn find_rule_for<'a>(rules: &'a [Rule], name: &str, exe: Option<&str>, boost_on: bool) -> Option<&'a Rule> {
+    let exe = exe.map(actions::normalize_path);
     let hit = |r: &&Rule| {
         active(r, boost_on)
             && if r.matcher.kind == "path" {
                 exe.as_deref().is_some_and(|e| e == actions::normalize_path(&r.matcher.value))
             } else {
-                row.name.trim().eq_ignore_ascii_case(r.matcher.value.trim())
+                name.trim().eq_ignore_ascii_case(r.matcher.value.trim())
             }
     };
     rules.iter().filter(|r| r.matcher.kind == "path").find(hit).or_else(|| rules.iter().filter(|r| r.matcher.kind == "name").find(hit))
@@ -420,7 +439,7 @@ pub fn validate(input: &Rule, others: &[Rule], system_mask: u64, eco: bool) -> R
             return Err("Use the full path, like C:\\Games\\game.exe.".into());
         }
     }
-    if let Some(why) = refusal(&value) {
+    if let Some(why) = rule_refusal(kind, &value) {
         return Err(why.into());
     }
     let mut priority = clean_priority(input.priority.as_deref(), &PRIORITIES)?;
@@ -656,6 +675,7 @@ enum State {
 struct Tracked {
     rule_id: String,
     name: String,
+    exe: Option<String>,
     state: State,
     summary: String,
     reason: Option<String>,
@@ -667,11 +687,29 @@ struct Tracked {
     last: Want,
 }
 
-/// A process seen by `light_tick`: name, start time (Unix s) and path.
+/// A process seen by `light_tick`: name, parent, start time (Unix s) and
+/// path. `ok` is false when it could not be opened (not tried again while
+/// the pid, name and parent stay the same).
 struct LightProc {
     name: String,
+    parent: u32,
     start: u64,
     exe: Option<String>,
+    ok: bool,
+}
+
+/// What Boost is doing this tick: on or off, and the processes it changed
+/// (left alone by the rules while Boost holds them).
+#[derive(Clone, Debug, Default)]
+pub struct BoostNow {
+    pub on: bool,
+    pub touched: HashSet<Key>,
+}
+
+impl BoostNow {
+    fn current() -> Self {
+        Self { on: crate::boost::is_active(), touched: crate::boost::touched() }
+    }
 }
 
 pub struct Engine {
@@ -732,8 +770,24 @@ impl Engine {
             Some(Failure { at: now, reason: reason.to_string(), needs_admin });
     }
 
-    /// Forgets what was learned about processes, so the next tick compares
-    /// every running process with the rules again.
+    /// After the rules changed (or Boost turned on or off): forget which
+    /// processes had no rule, so every one is compared again, and drop the
+    /// tracked processes whose rule changed or no longer wins. A process whose
+    /// rule is unchanged keeps its state: one Orbit gave up on stays given up.
+    fn retrack(&mut self, before: &[Rule]) -> bool {
+        self.checked.clear();
+        let n = self.tracked.len();
+        let rules = &self.rules;
+        let boost = self.boost_seen;
+        self.tracked.retain(|_, t| {
+            let unchanged = before.iter().find(|r| r.id == t.rule_id) == rules.iter().find(|r| r.id == t.rule_id);
+            unchanged && find_rule_for(rules, &t.name, t.exe.as_deref(), boost).is_some_and(|w| w.id == t.rule_id)
+        });
+        n != self.tracked.len()
+    }
+
+    /// Forgets everything learned about processes (tests).
+    #[cfg(test)]
     fn reset_tracking(&mut self) -> bool {
         self.checked.clear();
         let had = !self.tracked.is_empty();
@@ -874,7 +928,8 @@ fn front_note(rule: &Rule, front: bool) -> &'static str {
 
 /// One tick: new processes get their rule, tracked ones are re-checked.
 /// Returns true when a status changed (so the UI should hear about it).
-pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pid: u32, boost_on: bool) -> bool {
+pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pid: u32, boost: &BoostNow) -> bool {
+    let boost_on = boost.on;
     if !e.enabled || !e.rules.iter().any(|r| r.enabled) {
         e.checked.clear();
         e.boost_seen = boost_on;
@@ -883,11 +938,8 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
         return had;
     }
     let mut changed = false;
-    if boost_on != e.boost_seen {
-        // Boost-only rules start or stop: compare everything again.
-        e.boost_seen = boost_on;
-        e.checked.clear();
-    }
+    let boost_flipped = boost_on != e.boost_seen;
+    e.boost_seen = boost_on;
 
     // Processes that ended.
     if !e.tracked.is_empty() || e.checked.len() > rows.len() + 64 {
@@ -908,9 +960,9 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
         .map(|(k, _)| *k)
         .collect();
     for key in released {
+        // Not put in `checked`: below, the process gets whichever rule is in force now.
         let t = e.tracked.remove(&key).expect("tracked");
         changed = true;
-        e.checked.insert(key);
         let Some(rule) = e.rules.iter().find(|r| r.id == t.rule_id).cloned() else { continue };
         if t.state != State::Applied || !rule.enabled || !rule.boost_only {
             continue;
@@ -926,11 +978,19 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
         }
     }
 
+    if boost_flipped {
+        // Boost-only rules start or stop: compare everything again, and a
+        // process whose winning rule changed gets the new one.
+        let rules = e.rules.clone();
+        changed |= e.retrack(&rules);
+    }
+
     // New processes. Most have no rule: two hash lookups and a name compare.
     let mut anticheat: Option<Option<&'static str>> = None;
     for row in rows {
         let key = (row.pid, row.start_time);
-        if e.tracked.contains_key(&key) || e.checked.contains(&key) {
+        if e.tracked.contains_key(&key) || e.checked.contains(&key) || boost.touched.contains(&key) {
+            // Boost holds it for now; it is compared again once Boost lets go.
             continue;
         }
         if row.pid <= 4 || row.pid == own_pid || row.kind == ProcessKind::Windows {
@@ -953,7 +1013,7 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
                 let text = if did { format!("Set to {}.", want_text(&want)) } else { format!("Already set to {}.", want_text(&want)) };
                 e.push_log(app_log("applied", &rule.id, &row.name, row.pid, now, format!("{text}{}", front_note(&rule, front)), false));
                 e.applied(&rule.id, now);
-                e.tracked.insert(key, Tracked { rule_id: rule.id, name: row.name.clone(), state: State::Applied, summary: sum, reason: None, needs_admin: false, at: now, reverts: Vec::new(), last: want });
+                e.tracked.insert(key, Tracked { rule_id: rule.id, name: row.name.clone(), exe: row.exe.clone(), state: State::Applied, summary: sum, reason: None, needs_admin: false, at: now, reverts: Vec::new(), last: want });
                 changed = true;
             }
             Err(err) => {
@@ -965,7 +1025,7 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
                     Some((reason, needs_admin)) => {
                         e.push_log(app_log("blocked", &rule.id, &row.name, row.pid, now, reason.clone(), needs_admin));
                         e.failed(&rule.id, now, &reason, needs_admin);
-                        e.tracked.insert(key, Tracked { rule_id: rule.id, name: row.name.clone(), state: State::Failed, summary: sum, reason: Some(reason), needs_admin, at: now, reverts: Vec::new(), last: want });
+                        e.tracked.insert(key, Tracked { rule_id: rule.id, name: row.name.clone(), exe: row.exe.clone(), state: State::Failed, summary: sum, reason: Some(reason), needs_admin, at: now, reverts: Vec::new(), last: want });
                         changed = true;
                     }
                 }
@@ -974,7 +1034,8 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
     }
 
     // Re-check the ones that hold a rule.
-    let keys: Vec<Key> = e.tracked.iter().filter(|(_, t)| t.state == State::Applied).map(|(k, _)| *k).collect();
+    // A process Boost changed is Boost's until it turns off (and puts it back).
+    let keys: Vec<Key> = e.tracked.iter().filter(|(k, t)| t.state == State::Applied && !boost.touched.contains(k)).map(|(k, _)| *k).collect();
     for key in keys {
         let Some(rule) = e.tracked.get(&key).and_then(|t| e.rules.iter().find(|r| r.id == t.rule_id)).cloned() else { continue };
         let front = e.is_front(key, &rule.id);
@@ -1047,7 +1108,7 @@ pub fn step(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &dyn Ops, own_pi
 /// rules that just moved to the front or the back get their priority now,
 /// without waiting for the next tick. Not a revert. Returns true when a
 /// status changed.
-pub fn front_changed(e: &mut Engine, pid: u32, now: u64, ops: &dyn Ops) -> bool {
+pub fn front_changed(e: &mut Engine, pid: u32, now: u64, ops: &dyn Ops, boost_held: &HashSet<Key>) -> bool {
     if pid == e.foreground {
         return false;
     }
@@ -1063,6 +1124,7 @@ pub fn front_changed(e: &mut Engine, pid: u32, now: u64, ops: &dyn Ops) -> bool 
         .iter()
         .filter(|(k, t)| {
             t.state == State::Applied
+                && !boost_held.contains(k)
                 && (k.0 == old_pid || k.0 == pid || Some(&t.rule_id) == old_rule.as_ref() || Some(&t.rule_id) == new_rule.as_ref())
         })
         .map(|(k, _)| *k)
@@ -1112,10 +1174,15 @@ pub fn reset_rule(e: &mut Engine, id: &str, rows: &[ProcessRow], now: u64, ops: 
     };
     let rule = e.rules[pos].clone();
     let back = reset_want(&rule, e.system_mask);
+    // Only the processes this rule holds (or would hold, when it is off):
+    // another rule that wins for a process keeps it.
+    let mut probe = e.rules.clone();
+    probe[pos].enabled = true;
+    probe[pos].boost_only = false;
     let mut done = 0;
     let mut problems = Vec::new();
-    for row in rows.iter().filter(|r| r.pid > 4 && r.pid != own_pid && r.kind != ProcessKind::Windows && rule_matches(&rule, &r.name, r.exe.as_deref())) {
-        if row_refused(row) {
+    for row in rows.iter().filter(|r| r.pid > 4 && r.pid != own_pid && r.kind != ProcessKind::Windows) {
+        if find_rule(&probe, row, e.boost_seen).is_none_or(|w| w.id != rule.id) || row_refused(row) {
             continue;
         }
         match apply(&back, row.pid, row.start_time, ops) {
@@ -1200,7 +1267,12 @@ impl Ops for RealOps {
     }
 
     fn read(&self, pid: u32, start: u64, eco: bool) -> Result<Current, String> {
-        let h = Self::open(pid, start, PROCESS_QUERY_LIMITED_INFORMATION)?;
+        // Reading power throttling may need full query rights; fall back to limited.
+        let h = match eco {
+            true => Self::open(pid, start, PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION)
+                .or_else(|_| Self::open(pid, start, PROCESS_QUERY_LIMITED_INFORMATION))?,
+            false => Self::open(pid, start, PROCESS_QUERY_LIMITED_INFORMATION)?,
+        };
         let class = unsafe { GetPriorityClass(h.0) };
         if class == 0 {
             let err = windows::core::Error::from_win32();
@@ -1272,8 +1344,7 @@ fn is_windows_11() -> bool {
 // Files
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize, Default)]
-#[serde(default)]
+#[derive(Serialize)]
 struct Stored {
     #[serde(rename = "rulesEnabled")]
     rules_enabled: Option<bool>,
@@ -1296,22 +1367,37 @@ fn rules_dir(local_data: Option<PathBuf>) -> Option<PathBuf> {
     local_data.map(|d| d.join("rules"))
 }
 
-/// Reads the rules file, dropping anything that is no longer valid.
+/// Reads the rules file, dropping anything that is no longer valid. Each rule
+/// is read on its own, so one bad value loses that rule only. A file that
+/// isn't JSON at all is kept as `rules.bad.json` instead of being overwritten.
 fn load(dir: &Path, system_mask: u64, eco: bool) -> (bool, Vec<Rule>) {
-    let stored: Stored = fs::read(dir.join(FILE_NAME)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let path = dir.join(FILE_NAME);
+    let Ok(bytes) = fs::read(&path) else {
+        return (true, Vec::new());
+    };
+    let value: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = fs::rename(&path, dir.join(BAD_FILE_NAME));
+            return (true, Vec::new());
+        }
+    };
+    let enabled = value.get("rulesEnabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
+    let list = value.get("rules").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
     let mut rules: Vec<Rule> = Vec::new();
-    for r in &stored.rules {
+    for item in list {
+        let Ok(r) = serde_json::from_value::<Rule>(item) else { continue };
         if r.id.is_empty() || rules.iter().any(|o| o.id == r.id) {
             continue;
         }
-        if let Ok(clean) = validate(r, &rules, system_mask, eco) {
+        if let Ok(clean) = validate(&r, &rules, system_mask, eco) {
             rules.push(clean);
         }
         if rules.len() == MAX_RULES {
             break;
         }
     }
-    (stored.rules_enabled.unwrap_or(true), rules)
+    (enabled, rules)
 }
 
 fn save(e: &Engine) -> Result<(), String> {
@@ -1370,9 +1456,11 @@ fn emit_status(app: &AppHandle) {
 }
 
 fn on_rows(app: &AppHandle, rows: &[ProcessRow]) {
+    // Read before taking the rules lock: the two locks are never held together.
+    let boost = BoostNow::current();
     let changed = {
         let mut e = engine();
-        e.initialized && step(&mut e, rows, now_ms(), &RealOps, std::process::id(), crate::boost::is_active())
+        e.initialized && step(&mut e, rows, now_ms(), &RealOps, std::process::id(), &boost)
     };
     if changed {
         emit_status(app);
@@ -1390,32 +1478,42 @@ pub fn wants_ticks() -> bool {
 }
 
 /// A tick without a full sample (the sampler is paused or slower than a
-/// second): one Toolhelp snapshot, and only processes not seen before are
-/// opened for their start time and path.
+/// second): see `fresh_rows`.
 pub fn light_tick(app: &AppHandle) {
-    let Ok(entries) = actions::snapshot_processes() else { return };
-    let rows: Vec<ProcessRow> = {
-        let mut e = engine();
-        let live: HashSet<u32> = entries.iter().map(|p| p.pid).collect();
-        e.light.retain(|pid, _| live.contains(pid));
-        let mut rows = Vec::with_capacity(entries.len());
-        for p in entries {
-            if p.pid <= 4 {
-                continue;
+    let rows = fresh_rows(&mut engine());
+    on_rows(app, &rows);
+}
+
+/// The running processes from one Toolhelp snapshot. Only processes not
+/// seen before (a new pid, or the same pid with another name or parent) are
+/// opened for their start time and path; one that can't be opened is
+/// remembered and left out, not tried every second.
+fn fresh_rows(e: &mut Engine) -> Vec<ProcessRow> {
+    let Ok(entries) = actions::snapshot_processes() else { return Vec::new() };
+    let live: HashSet<u32> = entries.iter().map(|p| p.pid).collect();
+    e.light.retain(|pid, _| live.contains(pid));
+    let mut rows = Vec::with_capacity(entries.len());
+    for p in entries {
+        if p.pid <= 4 {
+            continue;
+        }
+        if e.light.get(&p.pid).is_none_or(|l| l.name != p.name || l.parent != p.parent) {
+            let mut l = LightProc { name: p.name.clone(), parent: p.parent, start: 0, exe: None, ok: false };
+            if let Ok(h) = actions::open_process(p.pid, PROCESS_QUERY_LIMITED_INFORMATION) {
+                if let Some(created) = actions::handle_creation_filetime(h.0) {
+                    l.start = actions::filetime_to_unix(created);
+                    l.exe = actions::image_path(h.0);
+                    l.ok = true;
+                }
             }
-            let fresh = e.light.get(&p.pid).is_none_or(|l| l.name != p.name);
-            if fresh {
-                let Ok(h) = actions::open_process(p.pid, PROCESS_QUERY_LIMITED_INFORMATION) else { continue };
-                let Some(created) = actions::handle_creation_filetime(h.0) else { continue };
-                let exe = actions::image_path(h.0);
-                e.light.insert(p.pid, LightProc { name: p.name.clone(), start: actions::filetime_to_unix(created), exe });
-            }
-            let l = &e.light[&p.pid];
+            e.light.insert(p.pid, l);
+        }
+        let l = &e.light[&p.pid];
+        if l.ok {
             rows.push(light_row(p.pid, l));
         }
-        rows
-    };
-    on_rows(app, &rows);
+    }
+    rows
 }
 
 fn light_row(pid: u32, l: &LightProc) -> ProcessRow {
@@ -1443,12 +1541,18 @@ fn light_row(pid: u32, l: &LightProc) -> ProcessRow {
     }
 }
 
-/// After the rules changed: compare the running processes again right away.
-fn reevaluate(app: &AppHandle) {
-    if let Some(snap) = app.state::<AppState>().latest_snapshot() {
-        on_snapshot(app, &snap);
-    }
-    emit_status(app);
+/// After the rules changed: compare the running processes again right away
+/// (a fresh list, so a paused sampler's old snapshot doesn't hide new apps),
+/// and wake the sampler so a paused one starts its light ticks.
+async fn reevaluate(app: &AppHandle) {
+    let app2 = app.clone();
+    let _ = blocking(move || {
+        let rows = fresh_rows(&mut engine());
+        on_rows(&app2, &rows);
+        emit_status(&app2);
+    })
+    .await;
+    crate::sampler::wake(app);
 }
 
 fn window_pid(hwnd: HWND) -> u32 {
@@ -1462,9 +1566,10 @@ fn window_pid(hwnd: HWND) -> u32 {
 
 fn on_front(hwnd: HWND) {
     let pid = window_pid(hwnd);
+    let held = crate::boost::touched();
     let changed = {
         let mut e = engine();
-        e.initialized && front_changed(&mut e, pid, now_ms(), &RealOps)
+        e.initialized && front_changed(&mut e, pid, now_ms(), &RealOps, &held)
     };
     if changed {
         if let Some(app) = APP.get() {
@@ -1532,7 +1637,8 @@ pub async fn rules_list() -> Result<RulesState, String> {
 /// The refusal reason for an app, or `None` when a rule may name it.
 #[tauri::command]
 pub fn rules_check(value: String) -> Option<String> {
-    refusal(&value).map(str::to_string)
+    let kind = if value.contains(['\\', '/']) { "path" } else { "name" };
+    rule_refusal(kind, &value).map(str::to_string)
 }
 
 #[tauri::command]
@@ -1544,17 +1650,18 @@ pub async fn rules_create(app: AppHandle, rule: Rule) -> Result<RuleView, String
         }
         let mut clean = validate(&rule, &e.rules, e.system_mask, e.eco_supported)?;
         clean.id = e.new_id(now_ms());
+        let before = e.rules.clone();
         e.rules.push(clean.clone());
         if let Err(err) = save(&e) {
             e.rules.pop();
             e.publish();
             return Err(format!("Could not save the rule: {err}."));
         }
-        e.reset_tracking();
+        e.retrack(&before);
         Ok(RuleView { rule: clean, last_applied: None, last_failed: None, running: 0 })
     })
     .await??;
-    reevaluate(&app);
+    reevaluate(&app).await;
     Ok(view)
 }
 
@@ -1567,18 +1674,19 @@ pub async fn rules_update(app: AppHandle, rule: Rule) -> Result<RuleView, String
         };
         let others: Vec<Rule> = e.rules.iter().filter(|r| r.id != rule.id).cloned().collect();
         let clean = validate(&rule, &others, e.system_mask, e.eco_supported)?;
+        let before = e.rules.clone();
         let old = std::mem::replace(&mut e.rules[pos], clean.clone());
         if let Err(err) = save(&e) {
             e.rules[pos] = old;
             e.publish();
             return Err(format!("Could not save the rule: {err}."));
         }
-        e.reset_tracking();
+        e.retrack(&before);
         let stat = e.stats.get(&clean.id).cloned().unwrap_or_default();
         Ok(RuleView { rule: clean, last_applied: stat.last_applied, last_failed: stat.last_failed, running: 0 })
     })
     .await??;
-    reevaluate(&app);
+    reevaluate(&app).await;
     Ok(view)
 }
 
@@ -1589,6 +1697,7 @@ pub async fn rules_delete(app: AppHandle, id: String) -> Result<(), String> {
         let Some(pos) = e.rules.iter().position(|r| r.id == id) else {
             return Ok(());
         };
+        let before = e.rules.clone();
         let old = e.rules.remove(pos);
         if let Err(err) = save(&e) {
             e.rules.insert(pos, old);
@@ -1596,11 +1705,11 @@ pub async fn rules_delete(app: AppHandle, id: String) -> Result<(), String> {
             return Err(format!("Could not save the change: {err}."));
         }
         e.stats.remove(&id);
-        e.reset_tracking();
+        e.retrack(&before);
         Ok(())
     })
     .await??;
-    reevaluate(&app);
+    reevaluate(&app).await;
     Ok(())
 }
 
@@ -1615,9 +1724,10 @@ pub struct ResetReport {
 /// sets) and switches the rule off.
 #[tauri::command]
 pub async fn rules_reset(app: AppHandle, id: String) -> Result<ResetReport, String> {
-    let rows = app.state::<AppState>().latest_snapshot().map(|s| s.processes).unwrap_or_default();
     let report = blocking(move || -> Result<ResetReport, String> {
         let mut e = engine();
+        // A fresh list: the sampler's snapshot is old while updates are paused.
+        let rows = fresh_rows(&mut e);
         let before = e.rules.clone();
         let (reset, problems) = reset_rule(&mut e, &id, &rows, now_ms(), &RealOps, std::process::id())?;
         if let Err(err) = save(&e) {
@@ -1644,11 +1754,12 @@ pub async fn rules_set_enabled(app: AppHandle, enabled: bool) -> Result<RulesSta
             e.publish();
             return Err(format!("Could not save the change: {err}."));
         }
-        e.reset_tracking();
+        let rules = e.rules.clone();
+        e.retrack(&rules);
         Ok(state_of(&e))
     })
     .await??;
-    reevaluate(&app);
+    reevaluate(&app).await;
     Ok(state)
 }
 
@@ -1692,12 +1803,12 @@ pub async fn rules_import(app: AppHandle, backup: RulesBackup, apply: bool) -> R
             e.publish();
             return Err(format!("Could not save the rules: {err}."));
         }
-        e.reset_tracking();
+        e.retrack(&old_rules);
         Ok(report)
     })
     .await??;
     if apply {
-        reevaluate(&app);
+        reevaluate(&app).await;
     }
     Ok(report)
 }

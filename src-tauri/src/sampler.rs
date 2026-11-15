@@ -230,6 +230,12 @@ pub fn set_sampling(
     state.control.wake();
 }
 
+/// Wakes the sampler loop now, for example so per-app rules start their
+/// light ticks right away while updates are paused (v0.9).
+pub fn wake(app: &AppHandle) {
+    app.state::<AppState>().control.wake();
+}
+
 /// True if Orbit runs elevated.
 fn is_admin() -> bool {
     // SAFETY: IsUserAnAdmin takes no arguments and only inspects the

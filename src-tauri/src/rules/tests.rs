@@ -117,7 +117,15 @@ fn engine_with(rules: Vec<Rule>, admin: bool) -> Engine {
 }
 
 fn tick(e: &mut Engine, rows: &[ProcessRow], now: u64, ops: &Fake) -> bool {
-    step(e, rows, now, ops, ME, false)
+    step(e, rows, now, ops, ME, &BoostNow::default())
+}
+
+fn boost(on: bool) -> BoostNow {
+    BoostNow { on, touched: HashSet::new() }
+}
+
+fn front(e: &mut Engine, pid: u32, now: u64, ops: &dyn Ops) -> bool {
+    front_changed(e, pid, now, ops, &HashSet::new())
 }
 
 // ---- matching
@@ -251,6 +259,13 @@ fn the_guard_list_refuses_system_security_and_anti_cheat() {
     assert_eq!(validate(&rule("", "name", "csrss.exe", Some("high"), None), &[], ALL, true).unwrap_err(), WHY_WINDOWS);
     assert_eq!(validate(&rule("", "name", "vgc.exe", Some("high"), None), &[], ALL, true).unwrap_err(), WHY_ANTICHEAT);
     assert_eq!(anticheat_product("vgc.exe"), Some("Riot Vanguard"));
+    assert_eq!(refusal("SecHealthUI.exe"), Some(WHY_DEFENDER));
+    assert_eq!(refusal(r"C:\Program Files\WindowsApps\Microsoft.SecHealthUI_1000.0_x64__8wekyb3d8bbwe\SecHealthUI.exe"), Some(WHY_DEFENDER));
+    // A name rule for an exe Windows ships only ever meets Windows' copy: refused up front.
+    assert_eq!(rule_refusal("name", "cmd.exe"), Some(WHY_WINDOWS));
+    assert_eq!(rules_check("cmd.exe".into()).as_deref(), Some(WHY_WINDOWS));
+    assert_eq!(validate(&rule("", "name", "CMD.EXE", Some("high"), None), &[], ALL, true).unwrap_err(), WHY_WINDOWS);
+    assert!(validate(&rule("", "path", r"D:\Tools\cmd.exe", Some("high"), None), &[], ALL, true).is_ok(), "someone else's cmd.exe by path is fine");
     assert_eq!(anticheat_product("BEService.exe"), Some("BattlEye"));
 }
 
@@ -483,11 +498,11 @@ fn in_front_switches_with_the_window_and_is_not_a_revert() {
     assert!(e.log.back().unwrap().text.contains("behind"));
 
     // The game's window comes to the front: both its processes go High now.
-    front_changed(&mut e, 10, 1_000, &ops);
+    front(&mut e, 10, 1_000, &ops);
     assert_eq!((ops.p(10), ops.p(11)), ("high".into(), "high".into()));
     // Back to the chat app, then to the game again, many times: never "changed back".
     for i in 0..6u64 {
-        front_changed(&mut e, if i % 2 == 0 { 30 } else { 11 }, 2_000 + i, &ops);
+        front(&mut e, if i % 2 == 0 { 30 } else { 11 }, 2_000 + i, &ops);
         assert!(!tick(&mut e, &rows, 2_000 + i, &ops));
     }
     assert_eq!(ops.p(10), "high", "game in front");
@@ -524,17 +539,106 @@ fn boost_only_rules_apply_while_boost_is_on_and_put_back_after() {
     let mut e = engine_with(vec![Rule { boost_only: true, ..rule("b", "name", "game.exe", Some("high"), Some("3")) }], true);
     let ops = Fake::with(&[10], "normal");
     let rows = vec![row(10, "game.exe", None)];
-    step(&mut e, &rows, 0, &ops, ME, false);
+    step(&mut e, &rows, 0, &ops, ME, &boost(false));
     assert_eq!(ops.p(10), "normal", "Boost off: not applied");
-    assert!(step(&mut e, &rows, 1_000, &ops, ME, true), "Boost on: same tick");
+    assert!(step(&mut e, &rows, 1_000, &ops, ME, &boost(true)), "Boost on: same tick");
     assert_eq!((ops.p(10), ops.mask.borrow()[&10]), ("high".into(), 3));
-    assert!(step(&mut e, &rows, 2_000, &ops, ME, false));
+    assert!(step(&mut e, &rows, 2_000, &ops, ME, &boost(false)));
     assert_eq!((ops.p(10), ops.mask.borrow()[&10]), ("normal".into(), ALL), "put back");
     let last = e.log.back().unwrap();
     assert_eq!((last.kind.as_str(), last.text.as_str()), ("reset", "Boost ended. Put back to Normal priority and all cores."));
     assert!(e.statuses().is_empty());
     // Boost again: applied again.
-    step(&mut e, &rows, 3_000, &ops, ME, true);
+    step(&mut e, &rows, 3_000, &ops, ME, &boost(true));
+    assert_eq!(ops.p(10), "high");
+}
+
+#[test]
+fn boost_changing_an_app_with_a_rule_is_not_a_revert() {
+    let mut e = engine_with(vec![rule("a", "name", "discord.exe", Some("high"), None)], true);
+    let ops = Fake::with(&[10], "normal");
+    let rows = vec![row(10, "discord.exe", None)];
+    tick(&mut e, &rows, 0, &ops);
+    assert_eq!(ops.p(10), "high");
+    // Boost lowers it (Boost's own list), three times in a minute: the rule waits.
+    let held = BoostNow { on: true, touched: HashSet::from([(10, 1010)]) };
+    for t in [1_000u64, 2_000, 3_000] {
+        ops.prio.borrow_mut().insert(10, "belowNormal".into());
+        step(&mut e, &rows, t, &ops, ME, &held);
+        assert_eq!(ops.p(10), "belowNormal", "Boost keeps it while on");
+        front(&mut e, 10, t, &ops);
+        assert_eq!(ops.p(10), "belowNormal");
+    }
+    // Boost ends and puts it back: nothing counted, nothing to do.
+    ops.prio.borrow_mut().insert(10, "high".into());
+    assert!(!tick(&mut e, &rows, 4_000, &ops));
+    assert!(e.tracked[&(10, 1010)].reverts.is_empty());
+    // A new process Boost holds is not touched until Boost lets go.
+    let mut e = engine_with(vec![rule("a", "name", "discord.exe", Some("high"), None)], true);
+    let ops = Fake::with(&[10], "belowNormal");
+    step(&mut e, &rows, 0, &ops, ME, &held);
+    assert_eq!(ops.p(10), "belowNormal");
+    tick(&mut e, &rows, 1_000, &ops);
+    assert_eq!(ops.p(10), "high");
+}
+
+#[test]
+fn editing_another_rule_keeps_a_stopped_process_stopped() {
+    let mut e = engine_with(vec![rule("a", "name", "game.exe", Some("high"), None), rule("b", "name", "chat.exe", Some("low"), None)], true);
+    let ops = Fake::with(&[10, 11], "normal");
+    let rows = vec![row(10, "game.exe", None), row(11, "chat.exe", None)];
+    tick(&mut e, &rows, 0, &ops);
+    for t in [1_000u64, 2_000, 3_000] {
+        ops.prio.borrow_mut().insert(10, "normal".into());
+        tick(&mut e, &rows, t, &ops);
+    }
+    assert_eq!(e.tracked[&(10, 1010)].state, State::GaveUp);
+    // Edit the chat rule: game.exe stays given up, chat.exe gets its new value.
+    let before = e.rules.clone();
+    e.rules[1].priority = Some("belowNormal".into());
+    e.retrack(&before);
+    tick(&mut e, &rows, 4_000, &ops);
+    assert_eq!(e.tracked[&(10, 1010)].state, State::GaveUp);
+    assert_eq!((ops.p(10), ops.p(11)), ("normal".into(), "belowNormal".into()));
+    // Editing the game's own rule starts over for it.
+    let before = e.rules.clone();
+    e.rules[0].priority = Some("aboveNormal".into());
+    e.retrack(&before);
+    tick(&mut e, &rows, 5_000, &ops);
+    assert_eq!(ops.p(10), "aboveNormal");
+}
+
+#[test]
+fn boost_turning_on_or_off_picks_the_rule_that_wins() {
+    let mut e = engine_with(
+        vec![
+            rule("n", "name", "game.exe", Some("aboveNormal"), None),
+            Rule { boost_only: true, ..rule("p", "path", r"C:\Games\game.exe", Some("high"), None) },
+        ],
+        true,
+    );
+    let ops = Fake::with(&[10], "normal");
+    let rows = vec![row(10, "game.exe", Some(r"C:\Games\game.exe"))];
+    step(&mut e, &rows, 0, &ops, ME, &boost(false));
+    assert_eq!(ops.p(10), "aboveNormal", "name rule while Boost is off");
+    step(&mut e, &rows, 1_000, &ops, ME, &boost(true));
+    assert_eq!(ops.p(10), "high", "the Boost-only path rule wins while Boost is on");
+    step(&mut e, &rows, 2_000, &ops, ME, &boost(false));
+    assert_eq!(ops.p(10), "aboveNormal", "back to the name rule, not left at Normal");
+    assert!(e.tracked.values().all(|t| t.reverts.is_empty()));
+}
+
+#[test]
+fn reset_leaves_processes_another_rule_holds() {
+    let mut e = engine_with(vec![rule("p", "path", r"C:\Games\game.exe", Some("high"), None), rule("n", "name", "game.exe", Some("aboveNormal"), None)], true);
+    let ops = Fake::with(&[10, 11], "normal");
+    let rows = vec![row(10, "game.exe", Some(r"C:\Games\game.exe")), row(11, "game.exe", Some(r"D:\Other\game.exe"))];
+    tick(&mut e, &rows, 0, &ops);
+    assert_eq!((ops.p(10), ops.p(11)), ("high".into(), "aboveNormal".into()));
+    let (n, _) = reset_rule(&mut e, "n", &rows, 1_000, &ops, ME).unwrap();
+    assert_eq!(n, 1);
+    assert_eq!((ops.p(10), ops.p(11)), ("high".into(), "normal".into()));
+    assert!(!tick(&mut e, &rows, 2_000, &ops), "the path rule sees no revert");
     assert_eq!(ops.p(10), "high");
 }
 
@@ -652,6 +756,19 @@ fn rules_round_trip_through_the_file_and_bad_ones_are_dropped() {
     assert!(enabled, "defaults to on");
     assert_eq!(rules.len(), 1);
     assert_eq!((rules[0].id.as_str(), rules[0].in_front, rules[0].boost_only, rules[0].efficiency), ("z", false, false, false));
+    // One wrong-typed value loses that rule only.
+    let typed = r#"{"rulesEnabled":false,"rules":[
+        {"id":"a","match":{"kind":"name","value":"one.exe"},"affinity":15,"enabled":true},
+        {"id":"b","match":{"kind":"name","value":"two.exe"},"priority":"high","enabled":true}]}"#;
+    fs::write(dir.join(FILE_NAME), typed).unwrap();
+    let (enabled, rules) = load(&dir, ALL, true);
+    assert!(!enabled);
+    assert_eq!(rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["b"]);
+    // A file that isn't JSON is kept aside, not overwritten later.
+    fs::write(dir.join(FILE_NAME), "{ not json").unwrap();
+    assert_eq!(load(&dir, ALL, true), (true, Vec::new()));
+    assert_eq!(fs::read_to_string(dir.join(BAD_FILE_NAME)).unwrap(), "{ not json");
+    assert!(!dir.join(FILE_NAME).exists());
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -737,7 +854,7 @@ fn engine_against_a_real_scratch_process() {
 
     // Start at normal, apply: High and one core.
     set(NORMAL_PRIORITY_CLASS.0);
-    assert!(step(&mut e, &rows, 0, &RealOps, own, false));
+    assert!(step(&mut e, &rows, 0, &RealOps, own, &BoostNow::default()));
     assert_eq!(class_of(pid), HIGH_PRIORITY_CLASS.0, "set to High");
     assert_eq!(mask_of(pid), 1, "limited to core 0");
     assert_eq!(e.statuses()[0].state, "applied");
@@ -748,22 +865,22 @@ fn engine_against_a_real_scratch_process() {
     unsafe { windows::Win32::System::Threading::SetProcessAffinityMask(h.0, system as usize) }.unwrap();
     drop(h);
     assert_ne!(mask_of(pid), 1);
-    step(&mut e, &rows, 10_000, &RealOps, own, false);
+    step(&mut e, &rows, 10_000, &RealOps, own, &BoostNow::default());
     assert_eq!(mask_of(pid), 1, "affinity re-applied");
     // Something changes the priority back: re-applied (2nd revert).
     set(BELOW_NORMAL_PRIORITY_CLASS.0);
-    step(&mut e, &rows, 20_000, &RealOps, own, false);
+    step(&mut e, &rows, 20_000, &RealOps, own, &BoostNow::default());
     assert_eq!(class_of(pid), HIGH_PRIORITY_CLASS.0, "priority re-applied");
     assert_eq!(e.statuses()[0].state, "applied");
 
     // 3rd revert inside a minute: Orbit stops and leaves it alone.
     set(IDLE_PRIORITY_CLASS.0);
-    step(&mut e, &rows, 30_000, &RealOps, own, false);
+    step(&mut e, &rows, 30_000, &RealOps, own, &BoostNow::default());
     assert_eq!(class_of(pid), IDLE_PRIORITY_CLASS.0, "not set a third time");
     assert_eq!(e.statuses()[0].state, "gaveUp");
     assert_eq!(e.statuses()[0].reason.as_deref(), Some(CHANGED_BACK));
     set(ABOVE_NORMAL_PRIORITY_CLASS.0);
-    step(&mut e, &rows, 40_000, &RealOps, own, false);
+    step(&mut e, &rows, 40_000, &RealOps, own, &BoostNow::default());
     assert_eq!(class_of(pid), ABOVE_NORMAL_PRIORITY_CLASS.0, "no fight after giving up");
 
     // Reset: Normal and every core, rule off.
@@ -777,11 +894,11 @@ fn engine_against_a_real_scratch_process() {
     e.reset_tracking();
     e.foreground = 1;
     set(IDLE_PRIORITY_CLASS.0);
-    step(&mut e, &rows, 60_000, &RealOps, own, false);
+    step(&mut e, &rows, 60_000, &RealOps, own, &BoostNow::default());
     assert_eq!(class_of(pid), NORMAL_PRIORITY_CLASS.0, "behind: Normal");
-    front_changed(&mut e, pid, 61_000, &RealOps);
+    front(&mut e, pid, 61_000, &RealOps);
     assert_eq!(class_of(pid), HIGH_PRIORITY_CLASS.0, "in front: High");
-    front_changed(&mut e, 1, 62_000, &RealOps);
+    front(&mut e, 1, 62_000, &RealOps);
     assert_eq!(class_of(pid), NORMAL_PRIORITY_CLASS.0, "behind again");
     assert!(e.tracked.values().all(|t| t.reverts.is_empty()));
 
@@ -790,7 +907,7 @@ fn engine_against_a_real_scratch_process() {
         e.eco_supported = true;
         e.rules = vec![Rule { efficiency: true, ..rule("e", "name", "orbit-rule-test.exe", None, None) }];
         e.reset_tracking();
-        step(&mut e, &rows, 70_000, &RealOps, own, false);
+        step(&mut e, &rows, 70_000, &RealOps, own, &BoostNow::default());
         assert_eq!(class_of(pid), IDLE_PRIORITY_CLASS.0, "efficiency mode runs at Low");
         let cur = RealOps.read(pid, rows[0].start_time, true).unwrap();
         println!("scratch pid {pid}: efficiency mode read back as {:?}", cur.eco);

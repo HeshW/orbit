@@ -593,6 +593,19 @@ async function rulesMore(page, base, watch) {
     throw new Error('the log has no "Put back" line after Reset');
   });
   if (!/Put back to Normal priority\. The rule is off\./.test(await page.locator(`${pane} .ru-log`).innerText())) throw new Error('Reset log line');
+  // The Processes menu opens that switched-off rule rather than adding a second one.
+  await showView(page, 'processes');
+  await page.fill('#search', 'Discord.exe');
+  await page.waitForFunction(() => /^Discord\.exe/.test(document.querySelector('#view-processes .proc-canvas > .proc-row.row')?.innerText || ''), null, { timeout: WAIT });
+  await page.locator('#view-processes .proc-canvas > .proc-row.row').first().click({ button: 'right' });
+  await menuLabels(page);
+  await page.locator('#context-menu .menu-item', { hasText: 'Always use this priority' }).click();
+  await page.waitForSelector('#dialog [data-ru-prio]', { timeout: WAIT });
+  const editTitle = (await page.locator('#dialog').innerText()).split('\n').find((l) => /Discord/.test(l)) || '';
+  if (!/^Rule for Discord\.exe/.test(editTitle.trim())) throw new Error(`the menu on a switched-off rule opens "${editTitle}"`);
+  await page.click('#dialog [data-act="cancel"]');
+  await page.fill('#search', '');
+  await openRules();
 
   // The new refusals, from the command.
   const results = await page.evaluate(async () => {
@@ -610,6 +623,7 @@ async function rulesMore(page, base, watch) {
     await make('front', { inFront: true });
     await make('behindRt', { priority: 'high', inFront: true, behind: 'realtime' });
     await make('behindSame', { priority: 'normal', inFront: true, behind: 'normal' });
+    await make('shipped', { match: { kind: 'name', value: 'cmd.exe' }, priority: 'high' });
     await make('defenderDir', { match: { kind: 'path', value: 'C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18\\MsMpEngCP.exe' }, priority: 'low' });
     return out;
   });
@@ -619,6 +633,7 @@ async function rulesMore(page, base, watch) {
     behindRt: 'Orbit never sets Realtime. It can freeze Windows.',
     behindSame: 'Pick a different priority for when the app is in front.',
     defenderDir: "Windows Security protects itself. Orbit won't change it.",
+    shipped: "Windows needs this process. Orbit won't change it.",
   };
   for (const [k, v] of Object.entries(want)) if (results[k] !== v) throw new Error(`${k}: "${results[k]}", wanted "${v}"`);
 

@@ -28,7 +28,9 @@ const WHY = {
 const NEEDS_ADMIN = 'This app runs as administrator. Restart Orbit as administrator to change it.';
 const NO_ECO = 'Efficiency mode needs Windows 11.';
 const WINDOWS = new Set(['csrss.exe', 'wininit.exe', 'smss.exe', 'lsass.exe', 'lsaiso.exe', 'services.exe', 'winlogon.exe', 'svchost.exe', 'dwm.exe', 'fontdrvhost.exe', 'system', 'system idle process', 'registry', 'secure system', 'memory compression']);
-const DEFENDER = new Set(['msmpeng.exe', 'nissrv.exe', 'mpdefendercoreservice.exe', 'mpcmdrun.exe', 'mssense.exe', 'sensecncproxy.exe', 'securityhealthservice.exe', 'securityhealthsystray.exe']);
+const DEFENDER = new Set(['msmpeng.exe', 'nissrv.exe', 'mpdefendercoreservice.exe', 'mpcmdrun.exe', 'mssense.exe', 'sensecncproxy.exe', 'securityhealthservice.exe', 'securityhealthsystray.exe', 'sechealthui.exe']);
+// Some exe names Windows ships (Rust checks %SystemRoot%, System32 and SysWOW64 on disk).
+const SHIPPED = new Set(['cmd.exe', 'explorer.exe', 'notepad.exe', 'conhost.exe', 'taskmgr.exe', 'runtimebroker.exe', 'mspaint.exe', 'regedit.exe', 'powershell.exe', 'rundll32.exe']);
 const ANTICHEAT = new Set(['vgc.exe', 'vgtray.exe']);
 const ANTICHEAT_PREFIX = ['vgc', 'vgtray', 'vgk', 'easyanticheat', 'eac_', 'beservice', 'bedaisy', 'battleye', 'eaanticheat', 'equ8', 'xigncode', 'gameguard', 'npgg', 'faceit', 'pnkbstr', 'sguard', 'ace-', 'mhyprot'];
 
@@ -46,9 +48,14 @@ export function refusal(value) {
   if (/[\\/]/.test(value)) {
     const path = normPath(value);
     if (path.startsWith('c:\\windows\\')) return WHY.windows;
-    if (path.includes('\\windows defender\\') || path.includes('\\windows defender advanced threat protection\\')) return WHY.defender;
+    if (path.includes('\\windows defender\\') || path.includes('\\windows defender advanced threat protection\\') || path.includes('\\microsoft.sechealthui_')) return WHY.defender;
   }
   return null;
+}
+
+/** Rust's rule_refusal(): refusal(), plus exe names Windows ships for name rules. */
+function ruleRefusal(kind, value) {
+  return refusal(value) || (kind === 'name' && SHIPPED.has(fileName(value).toLowerCase()) ? WHY.windows : null);
 }
 
 const state = {
@@ -157,7 +164,7 @@ function validate(input, others, cores, eco = WIN11) {
   if (!/\.exe$/i.test(value)) throw 'Pick an .exe file.';
   if (kind === 'name' && /[\\/]/.test(value)) throw 'Use just the file name, like game.exe.';
   if (kind === 'path' && !/^([a-z]:[\\/]|\\\\)/i.test(value)) throw 'Use the full path, like C:\\Games\\game.exe.';
-  const why = refusal(value);
+  const why = ruleRefusal(kind, value);
   if (why) throw why;
   let priority = cleanPriority(input.priority, PRIORITIES);
   let affinity = input.affinity ? String(input.affinity).trim() : null;
@@ -267,7 +274,8 @@ const api = {
   },
 
   rules_check({ value }) {
-    return refusal(String(value || '')) || null;
+    const v = String(value || '');
+    return ruleRefusal(/[\\/]/.test(v) ? 'path' : 'name', v) || null;
   },
 
   async rules_create({ rule }, ctx) {
@@ -303,19 +311,27 @@ const api = {
     let reset = 0;
     const back = [rule.priority || rule.efficiency ? 'Normal priority' : '', rule.affinity ? 'all cores' : '', rule.efficiency ? 'efficiency mode off' : ''].filter(Boolean);
     const backText = back.length > 1 ? `${back.slice(0, -1).join(', ')} and ${back[back.length - 1]}` : back[0] || '';
-    for (const row of ctx.snapshot().processes.filter((r) => r.kind !== 'windows' && r.pid > 4 && matchesTarget(rule, r))) {
+    // Like Rust: only processes this rule holds (another rule that wins keeps its own), never
+    // Orbit, Windows rows or refused names; a failed call is a problem, not a reset.
+    const problems = [];
+    const probe = state.rules.map((r) => (r.id === id ? { ...r, enabled: true, boostOnly: false } : r));
+    const winner = (row) => probe.find((r) => r.match.kind === 'path' && inForce(r) && matchesTarget(r, row)) || probe.find((r) => r.match.kind === 'name' && inForce(r) && matchesTarget(r, row));
+    const own = ctx.snapshot().processes.find((r) => r.name === 'orbit.exe')?.pid;
+    for (const row of ctx.snapshot().processes.filter((r) => r.kind !== 'windows' && r.pid > 4 && r.pid !== own && !refusal(r.name) && !(r.exe && refusal(r.exe)))) {
+      if (winner(row)?.id !== id) continue;
       try {
         if (rule.priority || rule.efficiency) await ctx.call('set_priority', { pid: row.pid, priority: 'normal', startTime: row.startTime });
         if (rule.affinity) await ctx.call('set_affinity', { pid: row.pid, mask: String((1n << BigInt(logCores(ctx))) - 1n), startTime: row.startTime });
-      } catch {
-        /* the preview's own guards: leave it */
+      } catch (err) {
+        problems.push(`${row.name}: ${err}`);
+        continue;
       }
       reset++;
       state.log.unshift({ at: now(), kind: 'reset', ruleId: rule.id, app: row.name, pid: row.pid, text: `Put back to ${backText}. The rule is off.`, needsAdmin: false });
     }
     rule.enabled = false;
     send(ctx);
-    return { reset, problems: [] };
+    return { reset, problems };
   },
 
   rules_export() {

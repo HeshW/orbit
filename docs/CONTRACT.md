@@ -1031,14 +1031,18 @@ ResetReport { reset: number, problems: string[] }
   (`RulesBackup`); import never stores it in settings.
 - Reverts: what Orbit last set is remembered per process. A value something else changed counts;
   3 within 60 s and Orbit stops for that process ("Kept being changed back by something else.").
-  Orbit's own changes (window to the front or back, Boost ending) never count.
+  Orbit's own changes (window to the front or back, Boost ending) never count, and processes Boost
+  holds (`boost::touched()`, new in `boost.rs`) are left to Boost while it is on. Editing one rule
+  keeps the state of processes under the others. Rule changes call `sampler::wake` (new) so a
+  paused sampler starts its light ticks.
 - Refusals (from `rules_create`, `rules_update`, `rules_check`, `rules_import`): "Orbit can't change
   itself.", "Windows needs this process. Orbit won't change it." (also any path under
   %SystemRoot%), "Windows Security protects itself. Orbit won't change it." (also Windows Defender
   folders), "Anti-cheat software blocks changes like this. Orbit won't try.", "Orbit never sets
   Realtime. It can freeze Windows.", "There is already a rule for that app.", "Efficiency mode needs
   Windows 11.", "Pick a priority to use while the app is in front.", "Pick a different priority for
-  when the app is in front.". The engine also skips running processes whose path is under
+  when the app is in front.". A name rule for an exe Windows ships (in %SystemRoot%, System32 or
+  SysWOW64) is refused with the Windows text. The engine also skips running processes whose path is under
   %SystemRoot% even when a name rule matches.
 - Failure texts: `This app runs as administrator. Restart Orbit as administrator to change it.`
   (target elevated, or unknown, and Orbit not elevated), `<Product> (anti-cheat) blocked this

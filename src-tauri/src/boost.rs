@@ -854,6 +854,13 @@ fn engine() -> MutexGuard<'static, Engine> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+/// (pid, start) of the processes Boost changed while it is on. The per-app
+/// rules read it so Boost's own change is never taken for something changing
+/// a rule's value back. Callers must not hold another engine's lock.
+pub fn touched() -> HashSet<(u32, u64)> {
+    engine().active.as_ref().map(|a| a.procs.iter().map(|t| (t.pid, t.start)).collect()).unwrap_or_default()
+}
+
 fn with_procs<R>(app: &AppHandle, f: impl FnOnce(&RealProcs) -> R) -> R {
     let set = app.try_state::<SuspendedSet>();
     let procs = RealProcs { suspended: set.as_ref().map(|s| s.inner()) };
