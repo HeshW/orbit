@@ -4,11 +4,14 @@
 // performance. Turning it off puts everything back. Rust does the work (boost.rs); this
 // tab edits the lists and toggles (settings boostGames, boostApps, boostAuto, boostPause,
 // boostPower), sends them with boost_configure and shows the status from
-// orbit://boost. Sub-tab API (see ../optimize.js): mount(paneEl, ctx), onShow(), onHide().
+// orbit://boost. Each game can carry its own per-app rule (0.9), usually "only while Boost is
+// on", made and edited through the shared rule dialog (../../rules.js).
+// Sub-tab API (see ../optimize.js): mount(paneEl, ctx), onShow(), onHide().
 import { call, onEvent } from '../../api.js';
 import { store, setSettings } from '../../store.js';
 import { escapeHtml, bytes, time, pct } from '../../format.js';
 import { toast, confirmDialog } from '../../app.js';
+import { openRuleDialog, ruleForName, ruleSummary } from '../../rules.js';
 
 const PRIORITY = { idle: 'Low', belowNormal: 'Below normal', normal: 'Normal', aboveNormal: 'Above normal', high: 'High', realtime: 'Realtime' };
 const PAUSE_WARNING = 'Paused apps stop completely until Boost turns off: music stops, downloads and calls drop, and their windows do not respond. Only pause apps you will not need while you play.';
@@ -17,6 +20,7 @@ let root = null;
 let ctx = null;
 let status = null;
 let suggestions = [];
+let rules = []; // rules_list().rules, for the rule chip next to each game
 let busy = false;
 let dismissedRecovery = false;
 const els = {};
@@ -70,7 +74,33 @@ async function refresh() {
   } catch {
     suggestions = [];
   }
+  await loadRules();
   if (root) render();
+}
+
+async function loadRules() {
+  try {
+    rules = (await call('rules_list')).rules || [];
+  } catch {
+    rules = [];
+  }
+}
+
+/** The rule chip of a game: its rule (opens it) or "Add rule" (Boost only by default). */
+function gameRuleHtml(name) {
+  const r = ruleForName(rules, name);
+  if (!r) {
+    return `<button type="button" class="btn btn--ghost btn--sm bo-rule" data-bo-rule="${text(name)}" title="Give ${text(name)} its own priority while Boost is on">${icon('i-bolt')}Add rule</button>`;
+  }
+  const sum = ruleSummary(r);
+  return `<button type="button" class="chip chip--sm bo-rule${r.enabled ? '' : ' is-off'}" data-bo-rule="${text(name)}" title="Rule: ${text(sum)}${r.enabled ? '' : ' (off)'}. Click to edit.">${icon('i-bolt')}${text(r.enabled ? 'Rule' : 'Rule off')}</button>`;
+}
+
+async function editGameRule(name) {
+  if (await openRuleDialog({ name, defaults: { boostOnly: true } })) {
+    await loadRules();
+    render();
+  }
 }
 
 async function toggleBoost() {
@@ -135,6 +165,7 @@ function chipsHtml(kind, list, emptyText) {
       <li class="bo-name">
         <span class="bo-name-text mono">${text(n)}</span>
         ${kind === 'games' && running.has(n.toLowerCase()) ? '<span class="chip chip--sm chip--live">Running</span>' : ''}
+        ${kind === 'games' ? gameRuleHtml(n) : ''}
         <button type="button" class="icon-btn bo-remove" data-bo-remove="${kind}" data-name="${text(n)}" aria-label="Remove ${text(n)}" title="Remove">${icon('i-x')}</button>
       </li>`).join('')}</ul>`;
 }
@@ -363,6 +394,7 @@ export function mount(paneEl, context) {
   els.activeNote = root.querySelector('[data-bo-active-note]');
 
   onEvent('orbit://boost', (s) => setStatus(s));
+  onEvent('orbit://rules', () => loadRules().then(() => root && render()));
 
   root.addEventListener('click', (ev) => {
     const t = ev.target;
@@ -376,6 +408,8 @@ export function mount(paneEl, context) {
     const mode = t.closest('[data-bo-mode]');
     if (mode) return void setMode(mode.dataset.boMode === 'pause');
     if (t.closest('[data-bo-browse]')) return void browse();
+    const gr = t.closest('[data-bo-rule]');
+    if (gr) return void editGameRule(gr.dataset.boRule);
     if (t.closest('[data-bo-refresh]')) return void refresh();
     if (t.closest('[data-bo-dismiss]')) {
       dismissedRecovery = true;
