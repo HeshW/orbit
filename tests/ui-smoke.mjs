@@ -54,6 +54,7 @@ function serve() {
 
 const failures = [];
 let step = 'load';
+let passed = 0;
 
 function fail(msg) {
   failures.push(`[${step}] ${msg}`);
@@ -64,6 +65,7 @@ async function check(label, fn) {
   step = label;
   try {
     await fn();
+    passed++;
     console.log(`  ok   ${label}`);
   } catch (err) {
     fail(String(err?.message || err).split('\n')[0]);
@@ -509,6 +511,195 @@ async function defender(page, base, watch) {
 
 // Startup suggestions card (0.8): the Hide button (labelled) hides it in Startup and in
 // Health, the choice survives a reload, and a changed set of apps brings the card back.
+// Per-app rules, part 2 (0.9): the master switch (badges go away), "only while in front"
+// through the dialog, Reset (the app back to Normal, the rule off), the new refusals, a
+// game's own rule from Boost (only while Boost is on), the backup round trip (Export writes
+// the rules, Import through the file input adds them after a confirm), and efficiency mode,
+// offered only on Windows 11 (?win11), never on the Windows 10 preview.
+async function rulesMore(page, base, watch) {
+  const pane = '#op-pane-rules';
+  const openRules = async () => {
+    await showView(page, 'optimize');
+    await page.click('#view-optimize .op-tabs [data-tab="rules"]');
+    await page.waitForSelector(`${pane} .ru-rule`, { timeout: WAIT });
+  };
+  const paneText = () => page.locator(pane).innerText().then((t) => t.replace(/\s+/g, ' '));
+  const waitText = (re, why) => page.waitForFunction(([sel, src]) => new RegExp(src).test((document.querySelector(sel)?.innerText || '').replace(/\s+/g, ' ')), [pane, re.source], { timeout: WAIT }).catch(async () => {
+    throw new Error(`${why}: ${await paneText()}`);
+  });
+  const discordBadge = async (want) => {
+    await showView(page, 'processes');
+    await page.fill('#search', 'Discord.exe');
+    await page.waitForFunction((on) => {
+      const first = document.querySelector('#view-processes .proc-canvas > .proc-row.row');
+      return !!first && /^Discord\.exe/.test(first.innerText) && !!first.querySelector('.proc-rule') === on;
+    }, want, { timeout: WAIT }).catch(() => {
+      throw new Error(`Discord.exe badge should be ${want ? 'shown' : 'gone'}`);
+    });
+    await page.fill('#search', '');
+  };
+
+  await openRules();
+  if (!/League of Legends\.exe.*High priority in front, Normal behind/.test(await paneText())) throw new Error(`in-front rule summary: ${await paneText()}`);
+
+  // Master switch: off hides every badge and says so; on brings them back.
+  await discordBadge(true);
+  await openRules();
+  const master = page.locator(`${pane} [data-ru-master]`);
+  await master.click();
+  await page.waitForSelector(`${pane} [data-ru-off]:not([hidden])`, { timeout: WAIT });
+  if (await master.getAttribute('aria-checked') !== 'false') throw new Error('master switch did not turn off');
+  await discordBadge(false);
+  await openRules();
+  await master.click();
+  await page.waitForSelector(`${pane} [data-ru-off][hidden]`, { state: 'attached', timeout: WAIT });
+  await discordBadge(true);
+
+  // Only while in front, through the dialog. Windows 10: no efficiency mode.
+  await openRules();
+  const discord = page.locator(`${pane} .ru-rule`, { hasText: 'Discord.exe' });
+  await discord.locator('[data-ru-edit]').click();
+  await page.waitForSelector('#dialog [data-ru-front]', { timeout: WAIT });
+  if (await page.locator('#dialog [data-ru-eco]').count()) throw new Error('efficiency mode is offered on Windows 10');
+  if (!await page.locator('#dialog [data-ru-behind-field]').isHidden()) throw new Error('"When it\'s behind" shows before "Only while in front" is ticked');
+  if (!await page.locator('#dialog [data-ru-boost]').count()) throw new Error('the dialog has no "Only while Boost is on"');
+  await page.selectOption('#dialog [data-ru-prio]', 'high');
+  await page.check('#dialog [data-ru-front]');
+  await page.locator('#dialog [data-ru-behind-field]').waitFor({ state: 'visible', timeout: WAIT });
+  const behind = await page.locator('#dialog [data-ru-behind] option').allInnerTexts();
+  if (behind.join('|') !== 'Normal|Below normal') throw new Error(`"When it's behind" offers ${behind.join(', ')}`);
+  await page.selectOption('#dialog [data-ru-behind]', 'belowNormal');
+  await page.click('#dialog [data-act="ok"]');
+  await waitText(/Discord\.exe.*High priority in front, Below normal behind/, 'editing an in-front rule');
+
+  // Reset: Discord back to Normal, rule off, a "Put back" line in the log.
+  await discord.locator('[data-ru-reset]').click();
+  await page.waitForSelector('#dialog [data-act="ok"]', { timeout: WAIT });
+  const ask = (await page.locator('#dialog').innerText()).replace(/\s+/g, ' ');
+  if (!/goes back to Normal priority/.test(ask) || !/switches off/.test(ask)) throw new Error(`Reset asks "${ask}"`);
+  await page.click('#dialog [data-act="ok"]');
+  await page.waitForFunction((sel) => [...document.querySelectorAll(`${sel} .ru-rule.is-off`)].some((li) => /Discord\.exe/.test(li.innerText)), pane, { timeout: WAIT }).catch(() => {
+    throw new Error('Reset did not switch the rule off');
+  });
+  const prios = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    const { store } = await import('/js/store.js');
+    const rows = store.snapshot.processes.filter((p) => p.name === 'Discord.exe');
+    return Promise.all(rows.map((r) => call('get_priority', { pid: r.pid })));
+  });
+  if (!prios.length || prios.some((p) => p !== 'normal')) throw new Error(`after Reset Discord.exe runs at ${prios.join(', ')}`);
+  await page.evaluate((sel) => { document.querySelector(`${sel} .ru-log`).open = true; }, pane);
+  await page.waitForSelector(`${pane} .ru-entry--reset`, { timeout: WAIT }).catch(() => {
+    throw new Error('the log has no "Put back" line after Reset');
+  });
+  if (!/Put back to Normal priority\. The rule is off\./.test(await page.locator(`${pane} .ru-log`).innerText())) throw new Error('Reset log line');
+
+  // The new refusals, from the command.
+  const results = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    const out = {};
+    const make = async (label, rule) => {
+      try {
+        await call('rules_create', { rule: { id: '', enabled: true, priority: null, affinity: null, match: { kind: 'name', value: 'newgame.exe' }, ...rule } });
+        out[label] = 'created';
+      } catch (err) {
+        out[label] = String(err);
+      }
+    };
+    await make('eco', { efficiency: true });
+    await make('front', { inFront: true });
+    await make('behindRt', { priority: 'high', inFront: true, behind: 'realtime' });
+    await make('behindSame', { priority: 'normal', inFront: true, behind: 'normal' });
+    await make('defenderDir', { match: { kind: 'path', value: 'C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18\\MsMpEngCP.exe' }, priority: 'low' });
+    return out;
+  });
+  const want = {
+    eco: 'Efficiency mode needs Windows 11.',
+    front: 'Pick a priority to use while the app is in front.',
+    behindRt: 'Orbit never sets Realtime. It can freeze Windows.',
+    behindSame: 'Pick a different priority for when the app is in front.',
+    defenderDir: "Windows Security protects itself. Orbit won't change it.",
+  };
+  for (const [k, v] of Object.entries(want)) if (results[k] !== v) throw new Error(`${k}: "${results[k]}", wanted "${v}"`);
+
+  // Boost: a game's own rule, only while Boost is on.
+  await page.click('#view-optimize .op-tabs [data-tab="boost"]');
+  await page.click('#op-pane-boost [data-bo-browse]');
+  const chip = page.locator('#op-pane-boost [data-bo-rule="hollow_knight.exe"]');
+  await chip.waitFor({ timeout: WAIT }).catch(() => {
+    throw new Error('a game in Boost has no rule button');
+  });
+  const chipText = (await chip.textContent()).trim();
+  if (chipText !== 'Add rule') throw new Error(`game rule button reads "${chipText}"`);
+  await chip.click();
+  await page.waitForSelector('#dialog [data-ru-boost]', { timeout: WAIT });
+  if (!await page.locator('#dialog [data-ru-boost]').isChecked()) throw new Error('a rule from Boost is not "only while Boost is on"');
+  const title = await page.locator('#dialog').innerText();
+  if (!/hollow_knight\.exe/.test(title)) throw new Error(`Boost's rule dialog is for "${title.split('\n')[0]}"`);
+  await page.click('#dialog [data-act="ok"]');
+  await page.waitForFunction(() => /^Rule$/.test(document.querySelector('#op-pane-boost [data-bo-rule="hollow_knight.exe"]')?.textContent.trim() || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('the game shows no rule after one was added');
+  });
+  const tip = await chip.getAttribute('title');
+  if (!/High priority, while Boost is on/.test(tip || '')) throw new Error(`game rule tooltip: ${tip}`);
+  await openRules();
+  await waitText(/hollow_knight\.exe.*High priority, while Boost is on.*Waiting for Boost/, 'Boost rule in the Rules list');
+  await page.click('#view-optimize .op-tabs [data-tab="boost"]');
+  await page.click('#op-pane-boost [data-bo-remove="games"][data-name="hollow_knight.exe"]');
+
+  // Backup: Export carries the rules; Import adds new ones after listing them.
+  const exported = await page.evaluate(async () => (await import('/js/panels/backup.js')).exportData());
+  if (!Array.isArray(exported.rules?.rules) || !exported.rules.rules.some((r) => r.match.value === 'hollow_knight.exe') || exported.rules.rulesEnabled !== true) {
+    throw new Error(`Export has no rules: ${JSON.stringify(exported.rules).slice(0, 120)}`);
+  }
+  const file = {
+    theme: exported.theme,
+    rules: {
+      rulesEnabled: true,
+      rules: [
+        { match: { kind: 'name', value: 'imported.exe' }, priority: 'aboveNormal', enabled: true },
+        { match: { kind: 'name', value: 'csrss.exe' }, priority: 'high', enabled: true },
+        exported.rules.rules[0],
+      ],
+    },
+  };
+  await showView(page, 'settings');
+  await page.locator('[data-backup-file]').setInputFiles({ name: 'orbit-settings.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+  await page.waitForSelector('#dialog [data-act="ok"]', { timeout: WAIT }).catch(() => {
+    throw new Error('importing a file with a new rule asks nothing');
+  });
+  const list = (await page.locator('#dialog').innerText()).replace(/\s+/g, ' ');
+  if (!/Per-app rules: 1 new/.test(list) || !/csrss\.exe: Windows needs this process/.test(list)) throw new Error(`Import lists "${list}"`);
+  await page.click('#dialog [data-act="ok"]');
+  await openRules();
+  await waitText(/imported\.exe.*Above normal priority/, 'the imported rule');
+  if (/csrss\.exe/.test(await paneText())) throw new Error('a refused rule was imported');
+
+  // Efficiency mode on Windows 11 only.
+  const other = await page.context().newPage();
+  watch(other);
+  try {
+    await other.goto(`${base}?win11`, { waitUntil: 'load' });
+    await other.click('#sidebar .nav-item[data-view="optimize"]');
+    await other.click('#view-optimize .op-tabs [data-tab="rules"]');
+    await other.click(`${pane} [data-ru-add]`);
+    await other.waitForSelector('#dialog [data-ru-eco]', { timeout: WAIT }).catch(() => {
+      throw new Error('?win11: no efficiency mode in the dialog');
+    });
+    await other.selectOption('#dialog [data-ru-app]', 'Notion.exe');
+    await other.check('#dialog [data-ru-eco]');
+    if (!await other.locator('#dialog [data-ru-prio]').isDisabled() || !await other.locator('#dialog [data-ru-front]').isDisabled()) {
+      throw new Error('?win11: efficiency mode leaves the priority or "in front" editable');
+    }
+    await other.click('#dialog [data-act="ok"]');
+    await other.waitForFunction((sel) => /Notion\.exe.*Efficiency mode/.test((document.querySelector(sel)?.innerText || '').replace(/\s+/g, ' ')), pane, { timeout: WAIT }).catch(() => {
+      throw new Error('?win11: the efficiency rule is not listed');
+    });
+  } finally {
+    await other.close();
+  }
+}
+
 async function suggestionsHide(page, base) {
   const card = '#view-startup .sg';
   const rows = () => page.locator(`${card} .sg-row`).count();
@@ -1077,6 +1268,7 @@ try {
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
   await check('rules', () => rules(page));
+  await check('rules 11b', () => rulesMore(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));
   await check('startup sync', () => startupSync(page));
   await check('debloat', () => debloat(page));
@@ -1097,4 +1289,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);
+console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);

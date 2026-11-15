@@ -3,9 +3,10 @@
 // in the Settings grid; this module owns everything inside it.
 //
 // Export writes store.settings as JSON to Downloads (export_report, file name
-// orbit-settings-YYYY-MM-DD.json). Import reads a file the user picks, keeps only valid
-// values (the same rules as store.js), lists what would change and applies it with
-// setSettings after a confirm.
+// orbit-settings-YYYY-MM-DD.json), with the per-app rules (0.9) under "rules" (rules_export).
+// Import reads a file the user picks, keeps only valid values (the same rules as store.js),
+// lists what would change (rules through rules_import with apply: false) and applies it with
+// setSettings and rules_import after a confirm.
 
 import { call } from '../api.js';
 import { store, setSettings } from '../store.js';
@@ -50,7 +51,7 @@ export function mountPanel(containerEl) {
     <div class="lv-field">
       <div class="lv-field-text">
         <span class="lv-label" id="set-export-l">Export settings</span>
-        <span class="lv-help">Save your theme, layout, pins and other settings to a file in Downloads.</span>
+        <span class="lv-help">Save your theme, layout, pins, per-app rules and other settings to a file in Downloads.</span>
       </div>
       <button type="button" class="btn btn--sm" data-backup="export" aria-describedby="set-export-l">Export</button>
     </div>
@@ -87,10 +88,21 @@ function localDate(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** What Export writes: the settings, and the per-app rules under "rules". */
+export async function exportData() {
+  let rules = null;
+  try {
+    rules = await call('rules_export');
+  } catch {
+    rules = null; // the settings still export
+  }
+  return rules ? { ...store.settings, rules } : { ...store.settings };
+}
+
 async function exportSettings(btn) {
   btn.disabled = true;
   try {
-    const contents = `${JSON.stringify(store.settings, null, 2)}\n`;
+    const contents = `${JSON.stringify(await exportData(), null, 2)}\n`;
     const path = await call('export_report', { fileName: `orbit-settings-${localDate()}.json`, contents });
     toast(`Saved settings to ${path}`, 'success');
   } catch (err) {
@@ -110,7 +122,8 @@ function errText(err) {
 
 /**
  * Valid settings from a parsed file, by store.js's rules.
- * Returns { patch, known, skipped } or null when it is not a settings object.
+ * Returns { patch, known, skipped, rules } or null when it is not a settings object.
+ * `rules` is the file's per-app rules ({ rulesEnabled, rules }) or null.
  */
 export function validateSettings(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -122,8 +135,15 @@ export function validateSettings(raw) {
     if (ok) patch[k] = value;
     else skipped.push(LABELS[k] || k);
   };
+  let rules = null;
   for (const [k, v] of Object.entries(raw)) {
-    if (k === 'theme') take(k, THEMES.includes(v), v);
+    if (k === 'rules') {
+      // Per-app rules: checked by Rust (rules_import), never stored in settings.
+      const ok = !!v && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v.rules);
+      known++;
+      if (ok) rules = { rulesEnabled: typeof v.rulesEnabled === 'boolean' ? v.rulesEnabled : null, rules: v.rules };
+      else skipped.push('Per-app rules');
+    } else if (k === 'theme') take(k, THEMES.includes(v), v);
     else if (k === 'intervalMs') {
       const n = Number(v);
       take(k, typeof v === 'number' && Number.isFinite(n) && n >= 250 && n <= 10000, Math.round(n));
@@ -146,7 +166,7 @@ export function validateSettings(raw) {
     }
   }
   if (!known) return null;
-  return { patch, known, skipped };
+  return { patch, known, skipped, rules };
 }
 
 function same(a, b) {
@@ -196,6 +216,17 @@ export function describeChanges(patch, current = store.settings) {
   return lines;
 }
 
+/** Lines like "Per-app rules: 2 new, 1 changed" for a rules_import report. */
+export function describeRuleImport(r) {
+  const lines = [];
+  const bits = [];
+  if (r.added) bits.push(`${r.added} new`);
+  if (r.replaced) bits.push(`${r.replaced} changed`);
+  if (bits.length) lines.push(`Per-app rules: ${bits.join(', ')}`);
+  if (typeof r.switchTo === 'boolean') lines.push(`Per-app rules switch: ${r.switchTo ? 'Off to On' : 'On to Off'}`);
+  return lines;
+}
+
 async function importFile(file) {
   if (file.size > MAX_FILE_BYTES) {
     toast("That file is too big to be Orbit settings.", 'error');
@@ -215,11 +246,23 @@ async function importFile(file) {
     return;
   }
   const changes = describeChanges(result.patch);
-  const skippedNote = result.skipped.length
+  // Per-app rules: Rust checks them and says what would change.
+  let ruleReport = null;
+  if (result.rules) {
+    try {
+      ruleReport = await call('rules_import', { backup: result.rules, apply: false });
+    } catch (err) {
+      toast(`The rules in ${file.name} can't be read: ${errText(err)}`, 'error');
+    }
+  }
+  const ruleLines = ruleReport ? describeRuleImport(ruleReport) : [];
+  for (const line of ruleLines) changes.push({ keys: [], rules: true, text: line });
+  const ruleSkips = ruleReport?.skipped || [];
+  const skippedNote = (result.skipped.length
     ? `\n\nSkipped because the values aren't valid: ${result.skipped.join(', ')}.`
-    : '';
+    : '') + (ruleSkips.length ? `\n\nRules left out:\n${ruleSkips.map((s) => `- ${s}`).join('\n')}` : '');
   if (!changes.length) {
-    toast(`${file.name} matches your current settings.${result.skipped.length ? ` Skipped ${result.skipped.length} values that aren't valid.` : ''}`, 'info');
+    toast(`${file.name} matches your current settings.${result.skipped.length ? ` Skipped ${result.skipped.length} values that aren't valid.` : ''}${ruleSkips.length ? ` Left out ${ruleSkips.length === 1 ? '1 rule' : `${ruleSkips.length} rules`} Orbit can't use.` : ''}`, 'info');
     return;
   }
   const n = changes.length;
@@ -231,10 +274,19 @@ async function importFile(file) {
   if (!ok) return;
   const patch = {};
   for (const c of changes) for (const k of c.keys) patch[k] = result.patch[k];
+  const ruleCount = changes.filter((c) => c.rules).length;
   // Start with Windows lives in the registry, so it goes through set_autostart like the
   // Behavior switch; only a value Windows accepted is kept in settings.
   let applied = n;
   let note = '';
+  if (ruleCount) {
+    try {
+      await call('rules_import', { backup: result.rules, apply: true });
+    } catch (err) {
+      applied -= ruleCount;
+      toast(`Couldn't import the rules: ${errText(err)}`, 'error');
+    }
+  }
   const sw = patch.startWithWindows;
   delete patch.startWithWindows;
   setSettings(patch);
