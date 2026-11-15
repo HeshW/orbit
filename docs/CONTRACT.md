@@ -972,23 +972,41 @@ GpuSensors { luid: string|null /*DXGI adapter, gpu::luid_key*/, name: string, so
     no Rust command). `tests/ui-smoke.mjs` "suggestions hide" and "startup sync".
 
 **v0.9**
-- Per-app rules (11a, `rules.rs`, `docs/features/rules.md`). A rule sets an app's CPU priority and
-  / or processors every time it starts. Nothing new in the sampler's cost: `rules::on_snapshot`
-  runs after `boost::on_snapshot` on the same snapshot.
+- Per-app rules (11a and 11b, `rules.rs`, tests in `rules/tests.rs`, `docs/features/rules.md`).
+  A rule sets an app's CPU priority, processors or efficiency mode every time it starts, optionally
+  only while its window is in front or only while Boost is on. Nothing new in the sampler's cost:
+  `rules::on_snapshot` runs after `boost::on_snapshot` on the same snapshot. While updates are
+  paused or slower than 1 s and an enabled rule exists (`rules::wants_ticks()`), the sampler calls
+  `rules::light_tick` about once a second instead (one Toolhelp snapshot; only new pids are opened).
+  "Only while in front" uses one thread with `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` sleeping in
+  `GetMessageW` (no polling). Never writes Image File Execution Options. Cargo feature added:
+  `Win32_UI_Accessibility`. `actions.rs` adds `refuse_critical_change(pid)` and
+  `process_elevated(pid)`.
 - Types (camelCase):
 
 ```ts
 Rule { id: string, match: { kind: "path"|"name", value: string },
   priority: "low"|"belowNormal"|"normal"|"aboveNormal"|"high"|null,   // never "realtime"
-  affinity: string|null /*decimal core mask, at least one core*/, enabled: boolean }
+  affinity: string|null /*decimal core mask, at least one core*/,
+  efficiency: boolean   /*Windows 11 only; implies Low, priority is null*/,
+  inFront: boolean      /*priority only while the app's window is in front; needs a priority*/,
+  behind: "normal"|"belowNormal"|null /*inFront only; default "normal", not equal to priority*/,
+  boostOnly: boolean    /*applies only while Boost is on*/,
+  enabled: boolean }    // every field but id and match is optional on input (0.9 part 1 files load)
 RuleView = Rule & { lastApplied: number|null /*Unix ms*/,
   lastFailed: { at: number, reason: string, needsAdmin: boolean }|null, running: number }
-RulesState { rulesEnabled: boolean, isAdmin: boolean, logicalCores: number, rules: RuleView[] }
-LogEntry { at: number /*ms*/, kind: "applied"|"blocked"|"reverted", ruleId: string, app: string,
-  pid: number, text: string, needsAdmin: boolean }
+RulesState { rulesEnabled: boolean, isAdmin: boolean, logicalCores: number,
+  efficiencySupported: boolean /*Windows 11, build 22000+*/, rules: RuleView[] }
+LogEntry { at: number /*ms*/, kind: "applied"|"blocked"|"reverted"|"reset", ruleId: string,
+  app: string, pid: number, text: string, needsAdmin: boolean }
 ProcStatus { pid: number, startTime: number /*Unix secs, as ProcessRow*/, ruleId: string,
   state: "applied"|"failed"|"gaveUp", summary: string /*"High priority, 4 cores"*/,
   reason: string|null, needsAdmin: boolean, at: number /*ms*/ }
+RulesBackup { rulesEnabled: boolean|null, rules: Rule[] }
+ImportReport { added: number, replaced: number, unchanged: number,
+  skipped: string[] /*"csrss.exe: Windows needs this process. Orbit won't change it."*/,
+  switchTo: boolean|null /*the master switch value the file sets, when it differs*/ }
+ResetReport { reset: number, problems: string[] }
 ```
 
 | command | args | returns |
@@ -998,32 +1016,53 @@ ProcStatus { pid: number, startTime: number /*Unix secs, as ProcessRow*/, ruleId
 | `rules_create` | `rule: Rule` (`id` ignored) | `RuleView`; rejects with the plain reason |
 | `rules_update` | `rule: Rule` | `RuleView` |
 | `rules_delete` | `id: string` | `()` (a running app keeps its current priority) |
+| `rules_reset` | `id: string` | `ResetReport`: running copies back to Normal priority, every core, efficiency mode off (only what the rule sets); the rule is switched off |
 | `rules_set_enabled` | `enabled: boolean` | `RulesState` (the master switch, `rulesEnabled`, default on) |
+| `rules_export` | – | `RulesBackup` (Settings > Backup > Export puts it under `rules`) |
+| `rules_import` | `backup: RulesBackup, apply: boolean` | `ImportReport`; `apply: false` only reports. A rule for an app that has one replaces its settings (id kept); others are added; invalid or refused ones are skipped with the reason |
 | `rules_log` | – | `LogEntry[]`, newest first, last 200, in memory only |
 | `rules_status` | – | `ProcStatus[]`: processes that hold a rule right now |
 | `rules_pick_exe` | – | `string \| null` (file picker, `.exe`) |
 
 - Event `orbit://rules` `{ statuses: ProcStatus[] }`: sent only when a status changes (applied,
-  failed, stopped, process gone, rules edited). Not per tick.
+  failed, stopped, process gone, rules edited, Boost ended). Not per tick, not per window switch.
 - Storage: `rules.json` in `<app local data>\rules` (`{ rulesEnabled, rules }`); debug builds only
-  honour `ORBIT_RULES_DIR`. No new UI setting.
-- Refusals (from `rules_create`, `rules_update`, `rules_check`): "Orbit can't change itself.",
-  "Windows needs this process. Orbit won't change it.", "Windows Security protects itself. Orbit
-  won't change it.", "Anti-cheat software blocks changes like this. Orbit won't try.", "Orbit never
-  sets Realtime. It can freeze Windows.", "There is already a rule for that app."
-- Failure texts: `This app runs as administrator. Restart Orbit as administrator to change it.`,
-  `Windows or the app's protection blocked this change.`, `Kept being changed back by something
-  else.` (3 reverts within 60 s).
-- UI: sub-tab **Rules** (`views/optimize/rules.js`, CSS `ru-`) after Boost; palette entry "Optimize:
-  Rules". Shared module `ui/js/rules.js` exports `openRuleDialog({ row?, rule? })`,
-  `startRuleStatus()`, `onRuleStatus(cb)`, `ruleStatusFor(row)`, `badgeOf(status)`, `ago(ms)`,
-  `PRIORITY_CHOICES` (no Realtime), `ruleForRow(rules, row)`. Processes menu item "Always use this
+  honour `ORBIT_RULES_DIR`. No new UI setting. The settings export file gains a `rules` key
+  (`RulesBackup`); import never stores it in settings.
+- Reverts: what Orbit last set is remembered per process. A value something else changed counts;
+  3 within 60 s and Orbit stops for that process ("Kept being changed back by something else.").
+  Orbit's own changes (window to the front or back, Boost ending) never count.
+- Refusals (from `rules_create`, `rules_update`, `rules_check`, `rules_import`): "Orbit can't change
+  itself.", "Windows needs this process. Orbit won't change it." (also any path under
+  %SystemRoot%), "Windows Security protects itself. Orbit won't change it." (also Windows Defender
+  folders), "Anti-cheat software blocks changes like this. Orbit won't try.", "Orbit never sets
+  Realtime. It can freeze Windows.", "There is already a rule for that app.", "Efficiency mode needs
+  Windows 11.", "Pick a priority to use while the app is in front.", "Pick a different priority for
+  when the app is in front.". The engine also skips running processes whose path is under
+  %SystemRoot% even when a name rule matches.
+- Failure texts: `This app runs as administrator. Restart Orbit as administrator to change it.`
+  (target elevated, or unknown, and Orbit not elevated), `<Product> (anti-cheat) blocked this
+  change. Orbit won't keep trying.` (access denied while an anti-cheat process such as vgc.exe
+  runs), `Windows or the app's protection blocked this change.`, `Kept being changed back by
+  something else.` (3 reverts within 60 s).
+- UI: sub-tab **Rules** (`views/optimize/rules.js`, CSS `ru-`) after Boost, with the master switch
+  (`[data-ru-master]`, note `[data-ru-off]`) and Reset per rule (`[data-ru-reset]`); palette entry
+  "Optimize: Rules". Shared module `ui/js/rules.js` exports `openRuleDialog({ row?, rule?, name?,
+  defaults? })`, `startRuleStatus()`, `onRuleStatus(cb)`, `ruleStatusFor(row)`, `badgeOf(status)`,
+  `ago(ms)`, `PRIORITY_CHOICES` (no Realtime), `BEHIND_CHOICES`, `ruleSummary(rule)`,
+  `ruleForRow(rules, row)`, `ruleForName(rules, name)`. Dialog fields: `[data-ru-prio]`,
+  `[data-ru-front]`, `[data-ru-behind]`, `[data-ru-eco]` (only when `efficiencySupported`),
+  `[data-ru-limit]`, `[data-ru-cpu]`, `[data-ru-boost]`. Processes menu item "Always use this
   priority…" (rows and app groups); rows with a status get `span.proc-rule` (title = tooltip) in
-  `.proc-tags`.
-- Mock (`mock/rules.js`): seeded rules Discord.exe (applied), League of Legends.exe (not running),
-  steamservice.exe (fails with the administrator reason while the preview is not elevated); log has an
-  applied, a blocked and two reverted lines. Same validation and refusal text as Rust.
-  `tests/ui-smoke.mjs` "rules".
+  `.proc-tags`. Boost's game list has a rule button per game (`[data-bo-rule]`, "Add rule" opens
+  the dialog with "Only while Boost is on" ticked). `panels/backup.js` exports `exportData()` and
+  `describeRuleImport(report)`.
+- Mock (`mock/rules.js`): seeded rules Discord.exe (applied), League of Legends.exe (in front only,
+  not running), steamservice.exe (fails with the administrator reason while the preview is not
+  elevated); log has an applied, a blocked and two reverted lines. Same validation and refusal text
+  as Rust. The preview is Windows 10; `?win11` offers efficiency mode. No window is in front in the
+  preview, so in-front rules use their "behind" priority. `mock/boost.js` exports `boostActive()`
+  for Boost-only rules. `tests/ui-smoke.mjs` "rules" and "rules 11b".
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

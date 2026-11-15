@@ -1,6 +1,6 @@
 # Orbit roadmap — future features
 
-## Status (after 0.5.0)
+## Status (after 0.9.0)
 
 | # | Item | Status |
 |---|------|--------|
@@ -14,7 +14,7 @@
 | 8 | **0.6 list** | Shipped in 0.6.0: GPU name, History right-click, My Rig, motion, Defender scan, guided debloat. See section 8 and `docs/features/`. |
 | 9 | **0.7 list** | Shipped in 0.7.0: animated logo in the sidebar, CPU and GPU temperatures. See section 9 and `docs/features/`. |
 | 10 | **0.8 list** | Shipped in 0.8.0: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
-| 11 | **0.9 list** | In progress: per-app rules. 11a (rules engine, Rules tab, Processes menu, badge, log) is built, see `docs/features/rules.md`. 11b (in front only, Boost link, backup, reset, master switch UI) and efficiency mode are still to do. 11c is declined. See section 11. |
+| 11 | **0.9 list** | Shipped in 0.9.0: per-app rules (priority, processors, efficiency mode on Windows 11, only while in front, only while Boost is on, reset, master switch, backup), see `docs/features/rules.md`. 11c is declined. See section 11. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -705,7 +705,7 @@ The owner's spec: set an app's CPU priority (and related settings) once, and Orb
 every time the app starts. Example: "League of Legends.exe" sometimes starts at low priority
 (a known bug); it should go to High automatically on every launch.
 
-### 11a. Rules — M–L (done in 0.9, part 1: priority and affinity; efficiency mode is not built)
+### 11a. Rules — M–L (done in 0.9.0)
 
 - **Making a rule:** from the Processes right-click menu ("Always use this priority…"), or from
   a **Rules** list (a new Optimize sub-tab next to Boost).
@@ -739,7 +739,21 @@ watchers). Priority and affinity reuse `actions.rs` (`SetPriorityClass`,
 **Never touched:** Windows and security processes (the existing guard, plus Orbit itself,
 csrss, lsass, services, Defender, anti-cheat services).
 
-### 11b. Related, included where they fit — S each
+**Done (0.9.0):** as planned, with these findings:
+- Pause updates (and intervals over a second) stopped the sampler, so rules stopped too. While an
+  enabled rule exists, the sampler now runs a light rules-only tick about once a second (one
+  Toolhelp snapshot, only new pids opened).
+- A name rule could have matched Windows' own copy of an app with a window (notepad.exe from
+  System32 is grouped as an app). The engine now also checks the running process's path.
+- `actions::set_priority` has no critical-process check (only affinity had one); rules now call
+  `actions::refuse_critical_change` first.
+- Access denied is told apart: the app runs as administrator (its token says so), an anti-cheat
+  process is running ("Riot Vanguard (anti-cheat) blocked this change."), or something else.
+- Efficiency mode: `SetProcessInformation(ProcessPowerThrottling)` with execution speed throttled,
+  plus Idle priority, Windows 11 only (build 22000+). Checked in CI only where the runner is
+  Windows 11 class; the leaf in Task Manager is for the real-PC check.
+
+### 11b. Related, included where they fit — S each (done in 0.9.0)
 
 - **"Only while in front":** the rule's priority applies while the app's window is in the
   foreground, and drops back to Normal (or Below normal) when it isn't. Foreground changes come
@@ -748,6 +762,12 @@ csrss, lsass, services, Defender, anti-cheat services).
 - **Backup:** rules go into Settings export and import.
 - **Reset to default** per rule (puts the running app back to Normal and all cores), and a
   **master switch** to turn all rules off.
+
+**Done (0.9.0):** "Only while in front" (Normal or Below normal behind; every process of the app
+counts; Orbit's own switches are never counted as reverts), a rule button per game in Boost
+("Add rule" ticks "Only while Boost is on"; the app goes back to Normal when Boost ends), rules in
+Settings export and import (Rust merges and lists what it leaves out), Reset per rule (also
+switches the rule off, so it doesn't apply again at once), and the master switch in the Rules tab.
 
 ### 11c. "Apply even without Orbit" — declined by the owner (not built; Orbit never writes IFEO keys)
 

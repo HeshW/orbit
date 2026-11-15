@@ -60,14 +60,14 @@ jobs:
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli@2
 
-      # Commit subjects since the previous v* tag, as a markdown list (no merges, no scaffold commits).
+      # Commit subjects since the previous v* tag, as a markdown list (no merges, no scaffold or WIP: commits).
       - name: Release notes from commits
         id: notes
         shell: pwsh
         run: |
           $prev = git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>$null
           $range = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev..HEAD" } else { 'HEAD' }
-          $lines = @(git log --no-merges --pretty='- %s' $range | Where-Object { $_ -notmatch '^- v\d+(\.\d+)* scaffold' } | Select-Object -First 50)
+          $lines = @(git log --no-merges --pretty='- %s' $range | Where-Object { $_ -notmatch '^- (v\d+(\.\d+)* scaffold|WIP:)' } | Select-Object -First 50)
           if (-not $lines) { $lines = @('- Maintenance release.') }
           $delim = "NOTES_$([guid]::NewGuid().ToString('N'))"
           "notes<<$delim" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
