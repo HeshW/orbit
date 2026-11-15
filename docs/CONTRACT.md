@@ -475,7 +475,7 @@ What the code has beyond the sections above. These are part of the contract now.
 **v0.5: Optimize view (health report, startup suggestions, disk cleanup, game boost, driver check)**
 - Sidebar: a tenth view, **Optimize** (`#view-optimize`, icon `i-gauge`, new sprite symbol), between
   Security and Settings, numbered 09 on key 9; Settings was 10 on key 0 (`KEY_VIEWS` = `VIEW_NAMES`; changed in v0.6, see My Rig). The palette "Go to" group lists it, and the
-  palette Actions offer "Optimize: Health / Cleanup / Boost / Drivers".
+  palette Actions offer "Optimize: Health / Cleanup / Boost / Drivers" (0.9 adds Rules).
 - Sub-tabs: Health, Cleanup, Boost, Drivers. `views/optimize.js` is only the frame (head, tab
   list, one pane each; last tab in localStorage `orbit.optimizeTab`) and exports
   `openTab(id)`. Each sub-tab is its own module `views/optimize/<id>.js` with
@@ -970,6 +970,60 @@ GpuSensors { luid: string|null /*DXGI adapter, gpu::luid_key*/, name: string, so
   - Mock: three packaged rows in `api.js` `seedStartup`; `mock_startup_external_change({ id,
     enabled, packagedState? })` changes a row and sends `orbit://startup-changed` (test hook,
     no Rust command). `tests/ui-smoke.mjs` "suggestions hide" and "startup sync".
+
+**v0.9**
+- Per-app rules (11a, `rules.rs`, `docs/features/rules.md`). A rule sets an app's CPU priority and
+  / or processors every time it starts. Nothing new in the sampler's cost: `rules::on_snapshot`
+  runs after `boost::on_snapshot` on the same snapshot.
+- Types (camelCase):
+
+```ts
+Rule { id: string, match: { kind: "path"|"name", value: string },
+  priority: "low"|"belowNormal"|"normal"|"aboveNormal"|"high"|null,   // never "realtime"
+  affinity: string|null /*decimal core mask, at least one core*/, enabled: boolean }
+RuleView = Rule & { lastApplied: number|null /*Unix ms*/,
+  lastFailed: { at: number, reason: string, needsAdmin: boolean }|null, running: number }
+RulesState { rulesEnabled: boolean, isAdmin: boolean, logicalCores: number, rules: RuleView[] }
+LogEntry { at: number /*ms*/, kind: "applied"|"blocked"|"reverted", ruleId: string, app: string,
+  pid: number, text: string, needsAdmin: boolean }
+ProcStatus { pid: number, startTime: number /*Unix secs, as ProcessRow*/, ruleId: string,
+  state: "applied"|"failed"|"gaveUp", summary: string /*"High priority, 4 cores"*/,
+  reason: string|null, needsAdmin: boolean, at: number /*ms*/ }
+```
+
+| command | args | returns |
+|---|---|---|
+| `rules_list` | – | `RulesState` (async) |
+| `rules_check` | `value: string` (exe name or path) | `string \| null`: why a rule may not name it |
+| `rules_create` | `rule: Rule` (`id` ignored) | `RuleView`; rejects with the plain reason |
+| `rules_update` | `rule: Rule` | `RuleView` |
+| `rules_delete` | `id: string` | `()` (a running app keeps its current priority) |
+| `rules_set_enabled` | `enabled: boolean` | `RulesState` (the master switch, `rulesEnabled`, default on) |
+| `rules_log` | – | `LogEntry[]`, newest first, last 200, in memory only |
+| `rules_status` | – | `ProcStatus[]`: processes that hold a rule right now |
+| `rules_pick_exe` | – | `string \| null` (file picker, `.exe`) |
+
+- Event `orbit://rules` `{ statuses: ProcStatus[] }`: sent only when a status changes (applied,
+  failed, stopped, process gone, rules edited). Not per tick.
+- Storage: `rules.json` in `<app local data>\rules` (`{ rulesEnabled, rules }`); debug builds only
+  honour `ORBIT_RULES_DIR`. No new UI setting.
+- Refusals (from `rules_create`, `rules_update`, `rules_check`): "Orbit can't change itself.",
+  "Windows needs this process. Orbit won't change it.", "Windows Security protects itself. Orbit
+  won't change it.", "Anti-cheat software blocks changes like this. Orbit won't try.", "Orbit never
+  sets Realtime. It can freeze Windows.", "There is already a rule for that app."
+- Failure texts: `This app runs as administrator. Restart Orbit as administrator to change it.`,
+  `Windows or the app's protection blocked this change.`, `Kept being changed back by something
+  else.` (3 reverts within 60 s).
+- UI: sub-tab **Rules** (`views/optimize/rules.js`, CSS `ru-`) after Boost; palette entry "Optimize:
+  Rules". Shared module `ui/js/rules.js` exports `openRuleDialog({ row?, rule? })`,
+  `startRuleStatus()`, `onRuleStatus(cb)`, `ruleStatusFor(row)`, `badgeOf(status)`, `ago(ms)`,
+  `PRIORITY_CHOICES` (no Realtime), `ruleForRow(rules, row)`. Processes menu item "Always use this
+  priority…" (rows and app groups); rows with a status get `span.proc-rule` (title = tooltip) in
+  `.proc-tags`.
+- Mock (`mock/rules.js`): seeded rules Discord.exe (applied), League of Legends.exe (not running),
+  steamservice.exe (fails with the administrator reason while the preview is not elevated); log has an
+  applied, a blocked and two reverted lines. Same validation and refusal text as Rust.
+  `tests/ui-smoke.mjs` "rules".
 
 **v1.1: Restart, Run new task, affinity, always on top, startup impact**
 - Types: `AffinityInfo { processMask: string, systemMask: string, logicalCores: number }`

@@ -15,6 +15,7 @@ import { bytes, rate, pct, heat, escapeHtml, fuzzy, IO_TITLE } from '../format.j
 import { toast, showMenu, confirmDialog, formDialog, openRunTask } from '../app.js';
 import { openLockFinder } from '../tools.js';
 import { defenderMenuItem } from './defender.js';
+import { openRuleDialog, startRuleStatus, onRuleStatus, ruleStatusFor, badgeOf } from '../rules.js';
 
 const ROW_H = 32;
 const ROW_H_COMPACT = 26;
@@ -689,6 +690,7 @@ export function processMenuItems(row) {
     },
     { label: 'Set priority', icon: 'i-bolt', disabled: self, action: () => openPriorityMenu(live) },
     { label: 'Set affinity', icon: 'i-cpu', disabled: self, action: () => setAffinity(live) },
+    { label: 'Always use this priority…', icon: 'i-pin', disabled: self, action: () => openRuleDialog({ row: live }) },
     { separator: true },
     { label: 'Open file location', icon: 'i-folder', disabled: !live.exe, action: () => openLocation(live) },
     { label: 'Search online', icon: 'i-globe', action: () => searchOnline(live.name) },
@@ -721,6 +723,7 @@ function groupMenuItems(item) {
     { separator: true },
     { label: item.open ? 'Collapse' : 'Expand', icon: 'i-chevron', action: () => toggleItem(item) },
     { label: 'Open file location', icon: 'i-folder', disabled: !p.exe, action: () => openLocation(p) },
+    { label: 'Always use this priority…', icon: 'i-pin', disabled: isSelf(p.pid, p.name), action: () => openRuleDialog({ row: p }) },
     { label: 'Search online', icon: 'i-globe', action: () => searchOnline(p.name) },
     defenderMenuItem(p.exe),
     { label: 'Copy details', icon: 'i-copy', action: () => copyDetails(p) },
@@ -1377,6 +1380,10 @@ export function mount(rootEl) {
   }
   state.els = els;
 
+  // Rule badges: statuses arrive only when one changes, so a redraw is all it takes.
+  startRuleStatus();
+  onRuleStatus(() => scheduleRender());
+
   rootEl.addEventListener('click', onRootClick);
   els.scroll.addEventListener('scroll', onScroll, { passive: true });
   els.scroll.addEventListener('click', onGridClick);
@@ -1847,6 +1854,11 @@ function memHeatMax() {
   return Math.max(512 * 1024 * 1024, total * 0.12);
 }
 
+function ruleBadgeHtml(rule) {
+  const b = badgeOf(rule);
+  return `<span class="proc-rule${b.tone ? ` proc-rule--${b.tone}` : ''}" title="${escapeHtml(b.title)}"><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg></span>`;
+}
+
 function patchRow(slot, item, selected) {
   const c = slot.c;
   const x = slot.x;
@@ -1902,13 +1914,17 @@ function patchRow(slot, item, selected) {
     x.name.title = title;
   }
 
-  const tagKey = (r.notResponding ? 'n' : '') + (r.suspended ? 's' : '') + (pinned ? 'p' : '');
+  // A rule badge (Optimize > Rules): one map lookup, rebuilt only when its state or text changes.
+  const rule = ruleStatusFor(isGrp ? item.g.primary : r);
+  const ruleKey = rule ? `${rule.state}|${rule.at}|${rule.summary}` : '';
+  const tagKey = (r.notResponding ? 'n' : '') + (r.suspended ? 's' : '') + (pinned ? 'p' : '') + (ruleKey ? `|${ruleKey}` : '');
   if (c.tags !== tagKey) {
     c.tags = tagKey;
     x.tags.innerHTML =
       (r.notResponding ? '<span class="proc-tag proc-tag--warn">Not responding</span>' : '') +
       (r.suspended ? '<span class="proc-tag">Suspended</span>' : '') +
-      (pinned ? '<span class="proc-pin" title="Pinned to watchlist"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg></span>' : '');
+      (pinned ? '<span class="proc-pin" title="Pinned to watchlist"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg></span>' : '') +
+      (rule ? ruleBadgeHtml(rule) : '');
   }
 
   setText(c, 'pid', x.pid, isGrp ? '' : String(r.pid));

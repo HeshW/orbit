@@ -14,7 +14,7 @@ import { chromium } from 'playwright-core';
 
 const ROOT = resolve(fileURLToPath(new URL('../ui/', import.meta.url)));
 const VIEWS = ['processes', 'performance', 'history', 'startup', 'users', 'services', 'network', 'security', 'optimize', 'rig', 'settings'];
-const OPTIMIZE_TABS = ['health', 'cleanup', 'boost', 'drivers', 'debloat'];
+const OPTIMIZE_TABS = ['health', 'cleanup', 'boost', 'rules', 'drivers', 'debloat'];
 const THEMES = ['night', 'void', 'signal', 'daylight'];
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -106,6 +106,146 @@ async function optimizeTabs(page) {
   await page.waitForSelector('#op-pane-health .hl-item', { timeout: WAIT }).catch(() => {
     throw new Error('Optimize > Health shows no checks');
   });
+}
+
+// Per-app rules (0.9): create one from the Processes menu (Realtime is not offered), see its
+// badge, then list, edit, switch off and delete it in Optimize > Rules; Orbit, Windows,
+// Windows Security and anti-cheat names are refused with a plain reason; the log shows
+// applied, blocked and changed-back entries.
+async function rules(page) {
+  const ANTICHEAT = "Anti-cheat software blocks changes like this. Orbit won't try.";
+  const REFUSED = {
+    'csrss.exe': "Windows needs this process. Orbit won't change it.",
+    'orbit.exe': "Orbit can't change itself.",
+    'MsMpEng.exe': "Windows Security protects itself. Orbit won't change it.",
+    'vgc.exe': ANTICHEAT,
+    'EasyAntiCheat_EOS.exe': ANTICHEAT,
+    'BEService_x64.exe': ANTICHEAT,
+  };
+  await showView(page, 'processes');
+  await page.fill('#search', 'Notion.exe');
+  const row = page.locator('#view-processes .proc-canvas > .proc-row.row').first();
+  await row.waitFor({ timeout: WAIT });
+  // The search filters on the next frame: wait until the first row is the one asked for.
+  await page.waitForFunction(() => /^Notion\.exe/.test(document.querySelector('#view-processes .proc-canvas > .proc-row.row')?.innerText || ''), null, { timeout: WAIT });
+  await row.click({ button: 'right' });
+  const labels = await menuLabels(page);
+  if (!labels.includes('Always use this priority…')) throw new Error(`Processes menu lacks "Always use this priority…": ${labels.join(', ')}`);
+  await page.locator('#context-menu .menu-item', { hasText: 'Always use this priority' }).click();
+  await page.waitForSelector('#dialog [data-ru-prio]', { timeout: WAIT });
+  const options = await page.locator('#dialog [data-ru-prio] option').allInnerTexts();
+  if (options.some((o) => /realtime/i.test(o))) throw new Error(`the priority list offers Realtime: ${options.join(', ')}`);
+  for (const want of ['High', 'Above normal', 'Normal', 'Below normal', 'Low']) if (!options.includes(want)) throw new Error(`the priority list lacks ${want}: ${options.join(', ')}`);
+  await page.selectOption('#dialog [data-ru-prio]', 'high');
+  await page.check('#dialog [data-ru-limit]');
+  await page.check('#dialog [data-ru-cpu="0"]');
+  await page.check('#dialog [data-ru-cpu="1"]');
+  await page.click('#dialog [data-act="ok"]');
+  await row.locator('.proc-rule').waitFor({ timeout: WAIT }).catch(async () => {
+    throw new Error('the process row shows no rule badge after the rule was made');
+  });
+  const tip = await row.locator('.proc-rule').getAttribute('title');
+  if (!/Rule: High priority, 2 cores\. Applied/.test(tip || '')) throw new Error(`badge tooltip is "${tip}"`);
+  await page.fill('#search', '');
+
+  await showView(page, 'optimize');
+  await page.click('#view-optimize .op-tabs [data-tab="rules"]');
+  await page.waitForFunction(() => /Notion\.exe/.test(document.querySelector('#op-pane-rules')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('Rules list does not show the new rule');
+  });
+  const names = await page.locator('#op-pane-rules .ru-rule .ru-name').allInnerTexts();
+  for (const want of ['Notion.exe', 'Discord.exe', 'League of Legends.exe', 'steamservice.exe']) {
+    if (!names.some((n) => n.includes(want))) throw new Error(`Rules list lacks ${want}: ${names.join(' | ')}`);
+  }
+  const notion = page.locator('#op-pane-rules .ru-rule', { hasText: 'Notion.exe' });
+  const line = (await notion.innerText()).replace(/\s+/g, ' ');
+  if (!/Any folder/.test(line) || !/High priority, 2 processors/.test(line) || !/Applied/.test(line)) throw new Error(`Notion.exe rule reads "${line}"`);
+  const steam = (await page.locator('#op-pane-rules .ru-rule', { hasText: 'steamservice.exe' }).innerText()).replace(/\s+/g, ' ');
+  if (!/Restart Orbit as administrator/.test(steam) || !/Restart as administrator/i.test(steam)) throw new Error(`steamservice.exe rule reads "${steam}"`);
+
+  // Edit: change the priority.
+  await notion.locator('[data-ru-edit]').click();
+  await page.waitForSelector('#dialog [data-ru-prio]', { timeout: WAIT });
+  await page.selectOption('#dialog [data-ru-prio]', 'belowNormal');
+  await page.click('#dialog [data-act="ok"]');
+  await page.waitForFunction(() => /Below normal priority, 2 processors/.test(document.querySelector('#op-pane-rules')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('editing a rule does not change the list');
+  });
+  // Switch off and back on.
+  await notion.locator('[data-ru-toggle]').click();
+  await page.waitForSelector('#op-pane-rules .ru-rule.is-off', { timeout: WAIT });
+  await notion.locator('[data-ru-toggle]').click();
+  await page.waitForFunction(() => !document.querySelector('#op-pane-rules .ru-rule.is-off'), null, { timeout: WAIT });
+
+  // Refusals: through the dialog (an app picked from the running list) and the command itself.
+  await page.click('#op-pane-rules [data-ru-add]');
+  await page.waitForSelector('#dialog [data-ru-app]', { timeout: WAIT });
+  const apps = await page.locator('#dialog [data-ru-app] option').allInnerTexts();
+  if (apps.includes('csrss.exe') || apps.includes('System')) throw new Error('the app list offers Windows processes');
+  const defender = apps.find((a) => /^(MsMpEng|NisSrv)\.exe$/.test(a));
+  if (defender) {
+    await page.selectOption('#dialog [data-ru-app]', defender);
+    await page.waitForFunction(() => /Windows Security protects itself/.test(document.querySelector('#dialog .dialog__error')?.textContent || ''), null, { timeout: WAIT }).catch(() => {
+      throw new Error(`${defender} is not refused in the dialog`);
+    });
+    if (!await page.locator('#dialog [data-act="ok"]').isDisabled()) throw new Error('the dialog lets a refused app be saved');
+  }
+  await page.click('#dialog [data-act="cancel"]');
+  const results = await page.evaluate(async (refused) => {
+    const { call } = await import('/js/api.js');
+    const out = {};
+    const make = async (label, rule) => {
+      try {
+        await call('rules_create', { rule: { id: '', enabled: true, priority: null, affinity: null, ...rule } });
+        out[label] = 'created';
+      } catch (err) {
+        out[label] = String(err);
+      }
+    };
+    for (const n of refused) await make(n, { match: { kind: 'name', value: n }, priority: 'high' });
+    await make('realtime', { match: { kind: 'name', value: 'game.exe' }, priority: 'realtime' });
+    await make('nothing', { match: { kind: 'name', value: 'game.exe' } });
+    await make('cores', { match: { kind: 'name', value: 'game.exe' }, affinity: '4294967296' });
+    await make('none', { match: { kind: 'name', value: 'game.exe' }, affinity: '0' });
+    await make('dup', { match: { kind: 'name', value: 'DISCORD.exe' }, priority: 'low' });
+    return out;
+  }, Object.keys(REFUSED));
+  for (const [name, why] of Object.entries(REFUSED)) {
+    if (results[name] !== why) throw new Error(`rule for ${name} gave "${results[name]}", wanted "${why}"`);
+  }
+  if (!/Realtime/.test(results.realtime)) throw new Error(`Realtime rule: ${results.realtime}`);
+  if (!/Pick a priority/.test(results.nothing)) throw new Error(`empty rule: ${results.nothing}`);
+  if (!/does not have/.test(results.cores) || results.none !== 'Pick at least one processor.') throw new Error(`cores: ${results.cores} / ${results.none}`);
+  if (!/already a rule/.test(results.dup)) throw new Error(`duplicate rule: ${results.dup}`);
+
+  // The log: applied, blocked and changed-back entries.
+  await page.click('#view-optimize .op-tabs [data-tab="health"]');
+  await page.click('#view-optimize .op-tabs [data-tab="rules"]');
+  await page.waitForSelector('#op-pane-rules .ru-rule', { timeout: WAIT });
+  await page.click('#op-pane-rules .ru-log > summary');
+  await page.waitForSelector('#op-pane-rules .ru-entry', { timeout: WAIT });
+  const kinds = await page.locator('#op-pane-rules .ru-entry').evaluateAll((els) => els.map((e) => [...e.classList].find((c) => /^ru-entry--/.test(c))));
+  for (const k of ['applied', 'blocked', 'reverted']) if (!kinds.includes(`ru-entry--${k}`)) throw new Error(`the log has no "${k}" entry: ${kinds.join(', ')}`);
+  const logText = (await page.locator('#op-pane-rules .ru-log').innerText()).replace(/\s+/g, ' ');
+  if (!/Kept being changed back by something else/.test(logText) || !/Restart Orbit as administrator/.test(logText)) throw new Error(`log text: ${logText}`);
+
+  // Delete (with a confirmation).
+  const before = await page.locator('#op-pane-rules .ru-rule').count();
+  await notion.locator('[data-ru-delete]').click();
+  await page.waitForSelector('#dialog [data-act="ok"]', { timeout: WAIT });
+  await page.click('#dialog [data-act="ok"]');
+  await page.waitForFunction((n) => document.querySelectorAll('#op-pane-rules .ru-rule').length === n - 1, before, { timeout: WAIT }).catch(() => {
+    throw new Error('deleting a rule leaves it in the list');
+  });
+  await showView(page, 'processes');
+  await page.fill('#search', 'Notion.exe');
+  await page.waitForFunction(() => {
+    const first = document.querySelector('#view-processes .proc-canvas > .proc-row.row');
+    return !!first && /^Notion\.exe/.test(first.innerText) && !first.querySelector('.proc-rule');
+  }, null, { timeout: WAIT }).catch(() => {
+    throw new Error('the badge stays after the rule was deleted');
+  });
+  await page.fill('#search', '');
 }
 
 // Performance > GPU names each adapter (mock: two) with its video memory and driver.
@@ -936,6 +1076,7 @@ try {
   await check('temperatures', () => sensors(page, base, watch));
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
+  await check('rules', () => rules(page));
   await check('suggestions hide', () => suggestionsHide(page, base));
   await check('startup sync', () => startupSync(page));
   await check('debloat', () => debloat(page));
@@ -956,4 +1097,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);
+console.log(`\nPassed: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules, Defender scans, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);

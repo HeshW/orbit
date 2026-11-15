@@ -1,5 +1,5 @@
 // Optimize (0.5): PC health, disk cleanup, game boost and driver check, one sub-tab each;
-// 0.6 adds guided debloat.
+// 0.6 adds guided debloat, 0.9 per-app rules.
 // This file is only the frame: the view head, the tab list and one pane per sub-tab.
 // Each sub-tab lives in its own module, ui/js/views/optimize/<id>.js, with the API
 //   export function mount(paneEl, ctx)   // once, the first time its tab opens
@@ -16,6 +16,7 @@ const TABS = [
   { id: 'health', label: 'Health', title: 'Check up. <em>Fix what matters.</em>', search: 'pc health report disk updates restart' },
   { id: 'cleanup', label: 'Cleanup', title: 'Clear the junk. <em>Keep your files.</em>', search: 'disk cleanup temp files free space junk' },
   { id: 'boost', label: 'Boost', title: 'Focus the PC. <em>Undo it after.</em>', search: 'game boost focus mode power plan' },
+  { id: 'rules', label: 'Rules', title: 'Set it once. <em>Every launch.</em>', search: 'rules per app priority affinity cores always high low cpu' },
   { id: 'drivers', label: 'Drivers', title: 'Know your drivers. <em>Update safely.</em>', search: 'drivers devices driver check' },
   { id: 'debloat', label: 'Debloat', title: 'Know what runs. <em>Turn off the extras.</em>', search: 'debloat bloatware startup apps scheduled tasks services built-in apps telemetry remove' },
 ];
@@ -125,7 +126,7 @@ function selectTab(id, focus = false) {
   }
 }
 
-/** Show Optimize on sub-tab `id` ('health' | 'cleanup' | 'boost' | 'drivers' | 'debloat'). */
+/** Show Optimize on sub-tab `id` ('health' | 'cleanup' | 'boost' | 'rules' | 'drivers' | 'debloat'). */
 export function openTab(id) {
   selectTab(id);
   if (currentViewName() !== 'optimize') navigate('optimize');

@@ -16,6 +16,7 @@ pub mod model;
 pub mod network;
 pub mod pdh;
 pub mod rig;
+pub mod rules;
 pub mod sampler;
 pub mod security;
 pub mod sensors;
@@ -151,11 +152,22 @@ pub fn run() {
             debloat::debloat_changes,
             debloat::debloat_undo,
             debloat::debloat_undo_all,
+            // optimize: per-app rules (v0.9)
+            rules::rules_list,
+            rules::rules_check,
+            rules::rules_create,
+            rules::rules_update,
+            rules::rules_delete,
+            rules::rules_set_enabled,
+            rules::rules_log,
+            rules::rules_status,
+            rules::rules_pick_exe,
         ])
         .setup(|app| {
             history::init(app.handle());
             // Before the sampler: restores a boost a crash left on.
             boost::init(app.handle());
+            rules::init(app.handle());
             sampler::start(app.handle().clone());
             shell::setup(app.handle());
             startup::start_watch(app.handle().clone());

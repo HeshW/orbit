@@ -1154,14 +1154,14 @@ pub async fn boost_pick_exe(app: AppHandle) -> Result<Option<String>, String> {
         .map(|h| h.0 as isize)
         .unwrap_or(0);
     blocking(move || {
-        std::thread::spawn(move || pick_exe(owner))
+        std::thread::spawn(move || pick_exe(owner, w!("Pick a game")))
             .join()
             .unwrap_or_else(|_| Err("The file picker failed.".to_string()))
     })
     .await?
 }
 
-fn pick_exe(owner: isize) -> Result<Option<String>, String> {
+pub(crate) fn pick_exe(owner: isize, title: windows::core::PCWSTR) -> Result<Option<String>, String> {
     struct Com;
     impl Drop for Com {
         fn drop(&mut self) {
@@ -1174,7 +1174,7 @@ fn pick_exe(owner: isize) -> Result<Option<String>, String> {
         let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).map_err(fail)?;
         let filters = [COMDLG_FILTERSPEC { pszName: w!("Programs (*.exe)"), pszSpec: w!("*.exe") }];
         dialog.SetFileTypes(&filters).map_err(fail)?;
-        dialog.SetTitle(w!("Pick a game")).map_err(fail)?;
+        dialog.SetTitle(title).map_err(fail)?;
         let options = dialog.GetOptions().map_err(fail)?;
         dialog
             .SetOptions(options | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR)

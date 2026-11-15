@@ -58,7 +58,7 @@ use crate::model::{same_start, AffinityInfo, ChildRef, ProcessDetails, ProcessRo
 use crate::sampler::{join_command_line, AppState};
 use crate::winenum::ImagePaths;
 
-const ACCESS_DENIED: &str = "Access denied. Try Restart as administrator.";
+pub(crate) const ACCESS_DENIED: &str = "Access denied. Try Restart as administrator.";
 pub(crate) const EXITED: &str = "That process has exited.";
 const PART_OF_ORBIT: &str = "That process is part of Orbit.";
 const UNVERIFIED: &str = "Could not confirm which process that is. Refresh and try again.";
@@ -2017,7 +2017,7 @@ pub async fn run_task(command: String, as_admin: bool) -> Result<(), String> {
 const CRITICAL_UNCHANGED: &str = "Windows needs this process. Orbit won't change it.";
 
 /// Parses a decimal mask from the UI and checks it against the system mask.
-fn validate_mask(mask: &str, system: u64) -> Result<u64, String> {
+pub(crate) fn validate_mask(mask: &str, system: u64) -> Result<u64, String> {
     let m: u64 = mask
         .trim()
         .parse()
@@ -2031,7 +2031,7 @@ fn validate_mask(mask: &str, system: u64) -> Result<u64, String> {
     Ok(m)
 }
 
-fn read_affinity(handle: HANDLE) -> Result<(u64, u64), String> {
+pub(crate) fn read_affinity(handle: HANDLE) -> Result<(u64, u64), String> {
     let mut process = 0usize;
     let mut system = 0usize;
     unsafe { GetProcessAffinityMask(handle, &mut process, &mut system) }

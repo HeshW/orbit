@@ -1,0 +1,244 @@
+/* Orbit / optimize/rules.css: Optimize > Rules (0.9, 11a), per-app priority and processors.
+   Used by ui/js/views/optimize/rules.js and the rule dialog in ui/js/rules.js. Prefix: ru-. */
+
+#op-pane-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+#op-pane-rules[hidden] {
+  display: none;
+}
+
+.ru-toolbar {
+  margin-bottom: 0;
+  align-items: center;
+}
+
+.ru-lede {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ru-panel {
+  padding: 4px 16px;
+}
+
+.ru-rules {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ru-rule {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.4fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.ru-rule:first-child {
+  border-top: 0;
+}
+
+.ru-rule.is-off .ru-main,
+.ru-rule.is-off .ru-sets,
+.ru-rule.is-off .ru-last {
+  opacity: 0.55;
+}
+
+.ru-ico {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+
+.ru-ico .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.ru-ico img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.ru-main {
+  min-width: 0;
+}
+
+.ru-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.ru-where {
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ru-sets {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ru-last {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.ru-last--ok {
+  color: var(--ink-2);
+}
+
+.ru-last--warn {
+  color: var(--warn);
+}
+
+/* ------------------------------------------------------------ log */
+
+.ru-log {
+  padding: 0;
+}
+
+.ru-log > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ru-log > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ru-log > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform var(--dur-1) var(--ease);
+}
+
+.ru-log[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.ru-log-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  margin: 0;
+  padding: 0 16px 8px;
+  overflow: auto;
+  list-style: none;
+}
+
+.ru-entry {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ru-entry-ico {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  color: var(--ok);
+}
+
+.ru-entry--blocked .ru-entry-ico,
+.ru-entry--reverted .ru-entry-ico {
+  color: var(--warn);
+}
+
+.ru-entry-ico .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.ru-entry-when {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ru-empty {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ dialog */
+
+.ru-pick {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ru-pick-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ru-target {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ru-match {
+  align-self: flex-start;
+}
+
+@media (max-width: 900px) {
+  .ru-rule {
+    grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
+  }
+
+  .ru-sets,
+  .ru-last {
+    grid-column: 2 / -1;
+  }
+}
