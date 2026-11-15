@@ -1,4 +1,4 @@
-// Orbit / per-app rules (0.9), the parts shared by the Processes view and Optimize > Rules:
+// Orbit / per-app rules (0.9), the parts shared by Processes, Optimize > Rules and Boost:
 // the status of each process that has a rule (for the row badge) and the dialog that
 // creates or edits a rule. Rust does the work (rules.rs); the status arrives with the
 // orbit://rules event, which is sent only when something changes, so reading it per row
@@ -18,6 +18,30 @@ export const PRIORITY_CHOICES = [
 ];
 
 export const priorityLabel = (p) => PRIORITY_CHOICES.find((c) => c.value === p)?.label || '';
+
+/** What an "only while in front" rule uses while the app is behind. */
+export const BEHIND_CHOICES = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'belowNormal', label: 'Below normal' },
+];
+
+/** "High priority in front, Normal behind, 2 processors, while Boost is on". */
+export function ruleSummary(r) {
+  const bits = [];
+  if (r.efficiency) bits.push('Efficiency mode');
+  if (r.priority) {
+    bits.push(r.inFront
+      ? `${priorityLabel(r.priority)} priority in front, ${priorityLabel(r.behind || 'normal')} behind`
+      : `${priorityLabel(r.priority)} priority`);
+  }
+  if (r.affinity) {
+    let n = 0;
+    for (let m = BigInt(r.affinity); m; m >>= 1n) n += Number(m & 1n);
+    bits.push(`${n} ${n === 1 ? 'processor' : 'processors'}`);
+  }
+  if (r.boostOnly) bits.push('while Boost is on');
+  return bits.join(', ');
+}
 
 // ------------------------------------------------------------------ status per process
 
@@ -82,6 +106,13 @@ export function ruleForRow(rules, row) {
   return rules.find((r) => r.match.kind === 'path' && hit(r)) || rules.find((r) => r.match.kind === 'name' && hit(r)) || null;
 }
 
+/** The rule for an exe name (Boost's game list): a name rule, or a path rule for that file. */
+export function ruleForName(rules, name) {
+  const lower = String(name || '').toLowerCase();
+  return rules.find((r) => r.match.kind === 'name' && r.match.value.toLowerCase() === lower)
+    || rules.find((r) => r.match.kind === 'path' && fileName(r.match.value).toLowerCase() === lower) || null;
+}
+
 function runningApps() {
   const rows = store.snapshot?.processes || [];
   const seen = new Map();
@@ -98,10 +129,11 @@ function runningApps() {
 
 /**
  * Create or edit a rule. `row` is a process (Processes menu), `rule` an existing rule
- * (Rules tab), neither for a new rule where the app is picked in the dialog.
+ * (Rules tab), `name` an exe name (Boost's game list), none of them for a new rule where
+ * the app is picked in the dialog. `defaults` presets a new rule (`{ boostOnly: true }`).
  * Resolves true when a rule was saved.
  */
-export async function openRuleDialog({ row = null, rule = null } = {}) {
+export async function openRuleDialog({ row = null, rule = null, name = '', defaults = {} } = {}) {
   let info;
   try {
     info = await call('rules_list');
@@ -109,8 +141,10 @@ export async function openRuleDialog({ row = null, rule = null } = {}) {
     toast(typeof err === 'string' ? err : 'Could not read the rules.', 'error');
     return false;
   }
-  const existing = rule || (row ? ruleForRow(info.rules, row) : null);
+  const existing = rule || (row ? ruleForRow(info.rules, row) : name ? ruleForName(info.rules, name) : null);
   const cores = Math.min(64, Math.max(1, info.logicalCores || 8));
+  const eco = !!info.efficiencySupported;
+  const start = existing || { priority: 'high', affinity: null, efficiency: false, inFront: false, behind: 'normal', boostOnly: false, ...defaults };
   const target = { name: '', exe: null };
   let kind = 'name';
   if (existing) {
@@ -120,8 +154,10 @@ export async function openRuleDialog({ row = null, rule = null } = {}) {
   } else if (row) {
     target.name = row.name;
     target.exe = row.exe || null;
+  } else if (name) {
+    target.name = fileName(name);
   }
-  const picking = !existing && !row;
+  const picking = !existing && !row && !name;
   const apps = picking ? runningApps() : [];
   const els = {};
   let token = 0;
@@ -157,28 +193,53 @@ export async function openRuleDialog({ row = null, rule = null } = {}) {
             ${PRIORITY_CHOICES.map((p) => `<option value="${p.value}">${p.label}</option>`).join('')}
           </select>
         </label>
+        <label class="check"><input type="checkbox" data-ru-front><span>Only while it's in front</span></label>
+        <label class="dialog__field ru-sub" data-ru-behind-field hidden>
+          <span class="dialog__field-label micro">When it's behind</span>
+          <select class="select" data-ru-behind aria-label="Priority when it's behind">
+            ${BEHIND_CHOICES.map((p) => `<option value="${p.value}">${p.label}</option>`).join('')}
+          </select>
+        </label>
+        ${eco ? `<label class="check"><input type="checkbox" data-ru-eco><span>Efficiency mode <span class="lv-faint">(Low priority and less power, like Task Manager)</span></span></label>` : ''}
         <label class="check"><input type="checkbox" data-ru-limit><span>Limit which processors it can use</span></label>
         <div class="dialog__grid" role="group" aria-label="Processors" data-ru-cores hidden>
           ${Array.from({ length: cores }, (_, i) => `<label class="check"><input type="checkbox" data-ru-cpu="${i}"><span>CPU ${i}</span></label>`).join('')}
-        </div>`;
+        </div>
+        <label class="check"><input type="checkbox" data-ru-boost><span>Only while Boost is on</span></label>`;
       els.target = fields.querySelector('[data-ru-target]');
       els.prio = fields.querySelector('[data-ru-prio]');
+      els.front = fields.querySelector('[data-ru-front]');
+      els.behindField = fields.querySelector('[data-ru-behind-field]');
+      els.behind = fields.querySelector('[data-ru-behind]');
+      els.eco = fields.querySelector('[data-ru-eco]');
       els.limit = fields.querySelector('[data-ru-limit]');
       els.cores = fields.querySelector('[data-ru-cores]');
       els.boxes = [...fields.querySelectorAll('[data-ru-cpu]')];
+      els.boost = fields.querySelector('[data-ru-boost]');
       els.match = [...fields.querySelectorAll('[data-ru-match]')];
       els.app = fields.querySelector('[data-ru-app]');
 
-      els.prio.value = existing?.priority || (existing ? '' : 'high');
-      if (existing?.affinity) {
-        const m = BigInt(existing.affinity);
+      els.prio.value = start.priority || '';
+      els.front.checked = !!start.inFront;
+      els.behind.value = start.behind || 'normal';
+      if (els.eco) els.eco.checked = !!start.efficiency;
+      els.boost.checked = !!start.boostOnly;
+      if (start.affinity) {
+        const m = BigInt(start.affinity);
         els.limit.checked = true;
         for (const b of els.boxes) b.checked = !!((m >> BigInt(b.dataset.ruCpu)) & 1n);
       }
 
       const sync = async () => {
         const mine = ++token;
+        const ecoOn = !!els.eco?.checked;
         els.cores.hidden = !els.limit.checked;
+        // Efficiency mode runs at Low and can't follow the window.
+        els.prio.disabled = ecoOn;
+        if (ecoOn) els.prio.value = '';
+        els.front.disabled = ecoOn;
+        if (ecoOn) els.front.checked = false;
+        els.behindField.hidden = !els.front.checked;
         for (const b of els.match) {
           const on = b.dataset.ruMatch === kind;
           b.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -190,8 +251,12 @@ export async function openRuleDialog({ row = null, rule = null } = {}) {
         els.target.title = target.exe || '';
         const n = els.boxes.filter((b) => b.checked).length;
         const needCores = els.limit.checked && n === 0;
-        ctl.setOk(!!target.name && !needCores && (els.prio.value || els.limit.checked));
-        ctl.error(needCores ? 'Pick at least one processor.' : '');
+        const needPrio = els.front.checked && !els.prio.value;
+        const samePrio = els.front.checked && els.prio.value === els.behind.value;
+        ctl.setOk(!!target.name && !needCores && !needPrio && !samePrio && !!(els.prio.value || els.limit.checked || ecoOn));
+        ctl.error(needCores ? 'Pick at least one processor.'
+          : needPrio ? 'Pick a priority to use while the app is in front.'
+            : samePrio ? 'Pick a different priority for when the app is in front.' : '');
         if (!target.name) return;
         let why = null;
         try {
@@ -209,9 +274,7 @@ export async function openRuleDialog({ row = null, rule = null } = {}) {
         kind = b.dataset.ruMatch;
         sync();
       });
-      els.prio.addEventListener('change', sync);
-      els.limit.addEventListener('change', sync);
-      for (const b of els.boxes) b.addEventListener('change', sync);
+      for (const el of [els.prio, els.front, els.behind, els.eco, els.limit, els.boost, ...els.boxes]) el?.addEventListener('change', sync);
       els.app?.addEventListener('change', () => {
         const a = apps.find((x) => x.name === els.app.value);
         target.name = a ? a.name : '';
@@ -236,11 +299,16 @@ export async function openRuleDialog({ row = null, rule = null } = {}) {
     async onSubmit() {
       let mask = 0n;
       if (els.limit.checked) for (const b of els.boxes) if (b.checked) mask |= 1n << BigInt(b.dataset.ruCpu);
+      const front = els.front.checked;
       const payload = {
         id: existing?.id || '',
         match: { kind, value: valueNow() },
         priority: els.prio.value || null,
         affinity: els.limit.checked ? mask.toString() : null,
+        efficiency: !!els.eco?.checked,
+        inFront: front,
+        behind: front ? els.behind.value : null,
+        boostOnly: els.boost.checked,
         enabled: existing ? existing.enabled !== false : true,
       };
       await call(existing ? 'rules_update' : 'rules_create', { rule: payload });

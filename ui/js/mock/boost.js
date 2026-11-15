@@ -133,6 +133,11 @@ async function autoCheck(ctx) {
   else if (state.config.auto && !state.active && !state.suppressed && running.length) await start(ctx, 'auto', running[0]);
 }
 
+/** True while the mock Boost is on (the rules mock reads it for "only while Boost is on"). */
+export function boostActive() {
+  return !!state.active;
+}
+
 export default {
   boost_status(_args, ctx) {
     return status(ctx);
