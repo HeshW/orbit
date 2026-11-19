@@ -77,6 +77,8 @@ let lastCompact = false;
 let timer = 0;
 let followUp = 0;
 let rafId = 0;
+let highlighted = ''; // the service picked by showService, marked until the view is left
+let targetName = ''; // service to scroll to and highlight (from a process's drawer)
 let spacerTop = null;
 let spacerBottom = null;
 
@@ -247,6 +249,38 @@ function goToProcess(svc) {
   selectProcess(svc.pid);
 }
 
+/** Opens this view with one service selected (the drawer's "Go to service"). */
+export function showService(name) {
+  if (!name) return;
+  filter = 'all';
+  clearSearch();
+  targetName = name;
+  highlighted = name;
+  if (visible && loaded) render(); else dirty = true;
+}
+
+function revealTarget() {
+  if (!targetName) return;
+  const index = viewRows.findIndex((s) => s.name === targetName);
+  if (index < 0) { targetName = ''; return; }
+  const rec = rowCache.get(targetName);
+  if (rec && rec.tr.isConnected) {
+    rec.tr.scrollIntoView({ block: 'center' });
+    targetName = '';
+    return;
+  }
+  // Virtual list: jump near the row so the window renders it, then try again.
+  if (!rowH) return;
+  let scroller = els.scroll;
+  while (scroller && scroller !== document.documentElement && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+  if (!scroller) return;
+  const body = els.tbody.getBoundingClientRect();
+  const view = scroller.getBoundingClientRect();
+  scroller.scrollTop += body.top - view.top + index * rowH - view.height / 3;
+  scheduleWindow();
+  requestAnimationFrame(() => requestAnimationFrame(revealTarget));
+}
+
 async function searchOnline(svc) {
   try {
     await call('search_online', { query: `${svc.displayName || svc.name} (${svc.name}) Windows service` });
@@ -314,7 +348,8 @@ function rowHtml(s, act) {
 
 function rowFor(s, index) {
   const act = pending.get(s.name) || '';
-  const sig = `${s.displayName}\u0001${s.status}\u0001${s.pid}\u0001${s.startType}\u0001${s.description || ''}\u0001${act}`;
+  const isTarget = s.name === highlighted;
+  const sig = `${isTarget ? 'T' : ''}${s.displayName}\u0001${s.status}\u0001${s.pid}\u0001${s.startType}\u0001${s.description || ''}\u0001${act}`;
   let rec = rowCache.get(s.name);
   if (!rec) {
     const tr = document.createElement('tr');
@@ -326,6 +361,7 @@ function rowFor(s, index) {
   if (rec.sig !== sig) {
     rec.tr.innerHTML = rowHtml(s, act);
     rec.tr.classList.toggle('is-pending', Boolean(act));
+    rec.tr.classList.toggle('is-target', isTarget);
     rec.tr.setAttribute('aria-busy', act ? 'true' : 'false');
     rec.sig = sig;
   }
@@ -498,6 +534,7 @@ function render() {
     rafId = 0;
   }
   renderWindow();
+  revealTarget();
 }
 
 function serviceFromTarget(target) {
@@ -674,6 +711,11 @@ export function onShow() {
 
 export function onHide() {
   visible = false;
+  if (highlighted) {
+    highlighted = '';
+    targetName = '';
+    dirty = true;
+  }
   stopTimer();
   if (rafId) {
     cancelAnimationFrame(rafId);

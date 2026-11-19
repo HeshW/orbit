@@ -25,8 +25,9 @@ import rig from './rig.js';
 import defender from './defender.js';
 import debloat from './debloat.js';
 import rules from './rules.js';
+import services from './services.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig, defender, debloat, rules };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig, defender, debloat, rules, services };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

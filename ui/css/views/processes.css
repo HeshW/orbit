@@ -1170,3 +1170,19 @@ html.reduce-motion .proc-sort {
     transition: none;
   }
 }
+
+/* Services hosted by the process (drawer) */
+.dr-svc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 3px 8px 3px 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.dr-svc .btn {
+  flex: none;
+}

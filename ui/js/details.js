@@ -8,7 +8,9 @@ import { call } from './api.js';
 import { store, on, selectProcess } from './store.js';
 import { bytes, pct, duration, time, escapeHtml, historySpan, IO_TITLE } from './format.js';
 import { sparkline } from './charts.js';
-import { toast } from './app.js';
+import { toast, navigate } from './app.js';
+import { hostedServices, refreshHosted } from './hosted.js';
+import { showService } from './views/services.js';
 import {
   endTask, endTree, toggleSuspend, setPriority, restartProcess, setAffinity, whenListed,
   PRIORITIES, statusLabel, isPinned, togglePin, copyDetails, copyText,
@@ -157,6 +159,10 @@ function template() {
           '<h3 class="micro dr-h" id="dr-kids-h" data-r="kidsHead">Child processes</h3>' +
           '<ul class="dr-children" data-r="kids"></ul>' +
         '</section>' +
+        '<section class="dr-section" aria-labelledby="dr-svc-h" data-r="svcSection" hidden>' +
+          '<h3 class="micro dr-h" id="dr-svc-h" data-r="svcHead">Services</h3>' +
+          '<ul class="dr-children dr-svcs" data-r="svcs"></ul>' +
+        '</section>' +
         '<section class="dr-section sec-drawer" aria-label="Modules and environment">' +
           '<details class="sec-more" data-r="modsBox">' +
             `<summary class="sec-summary"><span class="sec-summary-title">Modules</span><span class="sec-summary-count" data-r="modsCount"></span>${icon('i-chevron')}</summary>` +
@@ -229,6 +235,7 @@ export function initDetails() {
     selectProcess(null);
   });
   on('snapshot', onSnapshot);
+  on('hosted', () => { if (d.open) patchServices(); });
   // Minimised: skip the drawer's live patching; catch up when the window shows again.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) onSnapshot(); });
   on('settings', () => {
@@ -273,6 +280,8 @@ function openFor(pid) {
   patchLive(row);
   patchFacts();
   patchActions(row);
+  patchServices();
+  refreshHosted();
   loadIcon(row ? row.exe : null, row ? row.kind : null);
 
   d.open = true;
@@ -588,6 +597,25 @@ function patchChildren(children) {
   }
 }
 
+function patchServices() {
+  const r = d.r;
+  const list = hostedServices(d.pid);
+  const key = list.map((s) => s.name).join('|');
+  if (d.cache.svcs === key) return;
+  d.cache.svcs = key;
+  r.svcSection.hidden = !list.length;
+  set('svcHead', r.svcHead, `Services (${list.length})`);
+  const focused = document.activeElement;
+  const focusedName = focused && r.svcs.contains(focused) ? focused.getAttribute('data-svc') : null;
+  r.svcs.innerHTML = list.map((s) =>
+    `<li class="dr-svc"><span class="dr-child-name" title="${escapeHtml(s.name)}">${escapeHtml(s.displayName || s.name)}</span>` +
+    `<button type="button" class="btn btn--ghost btn--sm" data-svc="${escapeHtml(s.name)}"><span>Go to service</span>${icon('i-arrow-right')}</button></li>`).join('');
+  if (focusedName) {
+    const again = [...r.svcs.querySelectorAll('[data-svc]')].find((b) => b.getAttribute('data-svc') === focusedName);
+    if (again) again.focus({ preventScroll: true });
+  }
+}
+
 function patchActions(row) {
   const r = d.r;
   if (!r) return;
@@ -641,6 +669,12 @@ async function onClick(e) {
   if (pidBtn && d.el.contains(pidBtn)) {
     const pid = Number(pidBtn.getAttribute('data-pid'));
     if (Number.isFinite(pid)) selectProcess(pid);
+    return;
+  }
+  const svcBtn = t.closest('[data-svc]');
+  if (svcBtn && d.el.contains(svcBtn)) {
+    navigate('services');
+    showService(svcBtn.getAttribute('data-svc'));
     return;
   }
   const envBtn = t.closest('[data-env-copy]');

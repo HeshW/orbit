@@ -374,6 +374,41 @@ pub(crate) fn collect_services() -> Result<Vec<ServiceEntry>, String> {
     Ok(list)
 }
 
+/// Groups (pid, name, display name) triples by pid: pid 0 is skipped, each
+/// list is sorted by display name and holds a service once.
+fn group_hosted<'a>(
+    items: impl IntoIterator<Item = (u32, &'a str, &'a str)>,
+) -> HashMap<u32, Vec<HostedService>> {
+    let mut map: HashMap<u32, Vec<HostedService>> = HashMap::new();
+    for (pid, name, display) in items {
+        if pid == 0 {
+            continue;
+        }
+        let list = map.entry(pid).or_default();
+        if list.iter().any(|s| s.name == name) {
+            continue;
+        }
+        list.push(HostedService {
+            name: name.to_string(),
+            display_name: display.to_string(),
+        });
+    }
+    for list in map.values_mut() {
+        list.sort_by_cached_key(|s| (s.display_name.to_lowercase(), s.name.clone()));
+    }
+    map
+}
+
+/// PID -> services that run in that process. One enumeration, no per-service
+/// config calls, so it is much lighter than `collect_services`.
+fn collect_hosted() -> Result<HashMap<u32, Vec<HostedService>>, String> {
+    let scm = open_scm(SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE)?;
+    let raw = enumerate(&scm)?;
+    Ok(group_hosted(
+        raw.iter().map(|r| (r.pid, r.name.as_str(), r.display_name.as_str())),
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Control
 // ---------------------------------------------------------------------------
@@ -553,6 +588,15 @@ pub async fn list_services() -> Result<Vec<ServiceEntry>, String> {
         .map_err(|e| format!("Could not list services: {e}"))?
 }
 
+/// Which services each process hosts, keyed by PID. The Processes view calls
+/// this about every 10 s while it is visible; it is not part of the snapshot.
+#[tauri::command]
+pub async fn process_services() -> Result<HashMap<u32, Vec<HostedService>>, String> {
+    tauri::async_runtime::spawn_blocking(collect_hosted)
+        .await
+        .map_err(|e| format!("Could not list services: {e}"))?
+}
+
 #[tauri::command]
 pub async fn control_service(name: String, action: String) -> Result<(), String> {
     let action = match action.as_str() {
@@ -567,4 +611,49 @@ pub async fn control_service(name: String, action: String) -> Result<(), String>
     tauri::async_runtime::spawn_blocking(move || control_blocking(&name, action))
         .await
         .map_err(|e| format!("Service action failed: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn groups_by_pid_sorted_by_display_name() {
+        let map = group_hosted([
+            (10, "Audiosrv", "Windows Audio"),
+            (10, "AudioEndpointBuilder", "Windows Audio Endpoint Builder"),
+            (20, "Dnscache", "DNS Client"),
+            (10, "BITS", "Background Intelligent Transfer Service"),
+        ]);
+        assert_eq!(map.len(), 2);
+        let names: Vec<&str> = map[&10].iter().map(|s| s.display_name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Background Intelligent Transfer Service",
+                "Windows Audio",
+                "Windows Audio Endpoint Builder"
+            ]
+        );
+        assert_eq!(map[&20][0].name, "Dnscache");
+    }
+
+    #[test]
+    fn skips_pid_zero_and_duplicates() {
+        let map = group_hosted([
+            (0, "Stopped", "Stopped service"),
+            (5, "A", "alpha"),
+            (5, "A", "alpha"),
+            (5, "B", "Beta"),
+        ]);
+        assert!(!map.contains_key(&0));
+        assert_eq!(map[&5].len(), 2);
+        // Case-insensitive order: alpha before Beta.
+        assert_eq!(map[&5][0].name, "A");
+    }
+
+    #[test]
+    fn empty_input_gives_empty_map() {
+        assert!(group_hosted(std::iter::empty()).is_empty());
+    }
 }

@@ -1262,3 +1262,9 @@ html.reduce-motion .lv-textlink:hover .icon {
 .lv-table .row--packaged .c-cmd .btn {
   max-width: 100%;
 }
+
+/* service picked from a process's drawer ("Go to service") */
+.lv-table .row.is-target {
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--cyan-ink);
+}

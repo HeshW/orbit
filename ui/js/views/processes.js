@@ -15,6 +15,7 @@ import { bytes, rate, pct, heat, escapeHtml, fuzzy, IO_TITLE } from '../format.j
 import { toast, showMenu, confirmDialog, formDialog, openRunTask } from '../app.js';
 import { openLockFinder } from '../tools.js';
 import { defenderMenuItem } from './defender.js';
+import { hostedServices, hostedSummary, startHosted, stopHosted } from '../hosted.js';
 import { openRuleDialog, startRuleStatus, onRuleStatus, ruleStatusFor, badgeOf } from '../rules.js';
 
 const ROW_H = 32;
@@ -1503,6 +1504,7 @@ export function mount(rootEl) {
     applySettings();
     refresh();
   });
+  on('hosted', () => refreshVisible());
   on('select', (data) => {
     const pid = data && typeof data === 'object' ? data.pid : data;
     if (pid == null) return;
@@ -1528,6 +1530,7 @@ export function mount(rootEl) {
 }
 
 export function onShow() {
+  startHosted();
   state.visible = true;
   state.showKnown = true;
   if (state.els) state.scrollTop = state.els.scroll.scrollTop;
@@ -1536,6 +1539,7 @@ export function onShow() {
 }
 
 export function onHide() {
+  stopHosted();
   state.visible = false;
   state.showKnown = true;
 }
@@ -1972,8 +1976,12 @@ function patchRow(slot, item, selected) {
     x.text.innerHTML = highlight(r.name, state.terms);
   }
   setText(c, 'n', x.n, isGrp ? `(${item.g.members.length})` : '');
-  setText(c, 'meta', x.meta, (isGrp || r.kind === 'app') && r.windowTitle ? r.windowTitle : '');
-  const title = r.windowTitle ? `${r.name} / ${r.windowTitle}` : (r.exe || r.name);
+  const hosted = isGrp ? '' : hostedSummary(r.pid);
+  const windowMeta = (isGrp || r.kind === 'app') && r.windowTitle ? r.windowTitle : '';
+  setText(c, 'meta', x.meta, windowMeta || hosted);
+  let title = r.windowTitle ? `${r.name} / ${r.windowTitle}` : (r.exe || r.name);
+  if (hosted) title += `
+Services: ${hosted}`;
   if (c.title !== title) {
     c.title = title;
     x.name.title = title;

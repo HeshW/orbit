@@ -437,6 +437,14 @@ pub struct ServiceEntry {
     pub description: Option<String>,
 }
 
+/// One service hosted by a process, for `process_services`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostedService {
+    pub name: String,
+    pub display_name: String,
+}
+
 // ---------------------------------------------------------------------------
 // Shared state
 // ---------------------------------------------------------------------------

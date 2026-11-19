@@ -83,6 +83,7 @@ pub fn run() {
             startup::cancel_startup_measure,
             // services
             services::list_services,
+            services::process_services,
             services::control_service,
             // updates
             updates::check_update,

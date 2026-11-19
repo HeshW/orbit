@@ -1338,6 +1338,39 @@ async function watchRestart(page) {
   });
 }
 
+// Services on svchost rows (1.2, 14a): a process that hosts services names them under its row,
+// the drawer lists them, and "Go to service" opens Services with that service marked.
+async function svchostServices(page) {
+  const host = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    const map = await call('process_services');
+    const [pid, list] = Object.entries(map).sort((a, b) => b[1].length - a[1].length)[0] || [];
+    return pid ? { pid: Number(pid), count: list.length, first: list[0] } : null;
+  });
+  if (!host || host.count < 2) throw new Error('the mock process_services lists no host with two services');
+
+  await showView(page, 'processes');
+  await page.fill('#search', 'svchost.exe');
+  await page.waitForFunction((name) => [...document.querySelectorAll('#view-processes .proc-canvas > .proc-row.row:not([hidden]) .proc-meta')]
+    .some((el) => el.textContent.includes(name)), host.first.displayName, { timeout: WAIT }).catch(() => {
+    throw new Error(`no svchost.exe row names "${host.first.displayName}" under it`);
+  });
+  await page.fill('#search', '');
+
+  await page.evaluate(async (pid) => (await import('/js/store.js')).selectProcess(pid), host.pid);
+  await page.waitForSelector('#details.is-open .dr-svc', { timeout: WAIT }).catch(() => {
+    throw new Error('the details drawer lists no services for the host');
+  });
+  const shown = await page.locator('#details .dr-svc').count();
+  if (shown !== host.count) throw new Error(`drawer lists ${shown} services, expected ${host.count}`);
+
+  await page.locator(`#details [data-svc="${host.first.name}"]`).click();
+  await page.waitForSelector('#view-services.is-active', { timeout: WAIT });
+  await page.waitForSelector(`#view-services tr.is-target[data-name="${host.first.name}"]`, { timeout: WAIT }).catch(() => {
+    throw new Error(`Go to service did not mark ${host.first.name} in Services`);
+  });
+}
+
 // Processes: right-click an app group (mock chrome.exe), Set priority > Below normal sets
 // every member and says so in a toast.
 async function groupPriority(page) {
@@ -1427,6 +1460,7 @@ try {
   await check('defender', () => defender(page, base, watch));
   await check('group priority', () => groupPriority(page));
   await check('watchlist restart', () => watchRestart(page));
+  await check('svchost services', () => svchostServices(page));
   await check('rules', () => rules(page));
   await check('rules 11b', () => rulesMore(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));
@@ -1449,4 +1483,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);
+console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);

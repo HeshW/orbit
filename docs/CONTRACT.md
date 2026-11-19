@@ -1187,3 +1187,19 @@ ResetReport { reset: number, problems: string[] }
 - Set inline by views: `--h` (heat 0..1), `--d` (tree depth), `--proc-row-h`,
   `--proc-cols`, `--proc-edge`, `--tile-accent`.
 - Focus rings use `--cyan-ink` (same as `--cyan` in Night, Void and Signal).
+
+**v1.2: Services on svchost rows (14a)**
+- Command `process_services()` (`services.rs`) -> `{ [pid: number]: HostedService[] }` with
+  `HostedService = { name, displayName }`, sorted by display name. One `EnumServicesStatusExW`
+  pass, no per-service config, read-only, no admin. Only processes that host a running service
+  appear. It is deliberately not a `ProcessRow` field: services are not enumerated on the
+  per-second snapshot.
+- `ui/js/hosted.js`: `hostedServices(pid)`, `hostedSummary(pid)`, `refreshHosted(force?)`,
+  `startHosted()` / `stopHosted()` (every 10 s while Processes is shown); emits store event
+  `'hosted'` when the map changes. The drawer calls `refreshHosted()` when it opens.
+- Processes: a hosting row shows the names in its secondary text (`.proc-meta`, when it has no
+  window title) and in its tooltip. The drawer has a "Services (n)" section with
+  "Go to service" per entry (`[data-svc]`).
+- `views/services.js` exports `showService(name)`: clears the search and filter, scrolls to the
+  service and marks its row `.is-target` until the view is left.
+- Mock: `ui/js/mock/services.js` groups the mock `list_services` by pid.
