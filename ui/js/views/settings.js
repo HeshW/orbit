@@ -335,12 +335,23 @@ function processForPin(e) {
   return null;
 }
 
+/** How many running processes have this exe name (case-insensitive). */
+function runningCount(name) {
+  const procs = store.snapshot && store.snapshot.processes;
+  if (!procs) return 0;
+  const want = String(name).toLowerCase();
+  let n = 0;
+  for (let i = 0; i < procs.length; i++) if (String(procs[i].name).toLowerCase() === want) n++;
+  return n;
+}
+
 function renderWatch() {
   const s = settings();
   const pids = Array.isArray(s.watchlist) ? s.watchlist : [];
   const names = Array.isArray(s.watchNames) ? s.watchNames : [];
   const live = pids.map((e) => processForPin(e));
-  const sig = `${pids.map((e, i) => `${e.pid}:${live[i] ? live[i].name : ''}`).join(',')}|${names.join(',')}`;
+  const running = names.map((n) => runningCount(n));
+  const sig = `${pids.map((e, i) => `${e.pid}:${live[i] ? live[i].name : ''}`).join(',')}|${names.map((n, i) => `${n}:${running[i]}`).join(',')}`;
   if (sig === watchSig) return;
 
   const focusedKey = document.activeElement && els.watch.contains(document.activeElement)
@@ -373,17 +384,20 @@ function renderWatch() {
         <button type="button" class="icon-btn lv-more" data-remove-key="pid:${pid}" aria-label="Remove ${attr(name)} (PID ${pid}) from the watchlist" title="Remove">${icon('i-close')}</button>
       </li>`);
     });
-    for (const n of names) {
+    names.forEach((n, i) => {
+      const count = running[i];
       items.push(`<li class="lv-watch-item">
         <span class="lv-watch-ico">${icon('i-pin')}</span>
         <span class="lv-watch-text">
           <span class="lv-watch-name">${text(n)}</span>
-          <span class="lv-watch-meta">Every process with this name</span>
+          <span class="lv-watch-meta">${count ? `${count} ${count === 1 ? 'process' : 'processes'}` : 'Every process with this name'}</span>
         </span>
-        <span class="chip lv-chip lv-chip--muted">By name</span>
+        ${count
+          ? '<span class="chip chip--live lv-chip"><span class="signal" aria-hidden="true"></span>Running</span>'
+          : '<span class="chip lv-chip lv-chip--muted">Not running</span>'}
         <button type="button" class="icon-btn lv-more" data-remove-key="name:${attr(n)}" aria-label="Remove ${attr(n)} from the watchlist" title="Remove">${icon('i-close')}</button>
       </li>`);
-    }
+    });
     els.watch.innerHTML = items.join('');
   }
 

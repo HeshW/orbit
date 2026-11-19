@@ -10,7 +10,7 @@
 // touches text, classes and heat values that actually changed.
 
 import { call } from '../api.js';
-import { store, on, setSettings, setQuery, selectProcess, pinStartMatches, pinEntry } from '../store.js';
+import { store, on, setSettings, setQuery, selectProcess, pinStartMatches } from '../store.js';
 import { bytes, rate, pct, heat, escapeHtml, fuzzy, IO_TITLE } from '../format.js';
 import { toast, showMenu, confirmDialog, formDialog, openRunTask } from '../app.js';
 import { openLockFinder } from '../tools.js';
@@ -661,8 +661,10 @@ export function togglePin(row) {
     setSettings({ watchlist: others, watchNames: names.filter((n) => lc(n) !== lower) });
     toast(`Unpinned ${row.name}.`, 'info');
   } else {
-    setSettings({ watchlist: others.concat([pinEntry(row)]) });
-    toast(`Pinned ${row.name} to the watchlist.`, 'success');
+    // Pin the app by name, like a group, so it stays pinned when it restarts with a new pid.
+    setSettings({ watchlist: others, watchNames: names.concat([lower]) });
+    const copies = currentRows().filter((r) => lc(r.name) === lower).length;
+    toast(copies > 1 ? `Pinned every ${row.name} to the watchlist.` : `Pinned ${row.name} to the watchlist.`, 'success');
   }
 }
 
@@ -1167,21 +1169,34 @@ function buildModel() {
   state.model = { items, keyIndex, filtered, total: all.length, filterActive };
 
   validateSelection();
-  queuePrune(all, byPid);
+  queuePrune(all);
 }
 
-function queuePrune(all, byPid) {
+// Since 1.1 every pin is a name. A pid pin saved by an older version becomes a name pin while
+// its process still runs (the name is only known then), so it survives the next restart; a pin
+// whose process is gone, or whose pid Windows reused, is dropped as before.
+function queuePrune(all) {
   if (state.pruneQueued || !all.length) return;
   const wl = store.settings && Array.isArray(store.settings.watchlist) ? store.settings.watchlist : EMPTY;
-  // Keep a pid pin only while that exact process (same start time) runs: a reused pid drops out.
-  const alive = (e, map) => pinStartMatches(e.start, map.get(e.pid));
-  if (wl.every((e) => alive(e, byPid))) return;
+  if (!wl.length) return;
   state.pruneQueued = true;
   setTimeout(() => {
     state.pruneQueued = false;
-    const list = store.settings && Array.isArray(store.settings.watchlist) ? store.settings.watchlist : EMPTY;
-    const kept = list.filter((e) => alive(e, state.byPid));
-    if (kept.length !== list.length && state.byPid.size) setSettings({ watchlist: kept });
+    const s = store.settings || {};
+    const list = Array.isArray(s.watchlist) ? s.watchlist : EMPTY;
+    if (!list.length || !state.byPid.size) return;
+    const names = (Array.isArray(s.watchNames) ? s.watchNames : EMPTY).slice();
+    const have = new Set(names.map(lc));
+    for (const e of list) {
+      const r = state.byPid.get(e.pid);
+      if (!r || !pinStartMatches(e.start, r)) continue;
+      const n = lc(r.name);
+      if (!have.has(n)) {
+        have.add(n);
+        names.push(n);
+      }
+    }
+    setSettings({ watchlist: [], watchNames: names });
   }, 0);
 }
 

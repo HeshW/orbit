@@ -6,7 +6,8 @@
 //   diskRead, diskWrite, rx, tx       bytes per second
 //   proc: Map pid -> { name, cpu: number[] (percent), mem: number[] (bytes) }
 //
-// settings.watchlist: [{ pid, start }] (start = the process startTime, epoch seconds)
+// settings.watchlist: [{ pid, start }] (start = the process startTime, epoch seconds). Only pins
+// made before 1.1; since then every pin is a lower-case exe name in settings.watchNames.
 
 export const HISTORY_LEN = 60;
 
@@ -84,7 +85,8 @@ function sanitize(raw) {
     s.watchlist = [...byPid.values()];
   }
   if (Array.isArray(raw.watchNames)) {
-    s.watchNames = [...new Set(raw.watchNames.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim()))];
+    // Lower-case, like the pins Orbit makes, so one app is never listed twice.
+    s.watchNames = [...new Set(raw.watchNames.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim().toLowerCase()))];
   }
   for (const k of ['boostGames', 'boostApps']) {
     if (!Array.isArray(raw[k])) continue;

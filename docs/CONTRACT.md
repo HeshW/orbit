@@ -348,8 +348,11 @@ export const store = {
   },
   settings: { theme: 'night'|'void'|'signal'|'daylight', intervalMs: 1000, paused: false,
               compact: false, reducedMotion: false, grouping: 'grouped'|'tree'|'flat',
-              watchlist: { pid: number, start: number }[] /*pid pins bound to startTime*/,
-              watchNames: string[] /*exe names*/ },
+              watchlist: { pid: number, start: number }[] /*pid pins bound to startTime; only
+                         made before 1.1. Processes turns each one whose process runs into a
+                         name pin and drops the rest*/,
+              watchNames: string[] /*lower-case exe names; since 1.1 every pin, from a row or a
+                         group, goes here, so a pinned app stays pinned across restarts*/ },
   query: '',               // global search text (shared by all views)
 }
 export function on(event, cb)       // events: 'snapshot', 'query', 'settings', 'view', 'select'

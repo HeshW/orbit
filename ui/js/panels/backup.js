@@ -158,7 +158,7 @@ export function validateSettings(raw) {
         : null;
       take(k, !!list, list);
     } else if (k === 'watchNames') {
-      const list = Array.isArray(v) ? [...new Set(v.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim()))] : null;
+      const list = Array.isArray(v) ? [...new Set(v.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim().toLowerCase()))] : null;
       take(k, !!list, list);
     } else if (v === null || ['string', 'number', 'boolean', 'object'].includes(typeof v)) {
       // Keys other modules keep in settings (for example historyRange).

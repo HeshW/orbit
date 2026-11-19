@@ -1249,6 +1249,95 @@ async function palette(page) {
   await page.waitForSelector('#palette:not(.is-open)', { state: 'attached', timeout: WAIT });
 }
 
+// Watchlist (1.1): a process pinned from its own row stays pinned when it ends and starts again
+// with a new pid, and Settings shows it as not running, then running.
+async function watchRestart(page) {
+  const notepads = () => page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    return (await call('get_snapshot')).processes.filter((r) => r.name === 'notepad.exe').map((r) => ({ pid: r.pid }));
+  });
+  const endAll = () => page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    for (const r of (await call('get_snapshot')).processes.filter((x) => x.name === 'notepad.exe')) {
+      await call('end_task', { pid: r.pid, startTime: r.startTime });
+    }
+  });
+  const start = () => page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    await call('run_task', { command: 'notepad', asAdmin: false });
+  });
+  const watchItem = () => page.evaluate(() => {
+    const li = [...document.querySelectorAll('#view-settings [data-watch] .lv-watch-item')].find((el) => el.textContent.includes('notepad.exe'));
+    return li ? li.textContent.replace(/\s+/g, ' ').trim() : '';
+  });
+
+  await endAll();
+  await start();
+  await showView(page, 'processes');
+  await page.fill('#search', 'notepad.exe');
+  await page.waitForFunction(() => {
+    // Hidden rows are the list's spare pool, not results.
+    const rows = [...document.querySelectorAll('#view-processes .proc-canvas > .proc-row.row:not([hidden])')];
+    return rows.length === 1 && rows[0].textContent.includes('notepad.exe');
+  }, null, { timeout: WAIT }).catch(() => {
+    throw new Error('Processes shows no single notepad.exe row');
+  });
+  await page.locator('#view-processes .proc-canvas > .proc-row.row:not([hidden])', { hasText: 'notepad.exe' }).click({ button: 'right' });
+  const labels = await menuLabels(page);
+  if (!labels.includes('Pin to watchlist')) throw new Error(`notepad.exe menu lacks "Pin to watchlist": ${labels.join(', ')}`);
+  await page.locator('#context-menu .menu-item', { hasText: 'Pin to watchlist' }).click();
+  await page.fill('#search', '');
+  const saved = await page.evaluate(async () => (await import('/js/store.js')).store.settings);
+  if (saved.watchlist.length || !saved.watchNames.includes('notepad.exe')) throw new Error(`Pin to watchlist did not save a name pin: ${JSON.stringify({ watchlist: saved.watchlist, watchNames: saved.watchNames })}`);
+
+  const first = await notepads();
+  await endAll();
+  await showView(page, 'settings');
+  await page.waitForFunction(() => [...document.querySelectorAll('#view-settings [data-watch] .lv-watch-item')]
+    .some((el) => el.textContent.includes('notepad.exe') && el.textContent.includes('Not running')), null, { timeout: WAIT }).catch(async () => {
+    throw new Error(`Settings watchlist after notepad.exe ended: "${await watchItem()}"`);
+  });
+
+  await start();
+  await page.waitForFunction(() => [...document.querySelectorAll('#view-settings [data-watch] .lv-watch-item')]
+    .some((el) => el.textContent.includes('notepad.exe') && el.textContent.includes('Running') && !el.textContent.includes('Not running')), null, { timeout: WAIT }).catch(async () => {
+    throw new Error(`Settings watchlist after notepad.exe started again: "${await watchItem()}"`);
+  });
+  const second = await notepads();
+  if (!second.length || second[0].pid === first[0].pid) throw new Error('the restarted notepad.exe kept its old pid, so the test proves nothing');
+  const pinned = await page.evaluate(async (pid) => {
+    const { isPinned } = await import('/js/views/processes.js');
+    const { store } = await import('/js/store.js');
+    const row = (store.snapshot?.processes || []).find((r) => r.pid === pid);
+    return !!row && isPinned(row);
+  }, second[0].pid);
+  if (!pinned) throw new Error('the restarted notepad.exe is not on the watchlist');
+
+  // Leave the watchlist as it was.
+  await page.locator('#view-settings [data-remove-key="name:notepad.exe"]').click();
+  await endAll();
+
+  // A pid pin saved by an older version becomes a name pin while its process runs.
+  await page.evaluate(async () => {
+    const { store, setSettings } = await import('/js/store.js');
+    const ex = store.snapshot.processes.find((r) => r.name === 'explorer.exe');
+    setSettings({ watchlist: [{ pid: ex.pid, start: ex.startTime }] });
+  });
+  await showView(page, 'processes');
+  await page.waitForFunction(async () => {
+    const { store } = await import('/js/store.js');
+    const s = store.settings;
+    return s.watchlist.length === 0 && s.watchNames.includes('explorer.exe');
+  }, null, { timeout: WAIT }).catch(async () => {
+    const s = await page.evaluate(async () => (await import('/js/store.js')).store.settings);
+    throw new Error(`old explorer.exe pid pin was not moved to a name pin: ${JSON.stringify({ watchlist: s.watchlist, watchNames: s.watchNames })}`);
+  });
+  await page.evaluate(async () => {
+    const { store, setSettings } = await import('/js/store.js');
+    setSettings({ watchNames: store.settings.watchNames.filter((n) => n !== 'explorer.exe') });
+  });
+}
+
 // Processes: right-click an app group (mock chrome.exe), Set priority > Below normal sets
 // every member and says so in a toast.
 async function groupPriority(page) {
@@ -1256,12 +1345,12 @@ async function groupPriority(page) {
   await page.fill('#search', 'chrome.exe');
   // Wait for the filter: until it applies, rows re-sort and the first group can be another app.
   await page.waitForFunction(() => {
-    const groups = [...document.querySelectorAll('#view-processes .proc-canvas > .proc-row.is-group')];
+    const groups = [...document.querySelectorAll('#view-processes .proc-canvas > .proc-row.is-group:not([hidden])')];
     return groups.length > 0 && groups.every((el) => el.textContent.includes('chrome.exe'));
   }, null, { timeout: WAIT }).catch(() => {
     throw new Error('Processes shows no chrome.exe group row');
   });
-  const grp = page.locator('#view-processes .proc-canvas > .proc-row.is-group', { hasText: 'chrome.exe' }).first();
+  const grp = page.locator('#view-processes .proc-canvas > .proc-row.is-group:not([hidden])', { hasText: 'chrome.exe' }).first();
   await grp.click({ button: 'right' });
   const labels = await menuLabels(page);
   if (!labels.includes('Set priority')) throw new Error(`group menu lacks "Set priority": ${labels.join(', ')}`);
@@ -1337,6 +1426,7 @@ try {
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
   await check('group priority', () => groupPriority(page));
+  await check('watchlist restart', () => watchRestart(page));
   await check('rules', () => rules(page));
   await check('rules 11b', () => rulesMore(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));
@@ -1359,4 +1449,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);
+console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);
