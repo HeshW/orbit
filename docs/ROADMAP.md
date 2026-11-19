@@ -17,6 +17,9 @@
 | 11 | **0.9 list** | Shipped in 0.9.0: per-app rules (priority, processors, efficiency mode on Windows 11, only while in front, only while Boost is on, reset, master switch, backup), see `docs/features/rules.md`. 11c is declined. See section 11. |
 | 12 | **1.0 list** | Shipped in 1.0.0: a UI polish pass (no glows, gradient text, uppercase labels or grid background) and Set priority on grouped app rows. See section 12. |
 | 13 | **1.1 list** | Shipped in 1.1.0: watchlist pins that survive a restart. See section 13. |
+| 14 | **1.2 list** | Planned: services shown on svchost rows, a Developer leftovers cleanup category, and a 7-day hold before those leftovers are deleted. See section 14. |
+| 15 | **1.3 list** | Planned: fast folder sizes from the NTFS file table (admin), and a disk map in Biggest folders. See section 15. |
+| 16 | **1.4 list** | Planned: file search in the Ctrl+K palette. See section 16. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -827,3 +830,186 @@ process running; a pid pin whose process already ended is dropped, so pin that a
   when it starts, whether it was pinned from a single row or a group. Code: `togglePin` (pid pin)
   and `pinGroup` (name pin) in `ui/js/views/processes.js`, `settings.watchlist` and
   `settings.watchNames` in `ui/js/store.js`.
+
+## Ideas from WinRust (planned for 1.2 to 1.4)
+
+Written 2026-11-20 after reading WinRust (github.com/Lemxy/WinRust), a set of small Rust
+programs that replace parts of the Windows shell. Most of its task manager is already in Orbit
+(per-app network, temperatures, suspicious-process hints, startup apps that stay in sync, app
+history, debloat with undo). Sections 14 to 16 take the parts Orbit doesn't have yet. WinRust
+has no license, so Orbit takes ideas only, never code.
+
+The owner chose to keep all of this inside Orbit rather than ship separate apps. One theme per
+release, so each can be live-tested on its own. Planning only: API names below are the likely
+route and are **(unverified)** until each feature is built.
+
+### Not taking (and why)
+
+- **Taskbar and File Explorer replacements, or replacing Explorer as the shell.** Big, and a
+  crash leaves the user with no taskbar or a black screen.
+- **Photo viewer.** It opens every time a picture is clicked; starting Orbit's WebView2 window
+  for that would be slower than the Photos app it is meant to beat, and it isn't PC management.
+- **Ctrl+Shift+Esc takeover.** Already dropped (item 4); WinRust does it with an Image File
+  Execution Options key, which Orbit never writes.
+- **Removing built-in apps for good** (WinRust's `purge`). It can't be undone; Orbit's debloat
+  only makes changes it can undo.
+- **An always-running administrator search service.** Same reason as item 5 (no elevated
+  auto-start): Orbit installs to a folder users can write to, so anything that starts its code
+  elevated without asking is a privilege-escalation hole. Search (16) works without one.
+
+## 14. Next release (planned for 1.2)
+
+### 14a. Services on svchost rows — S
+
+**What it does.** A `svchost.exe` row in Processes says which services it runs ("Windows Audio,
+Audio Endpoint Builder"), and the details drawer lists them, each with "Go to service". Today
+the Services view can jump to a process, but not the other way round.
+
+**Likely route.** `services.rs` already reads each running service's PID
+(`ServiceStatusProcess.dwProcessId` from `EnumServicesStatusExW`). Build a PID to display-name
+map from that list on the services cache's cadence, and attach it to `ProcessRow` as a new
+optional field. Any process that hosts services gets it, not only svchost.
+
+**Admin:** no. **Contract:** one new optional `ProcessRow` field, plus its mock.
+
+### 14b. Developer leftovers in Cleanup — S–M
+
+**What it does.** A new Cleanup category for build folders of old projects: `node_modules`
+next to a `package.json`, and `target` next to a `Cargo.toml`, untouched for 30 days or more.
+Each project is listed with its size, so the user sees exactly which ones go. Not ticked by
+default.
+
+**Rules.**
+- Only the outermost match: never a `node_modules` inside another `node_modules`.
+- Never inside Program Files, Windows or AppData: installed apps (VS Code, Discord, Node)
+  ship their own `node_modules`, and deleting those breaks them.
+- "Untouched" means nothing was created or modified in the last 30 days in the build folder's
+  direct children, the project folder itself, or its `package.json` / `Cargo.toml` and lock
+  file, so a project worked on last week stays even if its build folder is old. Last-access
+  times are not used: Windows often doesn't update them.
+- Where to look: the user adds project folders (E:\Work, for example) with the folder picker,
+  opened from Rust and saved in Orbit's settings. Picked folders go through the same
+  protected-folder checks as the category roots.
+- The UI sends project ids from the last scan, never paths; Rust resolves each id to the folder
+  it found and checks it again before deleting.
+- Deleting reuses the existing handle-based delete and its reparse-point rules.
+- Tests use the fake layout (`Layout::under`) and throwaway temp folders, never real projects.
+
+**Admin:** no, for the user's own folders.
+
+### 14c. Hold Developer leftovers for 7 days before deleting — S–M
+
+**What it does.** Developer leftovers are moved to a hold folder instead of deleted. Cleanup
+shows what is held, with **Restore** and **Delete now**. Items older than 7 days are deleted
+when Orbit starts and once a day while it runs; if Orbit isn't opened for a while, they wait
+until it is.
+
+**Why only this category, and why 7 days.** Held files still take space, so a hold makes
+cleaning slower to pay off. The existing categories are caches that rebuild themselves, so a
+hold adds nothing there. A `node_modules` or `target` folder can be rebuilt too, but slowly,
+and a wrong match could hit a project the user still needs. Seven days is long enough to
+notice. WinRust holds for 30 days (per its code comments), a month before the space comes back.
+
+**Likely route.** Move with a same-volume rename through the handle the delete checks already
+use, into a hold folder on the same drive: Orbit's app-data folder on the system drive, a
+hidden folder at the root of other drives **(unverified: root write access for users on every
+drive)**. If a drive has no usable hold folder, or an item can't be moved, the item is left in
+place and reported as kept: never deleted directly.
+
+**Safety.** Orbit keeps a list of held items (original path, date) to show them, but Restore
+and Delete now only act on folders that are really inside a hold folder, checked by handle like
+any delete, so an edited list can't point them anywhere else. This matters when Orbit runs as
+administrator. Restore puts a folder back only inside one of the picked project folders, and if
+something already sits at the original path it says so and leaves both alone.
+
+### Order
+
+1. Services on svchost rows (14a): read-only, smallest.
+2. Developer leftovers (14b) and the hold (14c) together: the category ships with the hold, never
+   without it.
+
+## 15. Next release (planned for 1.3)
+
+### 15a. Fast folder sizes from the NTFS file table — M–L
+
+**What it does.** Biggest folders measures a whole drive much faster (seconds instead of
+minutes **(unverified on this PC)**) by reading the drive's master file table (MFT) in one
+pass, rather than opening every folder.
+Only when Orbit runs as administrator; otherwise Biggest folders works as it does today, with
+a line saying it is faster as administrator (the Restart as administrator pattern).
+
+**Likely route.** New read-only module (`mft.rs`). Open the volume (`\\.\C:`) read-only, read
+the `$MFT` file's own record to find where the table lives, read the table in large chunks,
+and parse each record's file name, parent and size. Details the parser must get right: the
+update-sequence fix-ups in every record, a `$MFT` that is itself split into several pieces on
+disk, and compressed or sparse files (use the space they really take, not their full length).
+Sizes are summed up the parent chain;
+hard links counted once; junctions and symlinks not followed. NTFS only: ReFS, FAT, exFAT and
+network drives use today's method.
+
+**Admin:** yes (a raw volume handle).
+**Risks:**
+- Parsing raw disk structures. Every read is bounds-checked, a bad record is skipped and never
+  crashes Orbit, and unit tests run on record bytes saved as fixtures, never on a live disk.
+- Totals can differ a little from Explorer's, for example very fragmented files whose details
+  spill into extra records. Handle those extra records rather than skipping them (WinRust's
+  code comments say it skips them and under-counts), and say in the UI that sizes are space
+  used on disk.
+- The handle is opened for reading only; nothing in this module can write.
+
+### 15b. Disk map in Biggest folders — M
+
+**What it does.** A Map switch in Biggest folders shows the current folder as boxes sized by
+space used. Click a box to go in, Backspace or right-click to go up, "Open in File Explorer"
+on any box. Like Biggest folders today, it never deletes anything.
+
+**Likely route.** Squarified treemap drawn in a canvas in the UI, from the data the scan
+already returns. Works with both scan methods (15a and the folder walk). Colours from
+`tokens.css`, so it follows all four themes.
+
+**Admin:** no (it shows whatever the scan returned).
+
+### Order
+
+1. File table reader (15a) behind Biggest folders, with the folder walk as the fallback.
+2. Disk map (15b) on top of either scan.
+
+## 16. Next release (planned for 1.4): file search
+
+**What it does.** File and folder names become searchable from the Ctrl+K palette: type part of
+a name and matching files show under the views and actions. Enter opens the file, Ctrl+Enter
+shows it in File Explorer. Both go through the user's own Explorer, never Orbit's process: when
+Orbit runs as administrator (the fast route), a file Orbit opened itself would run as
+administrator too. Route: ask the running desktop shell to open it (`IShellDispatch2::ShellExecute`
+from the shell window) **(unverified)**; if that fails, show it in File Explorer instead. Fuzzy matching like the palette's ("vsc" finds Visual Studio Code).
+
+**Wrong keyboard layout.** Text typed with the wrong layout still matches: typing "ؤاقخةث" on
+an Arabic layout finds "chrome". The palette also tries the query re-typed on the PC's other
+installed layouts (`GetKeyboardLayoutList`, then mapping each character to its key and back
+with `VkKeyScanExW` / `ToUnicodeEx`) **(unverified)**. Applies to the whole palette (views,
+actions, processes), not only files.
+
+**Likely route.**
+- **As administrator:** reuse the 15a reader to build a name index (names and parents only, no
+  sizes) the first time the palette searches files, then follow the NTFS change journal
+  (`FSCTL_READ_USN_JOURNAL`) while Orbit runs, so new and renamed files show up. A drive of
+  about a million files should index in a few seconds **(unverified on this PC)**. Keep the
+  index compact: one slot per file-table record (parent number and a pointer into one shared
+  block of name bytes, about 12 bytes plus the name) instead of a string per file. If the
+  change journal is off on a drive, or has moved past the point Orbit last read (it wraps), Orbit
+  reads the whole file table again. Orbit never turns the journal on itself: that would change
+  the PC.
+- **Not as administrator:** ask the Windows Search index (the `Search.CollatorDSO` OLE DB
+  provider) **(unverified)**. If the Windows Search service is off, the palette says search
+  needs Windows Search or Restart as administrator.
+
+**Rules.**
+- The index lives in memory only and is dropped when Orbit closes. It is never written to disk:
+  a file listing every path on the PC should not sit in a folder users can write to.
+- Results never leave the PC.
+- No background service; the index exists only while Orbit runs (see "Not taking").
+
+**Admin:** for the fast route, yes; the Windows Search route, no.
+**Risks:** memory (WinRust's README reports about 53 MB for its index; measure it here and show
+it in Settings > About); the first search after Orbit starts waits for the index.
+**Open question for the owner:** a global hotkey that opens Orbit straight into file search.
