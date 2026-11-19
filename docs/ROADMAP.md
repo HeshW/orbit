@@ -16,6 +16,7 @@
 | 10 | **0.8 list** | Shipped in 0.8.0: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
 | 11 | **0.9 list** | Shipped in 0.9.0: per-app rules (priority, processors, efficiency mode on Windows 11, only while in front, only while Boost is on, reset, master switch, backup), see `docs/features/rules.md`. 11c is declined. See section 11. |
 | 12 | **1.0 list** | Shipped in 1.0.0: a UI polish pass (no glows, gradient text, uppercase labels or grid background) and Set priority on grouped app rows. See section 12. |
+| 13 | **Next list** | Collecting. Not started; the owner says when work begins. See section 13. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -811,3 +812,15 @@ Started 2026-11-19 on branch `v1.0`. The scope is the two items below.
   processes) offers only "Always use this priority…"; "Set priority" is only on single process
   rows. Add "Set priority" to the group menu: it sets every process of that app, like "End all",
   and says how many changed when Windows blocks some (an elevated helper, for example).
+
+## 13. Next release: collecting
+
+The owner adds items over time. Nothing here is started until the owner says work begins.
+
+- **Watchlist pins that survive a restart.** Pinning a single process row (explorer.exe, for
+  example) pins that one running copy by process ID and start time, so when the app restarts the
+  new copy has a new ID and drops off the watchlist. Grouped apps (Chrome) are pinned by name and
+  already survive restarts. A pinned app should stay on the watchlist when it stops and show again
+  when it starts, whether it was pinned from a single row or a group. Code: `togglePin` (pid pin)
+  and `pinGroup` (name pin) in `ui/js/views/processes.js`, `settings.watchlist` and
+  `settings.watchNames` in `ui/js/store.js`.
