@@ -1,4 +1,4 @@
-//! App updates from GitHub Releases (same approach as RiftLens).
+//! App updates from GitHub Releases.
 //!
 //! The release workflow publishes `latest.json` plus a signed installer; the
 //! updater plugin reads the endpoint and public key from `tauri.conf.json`

@@ -2,7 +2,7 @@
 # Trigger: push a tag like v0.2.0 (git tag v0.2.0 && git push origin v0.2.0), or run it by hand.
 # The release includes latest.json, which installed copies of Orbit read to update themselves.
 # Update signing uses the repo secrets TAURI_SIGNING_PRIVATE_KEY and
-# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (same setup as RiftLens).
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 # The UI smoke test and the Rust unit tests must pass first; the release notes are the commit
 # subjects since the previous tag, so latest.json and the Releases page show the real changes.
 name: Release

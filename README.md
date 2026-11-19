@@ -22,14 +22,18 @@ The release notes are the commit subjects since the previous tag, so write them 
 
 ## Releasing
 
-1. Bump the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (and the
-   version text in `site/index.html`).
-2. Commit, push, then tag and push the tag: `git tag v0.3.1 && git push origin v0.3.1`.
+Releases follow `CLAUDE.md`: nothing is tagged and `main` doesn't move without the owner's
+"Yes, release X".
+
+1. Build the release on a `vX.Y` branch and bump the version in `src-tauri/tauri.conf.json`,
+   `src-tauri/Cargo.toml` (and `Cargo.lock`), and the three spots in `site/index.html`.
+2. Live-test it on the owner's PC. After the owner's OK, fast-forward `main`, then tag and
+   push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. GitHub Actions (`.github/workflows/release.yml`) builds the installer in the cloud, signs
    the update and publishes the release with `latest.json` and `Orbit-Setup.exe`. Installed
    copies pick it up on their next start. Pushing to `main` also redeploys the landing page.
 
-Update signing works like RiftLens: the public key goes in `plugins.updater.pubkey` in
+Update signing: the public key goes in `plugins.updater.pubkey` in
 `tauri.conf.json`, and the private key and its password live only in the repo secrets
 `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Losing the private key
 means existing installs can't verify future updates (users would reinstall by hand once).
