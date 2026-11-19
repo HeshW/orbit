@@ -465,6 +465,55 @@ export async function setPriority(pid, priority, startTime) {
   }
 }
 
+/** Sets every process of an app group; each one is still checked by Rust on its own. */
+async function setGroupPriority(g, priority) {
+  const p = PRIORITIES.find((x) => x.value === priority);
+  const name = g.primary.name;
+  const members = g.members.filter((r) => !isSelf(r.pid, r.name));
+  const n = members.length;
+  if (!p || !n) return false;
+  if (priority === 'realtime') {
+    const ok = await confirmDialog({
+      title: 'Set priority to Realtime?',
+      body: `A realtime process can starve Windows itself, including the mouse and keyboard. This sets ${n} ${name} processes. Use High unless you are sure.`,
+      confirmLabel: 'Set realtime',
+      danger: true,
+    });
+    if (!ok) return false;
+  }
+  let done = 0;
+  let lastErr = null;
+  for (const r of members) {
+    try {
+      await call('set_priority', { pid: r.pid, priority, startTime: r.startTime });
+      done++;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  const procs = (k) => `${name} ${k === 1 ? 'process' : 'processes'}`;
+  if (done === n) toast(`Set ${n} ${procs(n)} to ${p.label}.`, 'success');
+  else if (done > 0) toast(`Set ${done} of ${n} ${procs(n)} to ${p.label}. ${n - done} could not be changed. ${errText(lastErr)}`, 'error');
+  else toast(errText(lastErr), 'error');
+  return done > 0;
+}
+
+async function openGroupPriorityMenu(g) {
+  const pt = menuPoint();
+  // Tick a level only when every member is at it.
+  let current = null;
+  try {
+    const all = await Promise.all(g.members.map((r) => call('get_priority', { pid: r.pid })));
+    if (all.length && all.every((x) => x === all[0])) current = all[0];
+  } catch (_) { current = null; }
+  await new Promise((r) => setTimeout(r, 0));
+  showMenu(pt.x, pt.y, PRIORITIES.map((p) => ({
+    label: p.label,
+    icon: p.value === current ? 'i-check' : undefined,
+    action: () => setGroupPriority(g, p.value),
+  })));
+}
+
 function isExplorer(name) {
   return lc(name) === 'explorer.exe';
 }
@@ -720,6 +769,7 @@ function groupMenuItems(item) {
       action: () => endGroup(g),
     },
     { label: 'End process tree', icon: 'i-tree', danger: true, action: () => endTree(p.pid, p.name, p.startTime) },
+    { label: 'Set priority', icon: 'i-bolt', disabled: g.members.every((r) => isSelf(r.pid, r.name)), action: () => openGroupPriorityMenu(g) },
     { separator: true },
     { label: item.open ? 'Collapse' : 'Expand', icon: 'i-chevron', action: () => toggleItem(item) },
     { label: 'Open file location', icon: 'i-folder', disabled: !p.exe, action: () => openLocation(p) },
@@ -1316,7 +1366,7 @@ function viewTemplate() {
     '<div class="proc-view">' +
       '<header class="view-head proc-headbar">' +
         '<div class="proc-headtext">' +
-          '<p class="micro">01 / Processes</p>' +
+          '<p class="micro">Processes</p>' +
           '<h1 class="view-title">Every process. <em>In orbit.</em></h1>' +
         '</div>' +
         `<div class="proc-stats">${stat('count', 'Processes')}${stat('cpu', 'CPU')}${stat('mem', 'Memory')}</div>` +
@@ -1612,15 +1662,15 @@ function updateToolbar() {
   if (els.empty.hidden === empty) els.empty.hidden = !empty;
   if (empty) {
     if (!state.lastSnap) {
-      setText(state.hc, 'em', els.emptyMicro, 'Live / Waiting');
+      setText(state.hc, 'em', els.emptyMicro, 'Live');
       setText(state.hc, 'et', els.emptyTitle, 'Waiting for the first sample.');
       els.clearBtn.hidden = true;
     } else if (m.filterActive) {
-      setText(state.hc, 'em', els.emptyMicro, '0 / Matches');
+      setText(state.hc, 'em', els.emptyMicro, 'No matches');
       setText(state.hc, 'et', els.emptyTitle, store.query ? `No processes match "${String(store.query).trim()}".` : 'No processes match these filters.');
       els.clearBtn.hidden = false;
     } else {
-      setText(state.hc, 'em', els.emptyMicro, '0 / Processes');
+      setText(state.hc, 'em', els.emptyMicro, 'Empty');
       setText(state.hc, 'et', els.emptyTitle, 'No processes to show.');
       els.clearBtn.hidden = true;
     }

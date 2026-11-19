@@ -1001,9 +1001,7 @@ async function motionState(page, view) {
     const counting = n.textContent;
     n.remove();
     return {
-      lift: getComputedStyle(document.documentElement).getPropertyValue('--lift').trim(),
       btnTransition: getComputedStyle(btn).transitionDuration,
-      sweep: getComputedStyle(btn, '::after').content,
       cardTransition: card ? getComputedStyle(card).transitionDuration : 'none',
       entering: entering.length,
       enterAnim: entering.map((s) => `${s.animationName} ${s.animationDuration}`)[0] || '',
@@ -1024,7 +1022,7 @@ async function settledOpacity(page) {
 }
 
 const animOff = (s) => /^(0s,?\s*)+$/.test(`${s.btnTransition}`) && /^(0s,?\s*)+$/.test(`${s.cardTransition}`)
-  && s.lift === '0px' && s.sweep === 'none' && s.entering === 0 && s.counting === '32 GB';
+  && s.entering === 0 && s.counting === '32 GB';
 
 async function motion(page) {
   const sw = '#view-settings [data-switch="reducedMotion"]';
@@ -1034,15 +1032,13 @@ async function motion(page) {
 
   // On: buttons and cards transition, the view's blocks rise in, numbers count from zero.
   let s = await motionState(page, 'rig');
-  if (s.lift !== '-3px') throw new Error(`--lift is "${s.lift}", want -3px`);
   if (!/0\.25s/.test(s.btnTransition) || !/0\.25s/.test(s.cardTransition)) throw new Error(`no hover transition: button ${s.btnTransition}, card ${s.cardTransition}`);
-  if (s.sweep === 'none') throw new Error('button has no hover sweep');
   if (!s.entering || !/^orbit-enter 0\.45s/.test(s.enterAnim)) throw new Error(`view switch did not animate: ${s.entering} blocks, "${s.enterAnim}"`);
   if (s.counting === '32 GB') throw new Error('countUp did not start from zero');
   const hidden = await settledOpacity(page);
   if (hidden) throw new Error(`${hidden} block(s) not at opacity 1 after the entrance`);
 
-  // Settings switch off: every transition, lift, sweep, entrance and count-up stops.
+  // Settings switch off: every transition, entrance and count-up stops.
   await showView(page, 'settings');
   await page.click(sw);
   await page.waitForFunction(() => document.documentElement.classList.contains('reduce-motion'), null, { timeout: WAIT });
@@ -1228,6 +1224,39 @@ async function palette(page) {
   await page.waitForSelector('#palette:not(.is-open)', { state: 'attached', timeout: WAIT });
 }
 
+// Processes: right-click an app group (mock chrome.exe), Set priority > Below normal sets
+// every member and says so in a toast.
+async function groupPriority(page) {
+  await showView(page, 'processes');
+  await page.fill('#search', 'chrome.exe');
+  // Wait for the filter: until it applies, rows re-sort and the first group can be another app.
+  await page.waitForFunction(() => {
+    const groups = [...document.querySelectorAll('#view-processes .proc-canvas > .proc-row.is-group')];
+    return groups.length > 0 && groups.every((el) => el.textContent.includes('chrome.exe'));
+  }, null, { timeout: WAIT }).catch(() => {
+    throw new Error('Processes shows no chrome.exe group row');
+  });
+  const grp = page.locator('#view-processes .proc-canvas > .proc-row.is-group', { hasText: 'chrome.exe' }).first();
+  await grp.click({ button: 'right' });
+  const labels = await menuLabels(page);
+  if (!labels.includes('Set priority')) throw new Error(`group menu lacks "Set priority": ${labels.join(', ')}`);
+  await page.locator('#context-menu .menu-item', { hasText: 'Set priority' }).click();
+  await page.waitForFunction(() => /Below normal/.test(document.getElementById('context-menu')?.innerText || ''), null, { timeout: WAIT });
+  await page.locator('#context-menu .menu-item', { hasText: 'Below normal' }).click();
+  await page.waitForFunction(() => /Set \d+ chrome\.exe processes to Below normal\./.test(document.getElementById('toasts')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('no toast for the group priority change');
+  });
+  const prios = await page.evaluate(async () => {
+    const { call } = await import('/js/api.js');
+    const snap = await call('get_snapshot');
+    const out = [];
+    for (const r of snap.processes.filter((x) => x.name === 'chrome.exe')) out.push(await call('get_priority', { pid: r.pid }));
+    return out;
+  });
+  if (prios.length < 2 || prios.some((x) => x !== 'belowNormal')) throw new Error(`chrome.exe priorities after Set priority: ${prios.join(', ')}`);
+  await page.fill('#search', '');
+}
+
 async function drawer(page) {
   await showView(page, 'processes');
   const row = page.locator('#view-processes .proc-canvas > .proc-row.row').first();
@@ -1282,6 +1311,7 @@ try {
   await check('temperatures', () => sensors(page, base, watch));
   await check('history menu', () => historyMenu(page));
   await check('defender', () => defender(page, base, watch));
+  await check('group priority', () => groupPriority(page));
   await check('rules', () => rules(page));
   await check('rules 11b', () => rulesMore(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));

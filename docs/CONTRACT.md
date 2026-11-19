@@ -421,7 +421,7 @@ export function exportCsv()                  // builds CSV of current filtered r
 
 `css/tokens.css` defines on `:root[data-theme="night"]` (and the other 3) at least:
 `--bg --bg-raised --panel-solid --panel (gradient) --ink --ink-2 --muted --muted-2
---blue --cyan --blue-soft --edge --line --line-soft --line-strong --accent-grad
+--blue --cyan --blue-soft --edge --line --line-soft --line-strong
 --shadow --shadow-soft --glow --danger --warn --ok --heat-rgb (r,g,b for heat tints)
 --chart-cpu --chart-mem --chart-disk --chart-net --chart-gpu --chart-grid`
 plus fixed: `--font-display --font-body --font-mono --radius-sm --radius --radius-lg
@@ -432,9 +432,8 @@ bg #050b18, bg-raised #0a1428, panel-solid #0b1529, navy #0a0f1f, ink #f2f5ff,
 ink-2 #c3cee6, muted #8b9cbd, muted-2 #6f84a8, blue #4f8cff, cyan #38d5f0,
 blue-soft #8db4ff, edge #d6e6ff, line rgba(141,180,255,.12), line-soft rgba(141,180,255,.07),
 line-strong rgba(141,180,255,.26), shadow 0 30px 80px rgba(0,0,0,.45),
-shadow-soft 0 24px 60px -28px rgba(0,0,0,.7), glow 0 0 40px rgba(79,140,255,.18),
+shadow-soft 0 24px 60px -28px rgba(0,0,0,.7), glow none since 1.0 (Signal keeps a 1px ring),
 panel = linear-gradient(180deg, rgba(14,26,52,.78), rgba(8,16,34,.55)),
-accent-grad = linear-gradient(90deg, #9dc0ff, #8db4ff, #6fd6f4),
 radius-sm 6px, radius 14px, radius-lg 22px, radius-pill 999px,
 radius-btn 4px 18px 4px 18px, radius-pass 22px 6px 22px 6px, radius-tile 12px 4px 12px 4px,
 ease cubic-bezier(0.2,0.75,0.18,1), dur 0.25s / 0.45s.
@@ -443,10 +442,11 @@ Void: bg #000000, panels near-black navy, same accents. Signal: high contrast
 bg #f4f6fb, ink #0a0f1f, blue #2f6feb, cyan #0b8db8, muted ~#4a5878 (≥4.5:1),
 panels white glass, mark-light.svg. All text ≥4.5:1 in every theme.
 
-Type: Oxanium for display/interface (micro labels 11px 0.22em uppercase, buttons 12px
-0.18em uppercase, nav 14px), Manrope for body/table text (13-14px in dense tables),
+Type: Oxanium for display/interface (micro labels 11px, buttons 12px, nav 14px, all sentence
+case with no wide tracking since 1.0), Manrope for body/table text (13-14px in dense tables),
 tabular-nums for numbers. Display never bold (500). No emoji anywhere. Focus: 2px cyan
-outline, 3px offset. Background atmosphere: faint 64px pixel grid + two soft glows, CSS only.
+outline, 3px offset. Background: plain `--bg` (the pixel grid, colour washes and vignette were
+removed in 1.0). No gradient text, glows, hover lift or button sweep.
 Reduced motion: honour `prefers-reduced-motion` and settings.reducedMotion
 (`html.reduce-motion`).
 
@@ -733,7 +733,8 @@ WindowsSpec { edition: string|null /*"Windows 11 Pro": ProductName, fixed for bu
   `prefers-reduced-motion: reduce` stops the same things with the switch on.
 - Tokens (`tokens.css`): `--ease`, `--dur-1/2/3` (0.25 / 0.45 / 0.9 s) as before, plus
   `--lift` (-3px; 0px under `.reduce-motion` and `prefers-reduced-motion`), `--enter-y` (22px),
-  `--stagger` (70ms). Hover lifts use `translateY(var(--lift))`.
+  `--stagger` (70ms). Hover lifts use `translateY(var(--lift))`. 1.0 removed `--lift`, the
+  lifts, glows, button sweep and sidebar marker; `--enter-y` is 8px and `--stagger` 40ms.
 - CSS: `.btn` lifts 3px, gets an `::after` light sweep (`overflow: hidden` on `.btn`) and turns
   a trailing `i-arrow-right` icon -45deg; `.panel--hover` (now on My Rig cards), `.perf-tile`,
   `.lv-theme` and `.sidebar-foot` lift and glow; `.dr-link` draws its underline in (scaleX);
@@ -1152,6 +1153,9 @@ ResetReport { reset: number, problems: string[] }
   disabled and the UI never calls the backend for it (the backend refuses anyway).
 - 'End all' is refused for csrss.exe, wininit.exe, smss.exe, lsass.exe, services.exe and
   winlogon.exe; other Windows groups get the "part of Windows" warning.
+- An app group's right-click menu has "Set priority": the UI calls `set_priority` once per
+  member (skipping Orbit itself, one Realtime confirmation for the group) and reports how many
+  changed and how many could not be changed in one toast. No separate backend command.
 - `confirmDialog({ danger: true })` focuses Cancel; other confirms focus the OK button.
 - Space pauses unless focus is on a control reached by keyboard (`:focus-visible`) or a switch.
 - Only the titlebar `.signal` beats once per snapshot (`.is-beat`, 600 ms); every other
@@ -1172,8 +1176,8 @@ ResetReport { reset: number, problems: string[] }
 
 **CSS variables** (all four themes unless noted)
 - Colour: `--cyan-ink` (cyan for text and focus rings; darker than `--cyan` only in Daylight),
-  `--navy`, `--primary-bg`, `--on-primary`, `--overlay`, `--grid-line`, `--atmo-a`,
-  `--atmo-b`, `--vignette`.
+  `--navy`, `--primary-bg`, `--on-primary`, `--overlay`. (`--grid-line`, `--atmo-a`,
+  `--atmo-b`, `--vignette` and `--accent-grad` were removed in 1.0.)
 - Fixed: `--radius-tile-sm`, `--dur-3`, `--titlebar-h`, `--sidebar-w`, `--drawer-w`,
   `--row-h` (26px with `html.compact`), `--z-drawer`, `--z-titlebar`, `--z-menu`,
   `--z-palette`, `--z-dialog`, `--z-toast`.
