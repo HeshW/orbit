@@ -1371,6 +1371,33 @@ async function svchostServices(page) {
   });
 }
 
+// Cleanup > Developer leftovers (14b, 14c): projects listed with nothing ticked, Move to hold
+// sends ids and the folder shows as held, Restore brings it back, Add folder adds a picked one.
+async function devLeftovers(page) {
+  await showView(page, 'optimize');
+  await page.click('#view-optimize .op-tabs [data-tab="cleanup"]');
+  const pane = '#op-pane-cleanup [data-dl]';
+  await page.waitForSelector(`${pane} [data-dl-pick]`, { timeout: WAIT }).catch(() => {
+    throw new Error('Developer leftovers lists no projects');
+  });
+  if (await page.locator(`${pane} [data-dl-pick]:checked`).count()) throw new Error('a project is ticked by default');
+  const heldBefore = await page.locator(`${pane} [data-dl-restore]`).count();
+  await page.locator(`${pane} [data-dl-pick]`).first().check();
+  await page.click(`${pane} [data-dl-hold]`);
+  await page.click('#dialog [data-act="ok"]');
+  await page.waitForFunction(([sel, n]) => document.querySelectorAll(`${sel} [data-dl-restore]`).length === n + 1, [pane, heldBefore], { timeout: WAIT }).catch(() => {
+    throw new Error('Move to hold does not list the folder as held');
+  });
+  await page.locator(`${pane} [data-dl-restore]`).last().click();
+  await page.waitForFunction(([sel, n]) => document.querySelectorAll(`${sel} [data-dl-restore]`).length === n, [pane, heldBefore], { timeout: WAIT }).catch(() => {
+    throw new Error('Restore does not take the folder off the held list');
+  });
+  await page.click(`${pane} [data-dl-add]`);
+  await page.waitForFunction((sel) => /D:\\Projects/.test(document.querySelector(sel)?.innerText || ''), pane, { timeout: WAIT }).catch(() => {
+    throw new Error('Add folder does not show the picked folder');
+  });
+}
+
 // Processes: right-click an app group (mock chrome.exe), Set priority > Below normal sets
 // every member and says so in a toast.
 async function groupPriority(page) {
@@ -1461,6 +1488,7 @@ try {
   await check('group priority', () => groupPriority(page));
   await check('watchlist restart', () => watchRestart(page));
   await check('svchost services', () => svchostServices(page));
+  await check('developer leftovers', () => devLeftovers(page));
   await check('rules', () => rules(page));
   await check('rules 11b', () => rulesMore(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));

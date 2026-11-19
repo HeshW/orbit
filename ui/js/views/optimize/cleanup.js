@@ -4,10 +4,12 @@
 // cleanup_clean deletes them after a confirm. Only category ids go to Rust, never paths.
 // Biggest folders: cleanup_folder_sizes on a drive or folder, drill down, "Open folder"
 // (open_location). Read only: there is no delete there.
+// Developer leftovers (1.2): its own panel, see devleft.js.
 // Progress for all three jobs arrives as orbit://cleanup-progress; each can be cancelled.
 import { call, onEvent } from '../../api.js';
 import { escapeHtml, bytes, time } from '../../format.js';
 import { toast, confirmDialog, restartAsAdmin } from '../../app.js';
+import { mountDevLeft, showDevLeft } from './devleft.js';
 
 const ON_BY_DEFAULT = new Set(['user-temp', 'windows-temp', 'update-cache', 'crash-dumps', 'system-dumps', 'thumbnails']);
 
@@ -363,6 +365,14 @@ export function mount(paneEl, context) {
         <button type="button" class="btn btn--primary" data-cl-clean disabled>Clean</button>
       </div>
     </section>
+    <section class="panel cl-panel" aria-labelledby="cl-dev-title">
+      <div class="cl-panel-head">
+        <h2 class="micro cl-panel-title" id="cl-dev-title">Developer leftovers</h2>
+        <button type="button" class="icon-btn lv-refresh" data-dl-rescan aria-label="Scan again" title="Scan again">${icon('i-refresh')}</button>
+      </div>
+      <p class="lv-help">Old build folders go to a hold for 7 days before Orbit deletes them, so you can restore one you still need.</p>
+      <div data-dl></div>
+    </section>
     <section class="panel cl-panel" aria-labelledby="cl-big-title">
       <div class="cl-panel-head">
         <h2 class="micro cl-panel-title" id="cl-big-title">Biggest folders</h2>
@@ -390,6 +400,8 @@ export function mount(paneEl, context) {
   els.pathBtn = root.querySelector('[data-cl-path-btn]');
 
   onEvent('orbit://cleanup-progress', onProgress);
+  mountDevLeft(root.querySelector('[data-dl]'));
+  root.querySelector('[data-dl-rescan]').addEventListener('click', showDevLeft);
 
   root.addEventListener('change', (ev) => {
     const pick = ev.target.closest('[data-cl-pick]');
@@ -442,6 +454,12 @@ export function mount(paneEl, context) {
 export function onShow() {
   if (!junk.scan && !junk.scanning) scan();
   if (!big.drives.length) loadDrives();
+  if (!devShown) {
+    devShown = true;
+    showDevLeft();
+  }
 }
+
+let devShown = false;
 
 export function onHide() {}

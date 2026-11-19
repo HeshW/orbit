@@ -548,3 +548,22 @@ html.reduce-motion .cl-progress-bar > span {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------ developer leftovers (1.2) */
+
+.cl-dev-folders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cl-dev-folder .icon-btn {
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+}
+
+.cl-dev-held-title {
+  margin: 8px 0 0;
+}

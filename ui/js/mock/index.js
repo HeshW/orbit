@@ -18,6 +18,7 @@ import tools from './tools.js';
 import shell from './shell.js';
 import health from './health.js';
 import cleanup from './cleanup.js';
+import devleft from './devleft.js';
 import boost from './boost.js';
 import drivers from './drivers.js';
 import gpu from './gpu.js';
@@ -27,7 +28,7 @@ import debloat from './debloat.js';
 import rules from './rules.js';
 import services from './services.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, boost, drivers, gpu, rig, defender, debloat, rules, services };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, devleft, boost, drivers, gpu, rig, defender, debloat, rules, services };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

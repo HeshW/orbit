@@ -55,6 +55,8 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
+pub mod devleft;
+
 use windows::Win32::UI::Shell::{
     FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_LocalAppData,
     FOLDERID_Music, FOLDERID_Pictures, FOLDERID_Profile, FOLDERID_ProgramData,
@@ -345,6 +347,11 @@ pub struct Layout {
     test_root: Option<PathBuf>,
     /// Folders a root may never be, or contain.
     protected: Vec<String>,
+    /// Orbit's own data folder (Developer leftovers settings and its hold).
+    data: PathBuf,
+    /// Folders Developer leftovers never looks inside or puts anything back
+    /// into: Program Files, Windows, AppData, ProgramData.
+    nogo: Vec<String>,
 }
 
 impl Layout {
@@ -356,23 +363,33 @@ impl Layout {
         Ok(Layout {
             user_temp: std::env::temp_dir(),
             windows,
+            data: local.join("me.legacytech.orbit"),
             local,
             test_root: None,
             protected: protected_dirs(),
+            nogo: nogo_dirs(),
         })
     }
 
     /// Every root remapped into `root`: `<root>\User\Temp`, `<root>\Windows`,
     /// `<root>\LocalAppData`, and the Recycle Bin is `<root>\RecycleBin`.
+    /// Orbit's data folder is `<root>\OrbitData`; `<root>\ProgramFiles` and
+    /// `<root>\User\AppData` join the real no-go folders.
     pub fn under(root: &Path) -> Layout {
         let mut protected = protected_dirs();
         protected.push(root.to_string_lossy().into_owned());
+        let mut nogo = nogo_dirs();
+        for p in [root.join("Windows"), root.join("LocalAppData"), root.join("ProgramFiles"), root.join(r"User\AppData")] {
+            nogo.push(p.to_string_lossy().into_owned());
+        }
         Layout {
             user_temp: root.join("User").join("Temp"),
             windows: root.join("Windows"),
             local: root.join("LocalAppData"),
             test_root: Some(root.to_path_buf()),
             protected,
+            data: root.join("OrbitData"),
+            nogo,
         }
     }
 
@@ -437,6 +454,30 @@ fn protected_dirs() -> Vec<String> {
         .filter_map(|id| known_folder(id))
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
+    if let Some(w) = system_windows_dir() {
+        out.push(w.to_string_lossy().into_owned());
+    }
+    out
+}
+
+/// Developer leftovers never looks inside these (installed apps ship their
+/// own `node_modules`).
+fn nogo_dirs() -> Vec<String> {
+    let ids = [
+        &FOLDERID_ProgramFiles,
+        &FOLDERID_ProgramFilesX86,
+        &FOLDERID_ProgramData,
+        &FOLDERID_LocalAppData,
+        &FOLDERID_RoamingAppData,
+    ];
+    let mut out: Vec<String> = ids
+        .iter()
+        .filter_map(|id| known_folder(id))
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    if let Some(p) = known_folder(&FOLDERID_Profile) {
+        out.push(p.join("AppData").to_string_lossy().into_owned());
+    }
     if let Some(w) = system_windows_dir() {
         out.push(w.to_string_lossy().into_owned());
     }

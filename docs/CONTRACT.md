@@ -1203,3 +1203,34 @@ ResetReport { reset: number, problems: string[] }
 - `views/services.js` exports `showService(name)`: clears the search and filter, scrolls to the
   service and marks its row `.is-target` until the view is left.
 - Mock: `ui/js/mock/services.js` groups the mock `list_services` by pid.
+
+**v1.2: Developer leftovers in Cleanup, held 7 days (14b, 14c)**
+- Module `cleanup/devleft.rs` (child of `cleanup.rs`, reuses its handle checks), details in
+  `docs/features/dev-leftovers.md`. Settings and the held list are in
+  `<LocalAppData>\me.legacytech.orbit\dev-leftovers.json` (`<ORBIT_CLEANUP_ROOT>\OrbitData` in debug
+  builds with that variable). Hold folders: `<that folder>\hold` on the system drive,
+  `X:\.orbit-hold` (hidden) on other drives. `devleft::init()` runs in setup: deletes held items
+  older than 7 days, then once a day.
+
+| command | args | returns |
+|---|---|---|
+| `devleft_state` | – | `Result<DevState, String>` |
+| `devleft_add_folder` | – (opens the folder picker) | `Result<DevState, String>` (cancel: unchanged; refused folder: error) |
+| `devleft_remove_folder` | `path: String` | `Result<DevState, String>` |
+| `devleft_scan` | – | `Result<DevScan, String>` (read only; ids valid until the next scan) |
+| `devleft_hold` | `ids: string[]` (from the last scan) | `Result<DevResult, String>` (unknown id: error) |
+| `devleft_restore` | `ids: string[]` (held ids) | `Result<DevResult, String>` |
+| `devleft_delete_held` | `ids: string[]` (held ids) | `Result<DevResult, String>` |
+
+```ts
+DevState { folders: FolderView[], held: HeldView[], holdDays: 7, untouchedDays: 30 }
+FolderView { path: string, problem: string|null }
+HeldView { id, original: string, heldAt: number, expiresAt: number, bytes: number }
+DevScan { scannedAt: number, projects: DevProject[], recent: number /*left out: changed in 30 days*/,
+  folders: FolderView[] }
+DevProject { id, name /*project folder name*/, project, path /*build folder*/: string,
+  kind: "node"|"rust", bytes: number, files: number, lastChange: number }
+DevResult { done: number, bytes: number, kept: { path: string, reason: string }[] }
+```
+- UI: a "Developer leftovers" panel in Optimize > Cleanup (`views/optimize/devleft.js`,
+  `data-dl-*` hooks, `cl-dev-` CSS). Mock: `ui/js/mock/devleft.js`.

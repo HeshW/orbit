@@ -125,6 +125,14 @@ pub fn run() {
             cleanup::cleanup_cancel,
             cleanup::cleanup_drives,
             cleanup::cleanup_folder_sizes,
+            // optimize: cleanup, developer leftovers and their hold (v1.2)
+            cleanup::devleft::devleft_state,
+            cleanup::devleft::devleft_add_folder,
+            cleanup::devleft::devleft_remove_folder,
+            cleanup::devleft::devleft_scan,
+            cleanup::devleft::devleft_hold,
+            cleanup::devleft::devleft_restore,
+            cleanup::devleft::devleft_delete_held,
             // optimize: boost (v0.5)
             boost::boost_status,
             boost::boost_configure,
@@ -172,6 +180,8 @@ pub fn run() {
             // Before the sampler: restores a boost a crash left on.
             boost::init(app.handle());
             rules::init(app.handle());
+            // Deletes held Developer leftovers past 7 days, now and daily.
+            cleanup::devleft::init();
             sampler::start(app.handle().clone());
             shell::setup(app.handle());
             startup::start_watch(app.handle().clone());
