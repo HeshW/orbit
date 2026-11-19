@@ -68,7 +68,8 @@ async function check(label, fn) {
     passed++;
     console.log(`  ok   ${label}`);
   } catch (err) {
-    fail(String(err?.message || err).split('\n')[0]);
+    // The first line, plus a little of Playwright's call log so a timeout says what it waited for.
+    fail(String(err?.message || err).split('\n').filter((l) => l.trim()).slice(0, 4).join(' | '));
   }
 }
 
@@ -395,11 +396,35 @@ async function menuLabels(page) {
 
 // History: right-click a running app (mock chrome.exe) and an app that is not running;
 // Shift+F10 opens the same menu from the keyboard; Remove from history drops the row.
+// History rebuilds its table on show, when the data loads and when app icons arrive, so a
+// click on a slow machine can land on a row that was just replaced. Wait for the load, then
+// right-click in short attempts.
+async function historySettled(page) {
+  await page.waitForFunction(() => !document.querySelector('#view-history [data-refresh].is-busy'), null, { timeout: WAIT });
+  await page.waitForTimeout(400);
+}
+
+async function rightClickRow(page, row, what) {
+  let last;
+  for (let i = 0; i < 5; i++) {
+    try {
+      await row.click({ button: 'right', timeout: 3000 });
+      return;
+    } catch (err) {
+      last = err;
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(300);
+    }
+  }
+  throw new Error(`could not right-click ${what}: ${String(last?.message || last).split('\n')[0]}`);
+}
+
 async function historyMenu(page) {
   await showView(page, 'history');
   const chrome = page.locator('#view-history tr.row[data-key$="\\\\chrome.exe"]');
   await chrome.waitFor({ timeout: WAIT });
-  await chrome.click({ button: 'right' });
+  await historySettled(page);
+  await rightClickRow(page, chrome, 'the chrome.exe row');
   let labels = await menuLabels(page);
   for (const want of ['Search online', 'Open file location', 'Properties', 'Scan with Defender', 'Copy name', 'Copy path', 'Show in Processes', 'End task', 'Remove from history']) {
     if (!labels.includes(want)) throw new Error(`History menu for chrome.exe lacks "${want}": ${labels.join(', ')}`);
@@ -423,7 +448,7 @@ async function historyMenu(page) {
   // A row in view: scrolling closes the menu.
   const row = page.locator('#view-history tr.row').nth(3);
   const key = await row.getAttribute('data-key');
-  await row.click({ button: 'right' });
+  await rightClickRow(page, row, `the ${key} row`);
   await menuLabels(page);
   await page.locator('#context-menu .menu-item', { hasText: 'Remove from history' }).click();
   await page.click('#dialog [data-act="ok"]');
