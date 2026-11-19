@@ -1,6 +1,6 @@
 # Orbit roadmap — future features
 
-## Status (after 1.0.0)
+## Status (after 1.1.0)
 
 | # | Item | Status |
 |---|------|--------|
@@ -16,7 +16,7 @@
 | 10 | **0.8 list** | Shipped in 0.8.0: Start in tray fix, dismissable startup suggestions, Startup list that stays in sync (with Store app startup tasks). See section 10. |
 | 11 | **0.9 list** | Shipped in 0.9.0: per-app rules (priority, processors, efficiency mode on Windows 11, only while in front, only while Boost is on, reset, master switch, backup), see `docs/features/rules.md`. 11c is declined. See section 11. |
 | 12 | **1.0 list** | Shipped in 1.0.0: a UI polish pass (no glows, gradient text, uppercase labels or grid background) and Set priority on grouped app rows. See section 12. |
-| 13 | **Next list** | Collecting. Not started; the owner says when work begins. See section 13. |
+| 13 | **1.1 list** | Shipped in 1.1.0: watchlist pins that survive a restart. See section 13. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -813,9 +813,12 @@ Started 2026-11-19 on branch `v1.0`. The scope is the two items below.
   rows. Add "Set priority" to the group menu: it sets every process of that app, like "End all",
   and says how many changed when Windows blocks some (an elevated helper, for example).
 
-## 13. Next release: collecting
+## 13. Next release (1.1)
 
-The owner adds items over time. Nothing here is started until the owner says work begins.
+Built and released as 1.1.0 on 2026-11-19. Fix: Pin to watchlist on a single row now pins the
+app by name, like a group, and Settings > Watchlist shows each pinned name as Running or Not
+running. Pid pins saved by older versions become name pins the first time Orbit sees their
+process running; a pid pin whose process already ended is dropped, so pin that app again.
 
 - **Watchlist pins that survive a restart.** Pinning a single process row (explorer.exe, for
   example) pins that one running copy by process ID and start time, so when the app restarts the
