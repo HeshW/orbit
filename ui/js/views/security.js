@@ -442,7 +442,7 @@ export function mount(rootEl) {
   <div class="lv sec">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">08 / Security</p>
+        <p class="micro">Security</p>
         <h1 class="view-title">Check what runs. <em>Trust what stays.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">

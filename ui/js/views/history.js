@@ -615,7 +615,7 @@ export function mount(rootEl) {
   <div class="lv hist">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">03 / History</p>
+        <p class="micro">History</p>
         <h1 class="view-title">What ran. <em>What it cost.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">

@@ -18,7 +18,7 @@ Files: `ui/index.html` (`#sidebar-logo`), `ui/css/app.css` (`.sidebar-logo*`, `.
   than its brighter accents (the kit says not to recolour the mark).
 - A 76px ring, 1px, `--blue-soft` fading from 50% to nothing across the diagonal. It brightens
   a little on hover.
-- The slot between the nav and the Live / System card takes all the free height and centres
+- The slot between the nav and the System card takes all the free height and centres
   the mark halfway between them. When that would leave less than about 18px on each side
   (window height below roughly 765px; the default 1320 x 840 window leaves about 55px) the
   mark is not drawn, so it never overlaps the nav or the card, and it is out of the Tab order.
@@ -40,7 +40,7 @@ Transform and opacity only.
 ## Accessibility
 
 A plain `<button>` labelled "LegacyTech" (tooltip "About Orbit"), in the Tab order between
-Settings and the Live / System card. Up / Down in the sidebar still move between nav items
+Settings and the System card. Up / Down in the sidebar still move between nav items
 only. The mark itself is `aria-hidden`.
 
 ## Checks
@@ -50,4 +50,4 @@ for that theme and that it sits clear of the nav and the card. "logo" then check
 runs, playbackRate 3 / 1 / 2 at 100 / 0 / 50% CPU, no animation while `document.hidden`, with
 the Animations switch off, under `prefers-reduced-motion` and on a fresh start with the switch
 off; not drawn in a 620px window (card 12px under the nav, as before); a click opens Settings
-with About in view; Tab moves on to the Live / System card.
+with About in view; Tab moves on to the System card.

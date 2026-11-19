@@ -23,14 +23,14 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border: 0;
   border-radius: var(--radius-tile-sm, 10px 3px 10px 3px);
   background: transparent;
   font-family: var(--font-display);
   font-weight: 500;
   font-size: 12px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
   color: var(--ink-2);
   cursor: pointer;
   transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
@@ -54,7 +54,7 @@
 
 .ar-tab-count {
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.01em;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -256,8 +256,7 @@
   font-family: var(--font-display);
   font-weight: 500;
   font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--muted);
 }
 

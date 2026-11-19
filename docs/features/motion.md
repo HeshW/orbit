@@ -17,7 +17,7 @@ Files: `ui/js/motion.js` (new), `ui/css/tokens.css`, `ui/css/app.css`,
 - Windows' "Show animations" off (`prefers-reduced-motion: reduce`) stops the same things even
   with the switch on; the help line under the switch then says so.
 - Off means zero cost: the global rules in `app.css` drop every transition and animation,
-  `--lift` becomes 0px, the button sweep layer is not drawn, and `motion.js` starts nothing.
+  and `motion.js` starts nothing.
   Every element is already in its final place and fully visible without the animation.
 
 ## Motion language (legacytech.me design system)
@@ -27,12 +27,11 @@ Easing `cubic-bezier(0.2, 0.75, 0.18, 1)` (`--ease`); durations 0.25 s, 0.45 s, 
 
 | Where | What |
 |---|---|
-| Buttons (`.btn`) | Lift 3px; a band of light sweeps across once (0.9 s); a trailing arrow (`i-arrow-right`, e.g. Health > "Go to Cleanup") turns -45deg. |
-| Cards | My Rig cards, Performance tiles, theme cards and the sidebar's Live / System card lift 3px and glow. Table rows never move; process rows only fade their hover tint in. |
+| Buttons (`.btn`) | Border and background change colour; a trailing arrow (`i-arrow-right`, e.g. Health > "Go to Cleanup") turns -45deg. Since 1.0 nothing lifts, glows or sweeps. |
+| Cards | My Rig cards, Performance tiles, theme cards and the sidebar's System card brighten their border. Table rows never move; process rows only fade their hover tint in. |
 | Links | The underline draws in from the left (`.lv-textlink`, `.dr-link`); the arrow nudges right. |
-| Views | On every sidebar switch the head, toolbar and main panels fade and rise 22px, 70 ms apart (capped at six steps, so the last block starts by 350 ms). |
+| Views | On every sidebar switch the head, toolbar and main panels fade and rise 8px, 40 ms apart (capped at six steps, so the last block starts by 200 ms). |
 | Numbers | First show of each view only: header stats (`.stat-value`), Performance readout and tile values, Health summary counts and the Cleanup total count up from 0 in 0.45 s. A number that arrives later (My Rig specs, Health report) counts when it lands, within 6 s. A live tick that writes a new value stops the count at once. Durations ("3h 20m"), times and dates are left alone. |
-| Sidebar | The active marker slides in from the left. |
 | Mini window | Hover transitions only (the "Open Orbit" button). |
 
 ## Cost
@@ -46,7 +45,6 @@ Easing `cubic-bezier(0.2, 0.75, 0.18, 1)` (`--ease`); durations 0.25 s, 0.45 s, 
 ## Checks
 
 - `tests/ui-smoke.mjs` "motion": the switch is on by default; with it on a button and a card
-  have 0.25 s transitions and a sweep, a view switch runs `orbit-enter 0.45s`, `countUp` starts
+  have 0.25 s transitions, a view switch runs `orbit-enter 0.45s`, `countUp` starts
   at 0, and every head and panel ends at opacity 1; with the switch off, and again with
-  `prefers-reduced-motion: reduce`, transitions are 0s, `--lift` is 0px, there is no sweep, no
-  entrance and no count-up.
+  `prefers-reduced-motion: reduce`, transitions are 0s, there is no entrance and no count-up.

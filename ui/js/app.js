@@ -319,7 +319,7 @@ export function confirmDialog({ title = 'Are you sure?', body = '', confirmLabel
 
   layer.innerHTML = `
     <div class="dialog pass" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-body">
-      <div class="dialog__label micro"><span class="signal" aria-hidden="true"></span>Orbit / Confirm</div>
+      <div class="dialog__label micro"><span class="signal" aria-hidden="true"></span>Confirm</div>
       <h2 class="dialog__title" id="dialog-title"></h2>
       <p class="dialog__body" id="dialog-body"></p>
       <div class="dialog__actions">
@@ -377,7 +377,7 @@ export function formDialog({ label = 'Orbit', title = '', body = '', okLabel = '
       </div>
     </form>`;
   const form = layer.querySelector('form');
-  layer.querySelector('[data-r="label"]').textContent = `Orbit / ${label}`;
+  layer.querySelector('[data-r="label"]').textContent = label;
   layer.querySelector('.dialog__title').textContent = title;
   const bodyEl = layer.querySelector('.dialog__body');
   if (body) {
@@ -697,7 +697,7 @@ function updateLive() {
   const sig = btn.querySelector('.signal');
   if (sig) sig.classList.toggle('signal--off', paused);
   const text = $('live-text');
-  if (text) text.textContent = paused ? 'Paused' : `Live / ${(intervalMs / 1000).toFixed(1)} s`;
+  if (text) text.textContent = paused ? 'Paused' : `Live · ${(intervalMs / 1000).toFixed(1)} s`;
 }
 
 function renderAdminBadge() {

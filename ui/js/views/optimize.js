@@ -100,7 +100,7 @@ function callHide(id) {
 
 function render() {
   const t = TABS.find((x) => x.id === tab) || TABS[0];
-  els.micro.textContent = `Optimize / ${t.label}`;
+  els.micro.textContent = `Optimize · ${t.label}`;
   els.title.innerHTML = t.title;
   for (const btn of els.tabs.querySelectorAll('[data-tab]')) {
     const on = btn.dataset.tab === tab;

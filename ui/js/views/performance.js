@@ -343,13 +343,13 @@ function tileHtml(spec, i) {
     </button>`;
 }
 
-function paneHeadHtml(key, index, title) {
+function paneHeadHtml(key, title) {
   return `
     <div class="perf-pane__head">
       <div class="perf-pane__id">
         <span class="perf-swatch perf-swatch--${key}" aria-hidden="true"></span>
         <div class="perf-pane__titles">
-          <p class="micro">${index} / ${RES[key].label}</p>
+          <p class="micro">${RES[key].label}</p>
           <h2 class="perf-pane__title" data-ref="title">${title}</h2>
         </div>
       </div>
@@ -368,7 +368,7 @@ function chartHtml(ref, label, topLabel, opts = {}) {
   return `
     <div class="perf-chart-block">
       <div class="perf-chart-head">
-        <p class="micro">${label} / ${span}</p>
+        <p class="micro">${label}, last ${span}</p>
         ${legend}
       </div>
       <div class="perf-chart${size}">
@@ -397,7 +397,7 @@ function topHtml(key) {
   if (key === 'network') {
     return `
       <div class="perf-block">
-        <div class="perf-block__head"><p class="micro">Top consumers / Network</p></div>
+        <div class="perf-block__head"><p class="micro">Top apps by network</p></div>
         <p class="perf-note">Per-app download and upload rates are in the Network view when Orbit
         runs as administrator. Totals for each network interface are shown here.</p>
       </div>`;
@@ -415,7 +415,7 @@ function topHtml(key) {
   return `
     <div class="perf-block">
       <div class="perf-block__head">
-        <p class="micro"${key === 'disk' ? ` title="${fmt.IO_TITLE}"` : ''}>${key === 'disk' ? 'Top I/O / Processes' : `Top consumers / ${RES[key].label}`}</p>
+        <p class="micro"${key === 'disk' ? ` title="${fmt.IO_TITLE}"` : ''}>${key === 'disk' ? 'Top processes by I/O' : `Top processes by ${RES[key].metric}`}</p>
         <span class="perf-block__hint" data-ref="topHint"></span>
       </div>
       <ol class="perf-top" data-ref="top">${rows}</ol>
@@ -426,7 +426,7 @@ function topHtml(key) {
 function factsBlockHtml(key) {
   return `
     <div class="perf-block">
-      <div class="perf-block__head"><p class="micro">System facts / ${RES[key].label}</p></div>
+      <div class="perf-block__head"><p class="micro">${RES[key].label} facts</p></div>
       ${factsHtml(key)}
     </div>`;
 }
@@ -438,7 +438,7 @@ function sensorsHtml(key) {
   return `
     <div class="perf-block perf-sensors" data-ref="sens">
       <div class="perf-block__head">
-        <p class="micro" data-ref="sensHead">Sensors / Temperature</p>
+        <p class="micro" data-ref="sensHead">Temperature</p>
         <span class="perf-block__hint perf-sensors__source" data-ref="sensSource"></span>
       </div>
       <div class="perf-sensors__body" data-ref="sensBody" hidden>
@@ -467,16 +467,15 @@ function lowerHtml(key) {
 }
 
 function paneHtml(key) {
-  const idx = String(ORDER.indexOf(key) + 1).padStart(2, '0');
   let body = '';
   switch (key) {
     case 'cpu':
       body = `
-        ${paneHeadHtml(key, idx, 'Processor')}
+        ${paneHeadHtml(key, 'Processor')}
         ${chartHtml('chart', 'Utilisation', '100%')}
         <div class="perf-block perf-block--flush">
           <div class="perf-block__head">
-            <p class="micro">Logical processors / <span data-ref="coreCount">0</span></p>
+            <p class="micro"><span data-ref="coreCount">0</span> logical processors</p>
             <span class="perf-block__hint">Utilisation per core</span>
           </div>
           <div class="grid-cores perf-cores" data-ref="cores"></div>
@@ -486,10 +485,10 @@ function paneHtml(key) {
       break;
     case 'memory':
       body = `
-        ${paneHeadHtml(key, idx, 'Memory')}
+        ${paneHeadHtml(key, 'Memory')}
         ${chartHtml('chart', 'Memory in use', '100%')}
         <div class="perf-block perf-block--flush">
-          <div class="perf-block__head"><p class="micro">Composition / Now</p></div>
+          <div class="perf-block__head"><p class="micro">Composition now</p></div>
           <div class="perf-comp" role="img" data-ref="comp" aria-label="Memory composition">
             <span class="perf-comp__seg perf-comp__seg--used" data-ref="segUsed"></span>
             <span class="perf-comp__seg perf-comp__seg--cached" data-ref="segCached"></span>
@@ -505,27 +504,27 @@ function paneHtml(key) {
       break;
     case 'disk':
       body = `
-        ${paneHeadHtml(key, idx, 'Storage')}
+        ${paneHeadHtml(key, 'Storage')}
         ${chartHtml('chart', 'Active time', '100%', { note: 'Active time is not available on this system.' })}
         ${chartHtml('rateChart', 'Transfer rate', 'Peak 0 B/s', {
           small: true,
           legend: legendHtml([['perf-dot--disk', 'Read', 'lRead'], ['perf-dot--alt', 'Write', 'lWrite']]),
         })}
         <div class="perf-block perf-block--flush">
-          <div class="perf-block__head"><p class="micro" data-ref="volHead">Volumes / Capacity</p></div>
+          <div class="perf-block__head"><p class="micro" data-ref="volHead">Volumes</p></div>
           <ul class="perf-disks" data-ref="disks"></ul>
         </div>
         ${lowerHtml(key)}`;
       break;
     case 'network':
       body = `
-        ${paneHeadHtml(key, idx, 'Network')}
+        ${paneHeadHtml(key, 'Network')}
         ${chartHtml('chart', 'Throughput', 'Peak 0 B/s', {
           legend: legendHtml([['perf-dot--net', 'Receive', 'lRx'], ['perf-dot--alt', 'Send', 'lTx']]),
         })}
         <div class="perf-block perf-block--flush">
           <div class="perf-block__head">
-            <p class="micro">Interfaces / <span data-ref="ifaceCount">0</span></p>
+            <p class="micro"><span data-ref="ifaceCount">0</span> interfaces</p>
             <span class="perf-block__hint">Busiest first</span>
           </div>
           <div class="perf-ifaces" role="table" aria-label="Network interfaces">
@@ -544,19 +543,19 @@ function paneHtml(key) {
       break;
     case 'gpu':
       body = `
-        ${paneHeadHtml(key, idx, 'Graphics')}
+        ${paneHeadHtml(key, 'Graphics')}
         <div class="perf-gpu-main">
           ${chartHtml('chart', 'Utilisation', '100%', { note: 'No GPU counters in the latest sample.' })}
           <div class="perf-engines">
             <div class="perf-chart-head">
-              <p class="micro">Engines / <span data-ref="engineCount">0</span></p>
+              <p class="micro"><span data-ref="engineCount">0</span> engines</p>
             </div>
             <ul class="perf-engine-list" data-ref="engines" aria-label="GPU engines"></ul>
             <p class="perf-note" data-ref="enginesEmpty" hidden>No per-engine counters reported.</p>
           </div>
         </div>
         <div class="perf-block perf-block--flush">
-          <div class="perf-block__head"><p class="micro">Adapters / <span data-ref="adapterCount">0</span></p></div>
+          <div class="perf-block__head"><p class="micro"><span data-ref="adapterCount">0</span> adapters</p></div>
           <ul class="perf-disks perf-adapters" data-ref="adapters" aria-label="Graphics adapters">
             <li class="perf-note">Reading the graphics adapters.</li>
           </ul>
@@ -566,7 +565,7 @@ function paneHtml(key) {
       break;
     case 'battery':
       body = `
-        ${paneHeadHtml(key, idx, 'Battery')}
+        ${paneHeadHtml(key, 'Battery')}
         ${chartHtml('chart', 'Charge', '100%', {
           span: '2 hours',
           note: 'The charge history starts after the first minute.',
@@ -587,11 +586,11 @@ function viewHtml() {
   return `
     <header class="view-head perf-head">
       <div class="perf-head__text">
-        <p class="micro micro--bright"><span class="signal" data-ref="signal"></span>02 / Performance</p>
+        <p class="micro micro--bright"><span class="signal" data-ref="signal"></span>Performance</p>
         <h1 class="view-title">Every core. <em>In view.</em></h1>
       </div>
       <div class="toolbar perf-head__actions">
-        <span class="chip chip--live" data-ref="live"><span data-ref="liveText">Live / 1.0 s</span></span>
+        <span class="chip chip--live" data-ref="live"><span data-ref="liveText">Live · 1.0 s</span></span>
         <div class="perf-seg" role="group" aria-label="Update speed" data-ref="seg">${seg}</div>
         <button type="button" class="btn btn--sm btn--ghost perf-pause" data-ref="pause">
           <svg class="icon" aria-hidden="true"><use data-ref="pauseIcon" href="#i-pause"/></svg>
@@ -771,7 +770,7 @@ function syncSettings(s) {
   });
   head.pauseIcon.setAttribute('href', paused ? '#i-play' : '#i-pause');
   setText(head.pauseLabel, paused ? 'Resume' : 'Pause');
-  setText(head.liveText, paused ? `Paused / ${intervalText(ms)}` : `Live / ${intervalText(ms)}`);
+  setText(head.liveText, paused ? `Paused · ${intervalText(ms)}` : `Live · ${intervalText(ms)}`);
   head.live.classList.toggle('chip--live', !paused);
   head.signal.classList.toggle('is-paused', paused);
   root.classList.toggle('is-paused', paused);
@@ -1206,11 +1205,11 @@ function renderGpuSensors(snap) {
   const settled = showSensors(P, st, has);
   if (!has) {
     setText(P.refs.sensSource, settled ? 'No source' : 'Reading sensors');
-    setText(P.refs.sensHead, 'Sensors / Temperature');
+    setText(P.refs.sensHead, 'Temperature');
     return;
   }
   const many = gpuInfo && gpuInfo.length > 1;
-  setText(P.refs.sensHead, many ? `Sensors / ${g.name}` : 'Sensors / Temperature');
+  setText(P.refs.sensHead, many ? `${g.name} temperature` : 'Temperature');
   const level = tempLevel('gpu', g.temp);
   setText(P.refs.sensTemp, temp(g.temp));
   setLevel(P.refs.sensTemp, level);
@@ -1436,7 +1435,7 @@ function renderVolumes(si, letters) {
   const disks = letters
     ? all.filter((d) => letters.includes(String(d.mount || '').slice(0, 2).toUpperCase()))
     : all;
-  setText(P.refs.volHead, letters ? 'Volumes / On this disk' : 'Volumes / Capacity');
+  setText(P.refs.volHead, letters ? 'Volumes on this disk' : 'Volumes');
   if (!disks.length) {
     P.refs.disks.innerHTML = `<li class="perf-note">${!si ? 'Loading volumes.'
       : letters ? 'No volumes with a drive letter on this disk.' : 'No volumes reported.'}</li>`;

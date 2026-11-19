@@ -85,7 +85,7 @@
 .rig-facts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 10px 18px;
+  gap: 10px 16px;
   margin: 0;
   padding-top: 12px;
   border-top: 1px solid var(--line-soft);
@@ -152,7 +152,7 @@
 
 .rig .rig-chip {
   height: 22px;
-  padding: 0 9px;
+  padding: 0 8px;
   font-size: 12px;
 }
 

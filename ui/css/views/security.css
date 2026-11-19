@@ -19,8 +19,8 @@
 }
 
 .sec-table td {
-  padding-top: 7px;
-  padding-bottom: 7px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .sec-table td.c-reasons {
@@ -150,7 +150,7 @@
   height: 26px;
   padding: 0 10px;
   font-size: 11px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.01em;
 }
 
 .sec-verify .icon {
@@ -160,7 +160,7 @@
 
 .sec-verify-result {
   margin: 8px 0 0;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-tile);
   background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
@@ -216,8 +216,7 @@
   font-family: var(--font-display);
   font-weight: 500;
   font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--muted-2);
 }
 
@@ -400,7 +399,7 @@
 .df-facts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px 18px;
+  gap: 10px 16px;
   margin: 0;
   padding-top: 12px;
   border-top: 1px solid var(--line-soft);
@@ -439,7 +438,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-tile);
   background: color-mix(in srgb, var(--bg-raised) 60%, transparent);

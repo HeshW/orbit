@@ -655,7 +655,7 @@ export function mount(rootEl) {
   <div class="lv usr">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">05 / Users</p>
+        <p class="micro">Users</p>
         <h1 class="view-title">Who is on. <em>What they use.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">

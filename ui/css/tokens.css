@@ -41,11 +41,9 @@
   --dur-2: 0.45s;
   --dur-3: 0.9s;
 
-  /* motion (legacytech.me): hover lift, view entrance rise and stagger. Reduced motion
-     sets the lift to 0 below; the animations themselves stop in app.css. */
-  --lift: -3px;
-  --enter-y: 22px;
-  --stagger: 70ms;
+  /* motion: view entrance rise and stagger. The animations stop in app.css when motion is off. */
+  --enter-y: 8px;
+  --stagger: 40ms;
 
   /* layout */
   --titlebar-h: 48px;
@@ -93,13 +91,12 @@
   --line-soft: rgba(141, 180, 255, 0.07);
   --line-strong: rgba(141, 180, 255, 0.26);
 
-  --accent-grad: linear-gradient(90deg, #9dc0ff, #8db4ff, #6fd6f4);
   --primary-bg: linear-gradient(180deg, #336de3, #2552c0);
   --on-primary: #ffffff;
 
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
   --shadow-soft: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
-  --glow: 0 0 40px rgba(79, 140, 255, 0.18);
+  --glow: 0 0 #0000; /* no glows; Signal keeps a hairline ring for contrast */
 
   --danger: #ff6b81;
   --warn: #ffc46b;
@@ -114,11 +111,6 @@
   --chart-gpu: #c3a6ff;
   --chart-grid: rgba(141, 180, 255, 0.09);
 
-  /* atmosphere */
-  --grid-line: rgba(141, 180, 255, 0.04);
-  --atmo-a: rgba(79, 140, 255, 0.11);
-  --atmo-b: rgba(56, 213, 240, 0.06);
-  --vignette: rgba(0, 0, 0, 0.34);
   --overlay: rgba(2, 6, 14, 0.62);
 }
 
@@ -152,13 +144,12 @@
   --line-soft: rgba(141, 180, 255, 0.06);
   --line-strong: rgba(141, 180, 255, 0.24);
 
-  --accent-grad: linear-gradient(90deg, #9dc0ff, #8db4ff, #6fd6f4);
   --primary-bg: linear-gradient(180deg, #336de3, #2552c0);
   --on-primary: #ffffff;
 
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.8);
   --shadow-soft: 0 24px 60px -28px rgba(0, 0, 0, 0.9);
-  --glow: 0 0 32px rgba(79, 140, 255, 0.14);
+  --glow: 0 0 #0000;
 
   --danger: #ff6b81;
   --warn: #ffc46b;
@@ -173,10 +164,6 @@
   --chart-gpu: #c3a6ff;
   --chart-grid: rgba(141, 180, 255, 0.08);
 
-  --grid-line: rgba(141, 180, 255, 0.035);
-  --atmo-a: transparent;
-  --atmo-b: transparent;
-  --vignette: transparent;
   --overlay: rgba(0, 0, 0, 0.72);
 }
 
@@ -210,7 +197,6 @@
   --line-soft: rgba(190, 215, 255, 0.26);
   --line-strong: rgba(214, 230, 255, 0.72);
 
-  --accent-grad: linear-gradient(90deg, #c4d9ff, #adc9ff, #8fe6ff);
   --primary-bg: linear-gradient(180deg, #1f5ad0, #1a4cb2);
   --on-primary: #ffffff;
 
@@ -231,10 +217,6 @@
   --chart-gpu: #d6c0ff;
   --chart-grid: rgba(190, 215, 255, 0.2);
 
-  --grid-line: rgba(190, 215, 255, 0.045);
-  --atmo-a: rgba(79, 140, 255, 0.07);
-  --atmo-b: transparent;
-  --vignette: transparent;
   --overlay: rgba(0, 0, 0, 0.78);
 }
 
@@ -268,13 +250,12 @@
   --line-soft: rgba(10, 15, 31, 0.065);
   --line-strong: rgba(10, 15, 31, 0.24);
 
-  --accent-grad: linear-gradient(90deg, #2f6feb, #2a5fd0, #08739a);
   --primary-bg: linear-gradient(180deg, #2f6feb, #2556c4);
   --on-primary: #ffffff;
 
   --shadow: 0 30px 80px rgba(20, 32, 64, 0.18);
   --shadow-soft: 0 24px 60px -28px rgba(20, 32, 64, 0.3);
-  --glow: 0 0 36px rgba(47, 111, 235, 0.14);
+  --glow: 0 0 #0000;
 
   --danger: #a8233c;
   --warn: #7a4800;
@@ -289,10 +270,6 @@
   --chart-gpu: #7a4fd6;
   --chart-grid: rgba(10, 15, 31, 0.08);
 
-  --grid-line: rgba(10, 15, 31, 0.045);
-  --atmo-a: rgba(47, 111, 235, 0.08);
-  --atmo-b: rgba(11, 141, 184, 0.06);
-  --vignette: transparent;
   --overlay: rgba(10, 15, 31, 0.32);
 }
 
@@ -301,13 +278,3 @@ html.compact {
   --row-h: 26px;
 }
 
-/* Animations off (Settings > Display, or Windows asks for less motion): nothing lifts. */
-html.reduce-motion {
-  --lift: 0px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --lift: 0px;
-  }
-}

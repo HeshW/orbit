@@ -305,7 +305,7 @@ export function mount(rootEl) {
   <div class="rig">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">10 / My Rig</p>
+        <p class="micro">My Rig</p>
         <h1 class="view-title">Your PC. <em>On one page.</em></h1>
       </div>
       <div class="lv-stats">

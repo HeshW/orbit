@@ -30,7 +30,7 @@
   display: flex;
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 14px 18px;
+  gap: 14px 16px;
   padding: 18px 20px;
   border-radius: var(--radius-pass);
 }
@@ -327,7 +327,7 @@ button.chip.bo-rule:focus-visible {
   grid-template-columns: minmax(0, 1fr) 56px 72px auto;
   align-items: center;
   gap: 10px;
-  padding: 5px 0;
+  padding: 4px 0;
   border-top: 1px solid var(--line-soft);
   font-size: 13px;
 }

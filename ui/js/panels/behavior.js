@@ -54,7 +54,7 @@ export function mountPanel(containerEl) {
   root.innerHTML = `
     <div class="lv-panel-head">
       <h2 class="lv-panel-title" id="set-behavior-h">Behavior</h2>
-      <span class="micro">Tray / Startup / Hotkey</span>
+      <span class="micro">Tray, startup and hotkey</span>
     </div>
     ${FIELDS.map((f) => `
     <div class="lv-field" data-sh-field="${f.key}">

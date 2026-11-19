@@ -37,7 +37,7 @@ const SHORTCUTS = [
 
 const WATCH_NOTE = 'Orbit warns when a pinned process stays above 50% CPU for 10 seconds.';
 
-const MOTION_HELP = 'Buttons and cards lift on hover, views slide in and numbers count up.';
+const MOTION_HELP = 'Buttons and cards change colour on hover, views fade in and numbers count up.';
 const MOTION_HELP_OS = 'Windows is set to show fewer animations, so Orbit keeps them off.';
 const OS_REDUCED_MOTION = () => typeof window.matchMedia === 'function'
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -140,7 +140,7 @@ function template() {
   <div class="lv lv--settings">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">11 / Settings</p>
+        <p class="micro">Settings</p>
         <h1 class="view-title">Your console. <em>Your rules.</em></h1>
       </div>
     </header>
@@ -149,7 +149,7 @@ function template() {
       <section class="panel lv-panel lv-panel--wide" aria-labelledby="set-theme-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-theme-h">Theme</h2>
-          <span class="micro">4 palettes / Saved on this PC</span>
+          <span class="micro">4 palettes, saved on this PC</span>
         </div>
         <div class="lv-themes" role="radiogroup" aria-labelledby="set-theme-h">
           ${THEMES.map(themeCard).join('')}
@@ -159,7 +159,7 @@ function template() {
       <section class="panel lv-panel" aria-labelledby="set-updates-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-updates-h">Updates</h2>
-          <span class="micro lv-live" data-live><span class="signal" aria-hidden="true"></span><span data-live-text>Live / 1.0 s</span></span>
+          <span class="micro lv-live" data-live><span class="signal" aria-hidden="true"></span><span data-live-text>Live · 1.0 s</span></span>
         </div>
         <div class="lv-field">
           <div class="lv-field-text">
@@ -182,7 +182,7 @@ function template() {
       <section class="panel lv-panel" aria-labelledby="set-display-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-display-h">Display</h2>
-          <span class="micro">Layout / Motion</span>
+          <span class="micro">Layout and motion</span>
         </div>
         <div class="lv-field">
           <div class="lv-field-text">
@@ -240,7 +240,7 @@ function template() {
       <section class="panel lv-panel" aria-labelledby="set-perm-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-perm-h">Permissions</h2>
-          <span class="micro">Access / Windows</span>
+          <span class="micro">Access and Windows</span>
         </div>
         <div class="lv-perm">
           <span class="chip lv-perm-chip" data-perm-chip>${icon('i-shield')}<span data-perm-text>Checking</span></span>
@@ -267,7 +267,7 @@ function template() {
       <section class="panel lv-panel lv-about" aria-labelledby="set-about-h">
         <div class="lv-panel-head">
           <h2 class="lv-panel-title" id="set-about-h">About</h2>
-          <span class="micro">Version / <span data-version>…</span></span>
+          <span class="micro">Version <span data-version>…</span></span>
         </div>
         <div class="lv-about-id">
           ${markSvg()}
@@ -321,7 +321,7 @@ function syncControls() {
   if (els.grouping.value !== grouping) els.grouping.value = grouping;
   const unit = s.tempUnit === 'f' ? 'f' : 'c';
   if (els.tempUnit.value !== unit) els.tempUnit.value = unit;
-  els.liveText.textContent = s.paused ? `Paused / ${secs(s.intervalMs || 1000)}` : `Live / ${secs(s.intervalMs || 1000)}`;
+  els.liveText.textContent = s.paused ? `Paused · ${secs(s.intervalMs || 1000)}` : `Live · ${secs(s.intervalMs || 1000)}`;
   els.live.classList.toggle('is-paused', Boolean(s.paused));
 }
 

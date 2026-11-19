@@ -15,7 +15,7 @@ Files: `ui/js/views/performance.js`, `ui/css/views/performance.css`.
 | Disk | `disks` is empty | the old system-wide tile | as before (every volume) |
 | one per interface | interfaces with traffic since boot (`totalRx + totalTx > 0`), sorted by name | R+S rate, R/S, its own sparkline | the selected interface: title, receive/send chart, facts for that interface; its row is highlighted in the interface table |
 | Network "All" | 0 or 2+ active interfaces | total, as before | total, as before |
-| GPU | once GPU counters were seen | as before | main chart plus an "Engines / N" list (`Snapshot.gpuEngines`, backend order): name, small bar, percent. Beside the chart when the panel is 720 px or wider, a grid below it otherwise. New fact "Busiest engine". "No per-engine counters reported." when the list is empty. |
+| GPU | once GPU counters were seen | as before | main chart plus an "N engines" list (`Snapshot.gpuEngines`, backend order): name, small bar, percent. Beside the chart when the panel is 720 px or wider, a grid below it otherwise. New fact "Busiest engine". "No per-engine counters reported." when the list is empty. |
 | Battery | `Snapshot.battery` not null | percent; "2h 31m left" on battery, else Charging / Plugged in / Fully charged | charge chart over 2 hours (one point a minute, the newest follows the live value; a note until the second point), facts: Charge, Status, Time left, Power source |
 
 - History for each disk (active, read, write), interface (rx, tx) and battery is kept inside

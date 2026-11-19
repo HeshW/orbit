@@ -355,7 +355,7 @@ function renderMeasure() {
   els.note.hidden = !measureScheduled;
   els.noteCancel.disabled = measureBusy;
   const t = loaded ? measuredAt() : null;
-  els.when.textContent = t ? `Impact / ${time(t)}` : loaded ? 'Impact / Not measured' : '';
+  els.when.textContent = t ? `Impact measured ${time(t)}` : loaded ? 'Impact not measured' : '';
   els.when.title = t ? `Startup impact was measured at the sign-in on ${time(t)}.` : 'Orbit has not measured startup impact yet.';
 }
 
@@ -887,7 +887,7 @@ export function mount(rootEl) {
   <div class="lv lv--startup">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">04 / Startup</p>
+        <p class="micro">Startup</p>
         <h1 class="view-title">Boot lean. <em>Start fast.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">

@@ -46,7 +46,7 @@ export function mountPanel(containerEl) {
   containerEl.innerHTML = `
     <div class="lv-panel-head">
       <h2 class="lv-panel-title" id="set-backup-h">Backup</h2>
-      <span class="micro">Settings / File</span>
+      <span class="micro">Saved as a file</span>
     </div>
     <div class="lv-field">
       <div class="lv-field-text">

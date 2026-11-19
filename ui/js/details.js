@@ -115,7 +115,7 @@ function template() {
       '</header>' +
       '<div class="dr-body" data-r="body">' +
         '<section class="dr-section" aria-label="Live usage">' +
-          '<h3 class="micro dr-h" data-r="liveH">Live / 60 s</h3>' +
+          '<h3 class="micro dr-h" data-r="liveH">Last 60 seconds</h3>' +
           '<div class="dr-live">' +
             '<div class="tile dr-spark">' +
               '<div class="dr-spark-head"><span class="micro">CPU</span><span class="dr-spark-val" data-r="cpuVal" aria-live="off">' + DASH + '</span></div>' +
@@ -436,7 +436,7 @@ function patchHeader(row) {
   d.name = name;
   set('name', r.name, name);
   if (r.name.title !== name) r.name.title = name;
-  set('micro', r.micro, `Details / PID ${d.pid}`);
+  set('micro', r.micro, `PID ${d.pid}`);
   const sub = row && row.windowTitle ? row.windowTitle : '';
   set('sub', r.sub, sub);
   if (r.sub.hidden === !!sub) r.sub.hidden = !sub;
@@ -460,7 +460,7 @@ function peak(arr, floor) {
 function patchLive(row) {
   const r = d.r;
   // The history is 60 samples, so its span follows the update speed.
-  set('liveH', r.liveH, `Live / ${historySpan(store.settings && store.settings.intervalMs)}`);
+  set('liveH', r.liveH, `Last ${historySpan(store.settings && store.settings.intervalMs, true)}`);
   if (row) {
     set('cpuVal', r.cpuVal, pct(row.cpu || 0, 1));
     set('memVal', r.memVal, bytes(row.memory || 0));

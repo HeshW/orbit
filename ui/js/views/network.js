@@ -712,7 +712,7 @@ export function mount(rootEl) {
   <div class="lv net">
     <header class="view-head">
       <div class="lv-head-text">
-        <p class="micro">07 / Network</p>
+        <p class="micro">Network</p>
         <h1 class="view-title">Every connection. <em>Every port.</em></h1>
       </div>
       <div class="lv-stats" aria-live="polite">
@@ -734,7 +734,7 @@ export function mount(rootEl) {
         <div class="net-find-result" id="net-find-result" aria-live="polite"></div>
       </section>
       <section class="panel net-apps" aria-labelledby="net-apps-label">
-        <p class="micro net-apps-label" id="net-apps-label">Top apps / Download and upload</p>
+        <p class="micro net-apps-label" id="net-apps-label">Top apps by download and upload</p>
         <div class="net-apps-body"></div>
       </section>
     </div>
