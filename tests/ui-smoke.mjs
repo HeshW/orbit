@@ -1398,6 +1398,37 @@ async function devLeftovers(page) {
   });
 }
 
+// Biggest folders > Map: measure C:\, switch to Map, boxes render, a click drills in, Backspace
+// goes back up, "Other folders" is not clickable, the choice is kept after List and back.
+async function diskMap(page) {
+  await showView(page, 'optimize');
+  await page.click('#view-optimize .op-tabs [data-tab="cleanup"]');
+  const pane = '#op-pane-cleanup';
+  await page.click(`${pane} [data-cl-go="C:\\\\"]`);
+  await page.waitForSelector(`${pane} [data-cl-view="map"]`, { timeout: WAIT });
+  await page.click(`${pane} [data-cl-view="map"]`);
+  await page.waitForSelector(`${pane} .cl-tm-box`, { timeout: WAIT });
+  const n = await page.locator(`${pane} .cl-tm-box`).count();
+  if (n < 3) throw new Error(`disk map shows ${n} boxes`);
+  const sized = await page.evaluate(() => [...document.querySelectorAll('#op-pane-cleanup .cl-tm-box')].every((b) => b.offsetWidth > 0 && b.offsetHeight > 0 && !!b.title));
+  if (!sized) throw new Error('a disk map box has no size or tooltip');
+  const first = page.locator(`${pane} .cl-tm-box--folder`).first();
+  const name = await first.getAttribute('data-name');
+  await first.click();
+  await page.waitForFunction((nm) => document.querySelector('#op-pane-cleanup .cl-crumb.is-here')?.textContent === nm && document.querySelector('#op-pane-cleanup .cl-tm-box'), name, { timeout: WAIT }).catch(() => {
+    throw new Error('clicking a disk map box does not open that folder');
+  });
+  await page.locator(`${pane} .cl-tm-box`).first().focus();
+  await page.keyboard.press('Backspace');
+  await page.waitForFunction(() => document.querySelector('#op-pane-cleanup .cl-crumb.is-here')?.textContent === 'C:', null, { timeout: WAIT }).catch(() => {
+    throw new Error('Backspace does not go up one folder in the disk map');
+  });
+  await page.click(`${pane} [data-cl-view="list"]`);
+  await page.waitForSelector(`${pane} .cl-rows`, { timeout: WAIT });
+  await page.click(`${pane} [data-cl-view="map"]`);
+  await page.waitForSelector(`${pane} .cl-tm-box`, { timeout: WAIT });
+}
+
 // Processes: right-click an app group (mock chrome.exe), Set priority > Below normal sets
 // every member and says so in a toast.
 async function groupPriority(page) {
@@ -1489,6 +1520,7 @@ try {
   await check('watchlist restart', () => watchRestart(page));
   await check('svchost services', () => svchostServices(page));
   await check('developer leftovers', () => devLeftovers(page));
+  await check('disk map', () => diskMap(page));
   await check('rules', () => rules(page));
   await check('rules 11b', () => rulesMore(page, base, watch));
   await check('suggestions hide', () => suggestionsHide(page, base));

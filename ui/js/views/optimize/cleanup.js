@@ -10,6 +10,7 @@ import { call, onEvent } from '../../api.js';
 import { escapeHtml, bytes, time } from '../../format.js';
 import { toast, confirmDialog, restartAsAdmin } from '../../app.js';
 import { mountDevLeft, showDevLeft } from './devleft.js';
+import { mountMap } from './treemap.js';
 
 const ON_BY_DEFAULT = new Set(['user-temp', 'windows-temp', 'update-cache', 'crash-dumps', 'system-dumps', 'thumbnails']);
 
@@ -17,7 +18,7 @@ let root = null;
 let ctx = null;
 const els = {};
 const junk = { scan: null, scanning: false, progress: null, error: null, picks: null, olderOn: true, cleaning: false, result: null };
-const big = { drives: [], path: '', data: null, scanning: false, progress: null, error: null, seen: new Map() };
+const big = { drives: [], path: '', data: null, scanning: false, progress: null, error: null, seen: new Map(), view: 'list', map: null, sel: null };
 
 const icon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"/></svg>`;
 const text = (s) => escapeHtml(String(s ?? ''));
@@ -302,21 +303,55 @@ function renderBig() {
         <button type="button" class="icon-btn" data-cl-go="${text(up || '')}" aria-label="Up one folder" title="Up one folder"${up && !big.scanning ? '' : ' disabled'}>${icon('i-arrow-up')}</button>
         <nav class="cl-crumbs" aria-label="Folder">${crumbsHtml(d.path)}</nav>
         <span class="cl-folder-total">${text(bytes(d.bytes))} <span class="lv-faint">${text(plural(d.files, 'file'))}</span></span>
+        <span class="cl-view" role="group" aria-label="Show as">
+          <button type="button" class="chip" data-cl-view="list" aria-pressed="${big.view === 'list'}">List</button>
+          <button type="button" class="chip" data-cl-view="map" aria-pressed="${big.view === 'map'}">Map</button>
+        </span>
         <button type="button" class="btn btn--ghost btn--sm" data-cl-open="${text(d.path)}" title="Open in File Explorer">Open folder</button>
         <button type="button" class="icon-btn" data-cl-refresh-folder aria-label="Measure again" title="Measure again${d.cached ? ' (these sizes came from the scan of a parent folder)' : ''}"${big.scanning ? ' disabled' : ''}>${icon('i-refresh')}</button>
       </div>
-      <ul class="cl-rows" aria-label="Biggest folders">
+      ${big.view === 'map' ? mapHtml(d) : `<ul class="cl-rows" aria-label="Biggest folders">
         ${d.folders.map((f) => rowHtml(f, max)).join('')}
         ${d.filesHere ? `<li class="cl-row cl-row--files"><span class="cl-row-main"><span class="cl-row-name">${icon('i-file')}<span>Files in this folder</span></span>
           <span class="cl-row-bar" aria-hidden="true"><span style="width:${Math.max(0.5, (d.filesHereBytes / max) * 100).toFixed(1)}%"></span></span>
           <span class="cl-row-size">${text(bytes(d.filesHereBytes))}</span><span class="cl-row-files">${text(plural(d.filesHere, 'file'))}</span></span><span class="cl-row-gap" aria-hidden="true"></span></li>` : ''}
         ${!d.folders.length && !d.filesHere ? '<li class="cl-row cl-row--empty">This folder is empty.</li>' : ''}
-      </ul>
+      </ul>`}
       ${notes.length ? `<p class="lv-help cl-folder-note">${text(notes.join(' '))}</p>` : ''}
       <p class="micro cl-folder-when">Measured ${text(time(d.scannedAt))}. ${d.method === 'mft' ? 'Sizes are space used on disk.' : 'Sizes are file sizes.'}</p>
       ${d.method === 'walk' && !d.isAdmin ? `<p class="micro cl-folder-when">Faster as administrator <button type="button" class="btn btn--ghost btn--sm" data-cl-admin-folders>${icon('i-shield')}Restart as administrator</button></p>` : ''}`;
   }
+  big.map?.destroy();
+  big.map = null;
   els.big.innerHTML = body;
+  const tm = els.big.querySelector('[data-cl-tm]');
+  if (tm && d) {
+    const up = parentOf(d.path);
+    big.sel = null;
+    big.map = mountMap(tm, {
+      drill: (p) => openFolder(p),
+      up: () => { if (up && !big.scanning) openFolder(up); },
+      open: openInExplorer,
+      selected: (b) => {
+        big.sel = b && b.kind === 'folder' ? b : null;
+        const line = els.big.querySelector('[data-cl-tm-sel]');
+        const btn = els.big.querySelector('[data-cl-tm-open]');
+        if (line) line.textContent = b ? b.title.replace(/\. Click to look inside\.$/, '') : 'Point at a box to see its name and size.';
+        if (btn) btn.disabled = !big.sel;
+      },
+    });
+    big.map.render(d);
+  }
+}
+
+function mapHtml(d) {
+  if (!d.folders.length && !d.filesHere) return '<p class="cl-row--empty cl-tm-empty">This folder is empty.</p>';
+  return `<div class="cl-tm" data-cl-tm role="group" aria-label="Disk map of ${text(d.path)}. Arrow keys move between boxes, Enter goes in, Backspace goes up, O opens in File Explorer."></div>
+      <div class="cl-tm-bar">
+        <span class="cl-tm-sel" data-cl-tm-sel aria-live="polite">Point at a box to see its name and size.</span>
+        <span class="lv-faint cl-tm-hint">Click to go in. Backspace or right-click goes up.</span>
+        <button type="button" class="btn btn--ghost btn--sm" data-cl-tm-open disabled>Open in File Explorer</button>
+      </div>`;
 }
 
 async function openInExplorer(path) {
@@ -426,6 +461,16 @@ export function mount(paneEl, context) {
     const go = t.closest('[data-cl-go]');
     if (go && go.dataset.clGo && !go.disabled) {
       openFolder(go.dataset.clGo);
+      return;
+    }
+    const view = t.closest('[data-cl-view]');
+    if (view) {
+      big.view = view.dataset.clView;
+      renderBig();
+      return;
+    }
+    if (t.closest('[data-cl-tm-open]')) {
+      if (big.sel?.path) openInExplorer(big.sel.path);
       return;
     }
     const open = t.closest('[data-cl-open]');
