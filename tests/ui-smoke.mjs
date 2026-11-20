@@ -1521,6 +1521,7 @@ async function fileSearch(page) {
   const hint = await fileItem('notes.txt').locator('.palette-item__hint').textContent();
   if (!/Desktop/.test(hint || '')) throw new Error(`file result shows no folder: ${hint}`);
   await fileItem('notes.txt').hover();
+  const before = (await mock('mock_search_opened')).length;
   await page.keyboard.press('Enter');
   await closed();
   await typeInPalette('notes');
@@ -1528,7 +1529,12 @@ async function fileSearch(page) {
   await fileItem('notes.txt').hover();
   await page.keyboard.press('Control+Enter');
   await closed();
-  const opened = await mock('mock_search_opened');
+  // The palette closes before the (mock) backend records the call, which takes 25-95 ms.
+  let opened = await mock('mock_search_opened');
+  for (let i = 0; i < 40 && opened.length < before + 2; i += 1) {
+    await page.waitForTimeout(50);
+    opened = await mock('mock_search_opened');
+  }
   const last2 = opened.slice(-2);
   if (last2.length !== 2 || !last2.every((o) => /notes\.txt$/.test(o.path)) || last2[0].reveal || !last2[1].reveal) {
     throw new Error(`Enter / Ctrl+Enter called the wrong command: ${JSON.stringify(last2)}`);

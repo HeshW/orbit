@@ -19,7 +19,7 @@
 | 13 | **1.1 list** | Shipped in 1.1.0: watchlist pins that survive a restart. See section 13. |
 | 14 | **1.2 list** | Shipped in 1.2.0: services shown on svchost rows, a Developer leftovers cleanup category, and a 7-day hold before those leftovers are deleted. See section 14, `docs/features/svchost-services.md` and `docs/features/dev-leftovers.md`. |
 | 15 | **1.3 list** | Shipped in 1.3.0: fast folder sizes from the NTFS file table (admin), and a disk map in Biggest folders. See section 15, `docs/features/fast-folder-sizes.md` and `docs/features/disk-map.md`. |
-| 16 | **1.4 list** | Planned: file search in the Ctrl+K palette. See section 16. |
+| 16 | **1.4 list** | Shipped in 1.4.0: file search in the Ctrl+K palette (fast index as admin, Windows Search otherwise) and wrong-keyboard-layout matching. See section 16 and `docs/features/file-search.md`. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
