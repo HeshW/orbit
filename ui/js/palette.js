@@ -606,7 +606,7 @@ export function initPalette() {
     <div class="palette-box" role="dialog" aria-modal="true" aria-label="Command palette">
       <div class="palette-input-row">
         ${icon('i-search')}
-        <input class="palette-input" id="palette-input" type="text" autocomplete="off" spellcheck="false"
+        <input class="palette-input" id="palette-input" type="text" maxlength="255" autocomplete="off" spellcheck="false"
           role="combobox" aria-controls="palette-list" aria-expanded="false" aria-autocomplete="list"
           aria-label="Type a command, view or process" placeholder="Type a command, view or process">
         <kbd class="kbd" aria-hidden="true">Esc</kbd>

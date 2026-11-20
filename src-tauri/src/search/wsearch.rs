@@ -7,7 +7,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use windows::core::{Interface, GUID, PCWSTR};
@@ -51,10 +51,23 @@ pub fn service_running() -> bool {
     }
 }
 
-/// The Windows Search SQL for names containing `q`. Quotes and LIKE wildcards
-/// are removed, so the text is matched literally and can't change the query.
+/// Longest query text sent to Windows Search or the index, in characters.
+pub const MAX_QUERY_CHARS: usize = 255;
+
+/// The Windows Search SQL for names containing `q`, at most MAX_QUERY_CHARS of
+/// it. Quotes are removed so the text can't end the string literal; LIKE's
+/// wildcards are escaped as one-character classes ([_] [%] [[]) so they match
+/// themselves.
 pub fn search_sql(q: &str, limit: usize) -> String {
-    let clean: String = q.chars().filter(|c| !matches!(c, '\'' | '%' | '_' | '[' | ']' | '"' | '\\')).collect();
+    let mut clean = String::new();
+    for c in q.chars().filter(|c| !matches!(c, '\'' | '"')).take(MAX_QUERY_CHARS) {
+        match c {
+            '_' => clean.push_str("[_]"),
+            '%' => clean.push_str("[%]"),
+            '[' => clean.push_str("[[]"),
+            c => clean.push(c),
+        }
+    }
     format!(
         "SELECT TOP {limit} System.ItemPathDisplay, System.FileAttributes FROM SystemIndex \
          WHERE SCOPE='file:' AND System.FileName LIKE '%{clean}%'"
@@ -67,14 +80,12 @@ pub fn search(q: &str, limit: usize, budget: Duration, stale: &dyn Fn() -> bool)
     let sql = search_sql(q, limit);
     let (tx, rx) = mpsc::channel::<Result<(String, bool), String>>();
     let stop = Arc::new(AtomicBool::new(false));
-    let stop2 = stop.clone();
-    // A thread of its own: Execute can't be interrupted, so a slow query is
-    // abandoned at the deadline and finishes (and is dropped) on its own.
-    std::thread::spawn(move || {
-        if let Err(e) = query(&sql, &tx, &stop2) {
-            let _ = tx.send(Err(e.message().to_string()));
-        }
-    });
+    // One query runs at a time (Execute can't be interrupted). A query that
+    // arrives meanwhile waits; a newer one replaces it, and the replaced
+    // caller's channel closes, so it returns with nothing.
+    static QUEUE: std::sync::OnceLock<Arc<OneInFlight<Job>>> = std::sync::OnceLock::new();
+    let queue = QUEUE.get_or_init(|| Arc::new(OneInFlight::default()));
+    OneInFlight::submit(queue, Job { sql, tx, stop: stop.clone() }, run_job);
     let deadline = Instant::now() + budget;
     let mut out = Vec::new();
     loop {
@@ -100,6 +111,61 @@ pub fn search(q: &str, limit: usize, budget: Duration, stale: &dyn Fn() -> bool)
     }
     stop.store(true, Ordering::Relaxed);
     Ok(out)
+}
+
+pub struct Job {
+    sql: String,
+    tx: mpsc::Sender<Result<(String, bool), String>>,
+    stop: Arc<AtomicBool>,
+}
+
+fn run_job(job: Job) {
+    if job.stop.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Err(e) = query(&job.sql, &job.tx, &job.stop) {
+        let _ = job.tx.send(Err(e.message().to_string()));
+    }
+}
+
+/// Runs jobs one at a time on a worker thread. While one runs, only the latest
+/// submitted job is kept; any job it replaces is dropped unrun.
+pub struct OneInFlight<J> {
+    state: Mutex<(bool, Option<J>)>,
+}
+
+impl<J> Default for OneInFlight<J> {
+    fn default() -> Self {
+        Self { state: Mutex::new((false, None)) }
+    }
+}
+
+impl<J: Send + 'static> OneInFlight<J> {
+    pub fn submit(this: &Arc<Self>, job: J, run: fn(J)) {
+        {
+            let mut st = this.state.lock().unwrap_or_else(|e| e.into_inner());
+            st.1 = Some(job); // drops a job still waiting
+            if st.0 {
+                return;
+            }
+            st.0 = true;
+        }
+        let me = this.clone();
+        std::thread::spawn(move || loop {
+            let next = {
+                let mut st = me.state.lock().unwrap_or_else(|e| e.into_inner());
+                let next = st.1.take();
+                if next.is_none() {
+                    st.0 = false;
+                }
+                next
+            };
+            match next {
+                Some(j) => run(j),
+                None => return,
+            }
+        });
+    }
 }
 
 #[repr(C)]
@@ -208,5 +274,11 @@ mod live {
         let r = super::search("notepad", 20, std::time::Duration::from_secs(2), &|| false).unwrap();
         println!("{} results in {:?}: {:#?}", r.len(), t.elapsed(), r.iter().take(5).collect::<Vec<_>>());
         assert!(!r.is_empty());
+        // An underscore must match itself, not be stripped or act as a wildcard.
+        let q = std::env::var("ORBIT_LIVE_UNDERSCORE").unwrap_or_else(|_| "notepad++_".into());
+        let u = super::search(&q, 20, std::time::Duration::from_secs(2), &|| false).unwrap();
+        println!("underscore query {q:?}: {} results: {:#?}", u.len(), u.iter().take(5).collect::<Vec<_>>());
+        assert!(!u.is_empty(), "no result for {q:?}");
+        assert!(u.iter().all(|(p, _)| p.to_lowercase().contains(&q.to_lowercase())), "a result without {q:?}");
     }
 }

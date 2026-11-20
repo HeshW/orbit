@@ -90,14 +90,47 @@ fn status() -> SearchStatus {
     }
     let p = s.progress.lock().unwrap_or_else(|e| e.into_inner());
     let vols = s.volumes.read().unwrap_or_else(|e| e.into_inner());
+    let state = index_state(p.building, p.built);
     SearchStatus {
         route: "index",
-        state: if p.building { "indexing" } else if p.built { "ready" } else { "notBuilt" },
-        drive: if p.building { p.drive.clone() } else { None },
-        percent: if p.building { p.percent } else { None },
+        state,
+        drive: if state == "indexing" { p.drive.clone() } else { None },
+        percent: if state == "indexing" { p.percent } else { None },
         files: vols.iter().map(VolumeIndex::len).sum(),
         memory_bytes: vols.iter().map(VolumeIndex::memory_bytes).sum(),
     }
+}
+
+/// A rebuild keeps serving the index it replaces: "indexing" only before the
+/// first build is done.
+pub(crate) fn index_state(building: bool, built: bool) -> &'static str {
+    if built {
+        "ready"
+    } else if building {
+        "indexing"
+    } else {
+        "notBuilt"
+    }
+}
+
+/// Swaps in a freshly built volume (or adds it); searches keep using the old
+/// one until this moment.
+pub(crate) fn swap_volume(vols: &RwLock<Vec<VolumeIndex>>, fresh: VolumeIndex) {
+    let mut vols = vols.write().unwrap_or_else(|e| e.into_inner());
+    match vols.iter_mut().find(|v| v.drive == fresh.drive) {
+        Some(v) => *v = fresh,
+        None => vols.push(fresh),
+    }
+}
+
+/// Stores a reply's paths only if no newer query started; the check and the
+/// store happen under the same lock. Returns the first id, or None when stale.
+pub(crate) fn store_if_current(results: &Mutex<Results>, gen_now: &AtomicU64, gen: u64, paths: Vec<(String, bool)>) -> Option<u32> {
+    let mut r = results.lock().unwrap_or_else(|e| e.into_inner());
+    if gen_now.load(Ordering::SeqCst) != gen {
+        return None;
+    }
+    Some(r.replace(paths))
 }
 
 /// Reads one volume from scratch, reporting progress.
@@ -147,7 +180,11 @@ fn start_build() {
                 Err(e) => eprintln!("[orbit] file index: {drive} skipped: {e}"),
             }
         }
-        *s.volumes.write().unwrap_or_else(|e| e.into_inner()) = built;
+        {
+            // One swap: searches use the old drives until every new one is ready.
+            let mut vols = s.volumes.write().unwrap_or_else(|e| e.into_inner());
+            *vols = built;
+        }
         let mut p = s.progress.lock().unwrap_or_else(|e| e.into_inner());
         *p = Progress { built: true, built_at: Some(Instant::now()), ..Default::default() };
         drop(p);
@@ -161,7 +198,6 @@ fn start_build() {
 /// drive again when its journal was replaced or wrapped past Orbit's position.
 fn follow_loop() {
     let s = state();
-    let mut handles: std::collections::HashMap<String, std::fs::File> = Default::default();
     loop {
         std::thread::sleep(FOLLOW_EVERY);
         let targets: Vec<(String, u64, i64)> = s
@@ -173,18 +209,12 @@ fn follow_loop() {
             .map(|v| (v.drive.clone(), v.journal_id, v.next_usn))
             .collect();
         for (drive, id, usn_at) in targets {
-            if !handles.contains_key(&drive) {
-                match usn::open_volume(&drive) {
-                    Ok(f) => {
-                        handles.insert(drive.clone(), f);
-                    }
-                    Err(_) => continue,
-                }
-            }
-            let Some(f) = handles.get(&drive) else { continue };
-            let journal = usn::query_journal(f).ok().flatten();
+            // Opened per poll and closed right after, so Orbit never holds a
+            // volume open between polls (chkdsk and volume locks need that).
+            let Ok(f) = usn::open_volume(&drive) else { continue };
+            let journal = usn::query_journal(&f).ok().flatten();
             let outcome = match decide(id, usn_at, journal.as_ref()) {
-                Follow::From(from) => match usn::read_journal(f, id, from) {
+                Follow::From(from) => match usn::read_journal(&f, id, from) {
                     Ok((records, next)) => Some((records, next)),
                     Err(usn::ReadError::Gone) => None,
                     Err(usn::ReadError::Other(_)) => continue,
@@ -202,12 +232,10 @@ fn follow_loop() {
                     }
                 }
                 None => {
-                    handles.remove(&drive);
+                    drop(f);
+                    // Built aside; the old index answers searches until the swap.
                     if let Ok(fresh) = build_volume(&drive, &|_| {}) {
-                        let mut vols = s.volumes.write().unwrap_or_else(|e| e.into_inner());
-                        if let Some(v) = vols.iter_mut().find(|v| v.drive == drive) {
-                            *v = fresh;
-                        }
+                        swap_volume(&s.volumes, fresh);
                     }
                 }
             }
@@ -259,6 +287,7 @@ fn search_windows(q: &Query, raw: &str, gen: u64) -> Option<Vec<(String, String,
 
 fn file_search_blocking(query: String, gen: u64) -> FileSearchReply {
     let s = state();
+    let query: String = query.chars().take(wsearch::MAX_QUERY_CHARS).collect();
     let q = Query::new(&query);
     let mut st = status();
     let reply = |stale, status, results| FileSearchReply { query: query.clone(), stale, status, results };
@@ -285,8 +314,8 @@ fn file_search_blocking(query: String, gen: u64) -> FileSearchReply {
         return reply(false, st, Vec::new());
     };
     let Some(found) = found else { return reply(true, st, Vec::new()) };
-    let mut results = s.results.lock().unwrap_or_else(|e| e.into_inner());
-    let base = results.replace(found.iter().map(|(p, _, _, d)| (p.clone(), *d)).collect());
+    let paths = found.iter().map(|(p, _, _, d)| (p.clone(), *d)).collect();
+    let Some(base) = store_if_current(&s.results, &s.gen, gen, paths) else { return reply(true, st, Vec::new()) };
     let out = found
         .into_iter()
         .enumerate()

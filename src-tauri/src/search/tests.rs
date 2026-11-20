@@ -277,3 +277,102 @@ fn layout_maps_convert_between_layouts() {
     assert_eq!(us_to_ar.map.get("c").map(String::as_str), Some("ؤ"));
     assert!(layout_maps(&[("00000409".into(), vec![(0x43, false, 'c')])]).is_empty(), "one layout: nothing to map");
 }
+
+// ---------------------------------------------------------------- review fixes
+
+#[test]
+fn search_sql_escapes_and_caps() {
+    use super::wsearch::{search_sql, MAX_QUERY_CHARS};
+    let like = |q: &str| {
+        let sql = search_sql(q, 10);
+        let start = sql.find("LIKE '%").unwrap() + 7;
+        sql[start..sql.len() - 2].to_string()
+    };
+    assert_eq!(like("my_file"), "my[_]file");
+    assert_eq!(like("50%"), "50[%]");
+    assert_eq!(like("a[1]"), "a[[]1]");
+    assert_eq!(like("it's \"x\""), "its x", "quotes removed");
+    assert_eq!(like("ملف_été"), "ملف[_]été");
+    assert!(search_sql("x", 10).starts_with("SELECT TOP 10 "));
+    let long = like(&"a".repeat(10_000));
+    assert_eq!(long.chars().count(), MAX_QUERY_CHARS);
+    // 10k quotes and brackets: never more than 255 source characters, never a quote.
+    let mixed = search_sql(&"'[_\"".repeat(2_500), 10);
+    assert_eq!(mixed.matches('\'').count(), 4, "only the SQL's own quotes");
+    assert!(like(&"[".repeat(10_000)).len() <= MAX_QUERY_CHARS * 3);
+}
+
+#[test]
+fn rebuild_keeps_serving_the_old_index() {
+    use std::sync::RwLock;
+    assert_eq!(super::index_state(true, true), "ready", "a rebuild after the first build");
+    assert_eq!(super::index_state(true, false), "indexing");
+    assert_eq!(super::index_state(false, false), "notBuilt");
+    let vols = RwLock::new(vec![sample()]);
+    let mut fresh = VolumeIndex::new("C:");
+    fresh.insert(40, 5, "Users", true);
+    fresh.insert(90, 40, "new.txt", false);
+    // Until the swap, the old index answers.
+    assert_eq!(vols.read().unwrap()[0].path(42).as_deref(), Some(r"C:\Users\you\report.docx"));
+    super::swap_volume(&vols, fresh);
+    let v = vols.read().unwrap();
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].path(90).as_deref(), Some(r"C:\Users\new.txt"));
+    assert_eq!(v[0].path(42), None);
+}
+
+#[test]
+fn journal_reply_with_many_records() {
+    let recs: Vec<Vec<u8>> = (0..100u64).map(|i| v2(SEQ | (100 + i), 5, i as i64, REASON_FILE_CREATE, 0x20, &format!("f{i}.txt"))).collect();
+    let buf = reply(4242, &recs);
+    let parsed = parse_records(&buf);
+    assert_eq!(parsed.len(), 100);
+    let mut v = VolumeIndex::new("C:");
+    for r in &parsed {
+        v.apply(r);
+    }
+    assert_eq!(v.len(), 100);
+    assert_eq!(v.path(199).as_deref(), Some(r"C:\f99.txt"));
+}
+
+#[test]
+fn one_windows_search_query_in_flight() {
+    use super::wsearch::OneInFlight;
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::Duration;
+    static RAN: OnceLock<Mutex<Vec<u32>>> = OnceLock::new();
+    static ACTIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static MAX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    use std::sync::atomic::Ordering::SeqCst;
+    fn run(j: u32) {
+        let now = ACTIVE.fetch_add(1, SeqCst) + 1;
+        MAX.fetch_max(now, SeqCst);
+        std::thread::sleep(Duration::from_millis(if j == 1 { 300 } else { 20 }));
+        RAN.get_or_init(Default::default).lock().unwrap().push(j);
+        ACTIVE.fetch_sub(1, SeqCst);
+    }
+    let q = Arc::new(OneInFlight::<u32>::default());
+    OneInFlight::submit(&q, 1, run);
+    std::thread::sleep(Duration::from_millis(50)); // 1 is running
+    for j in 2..=5 {
+        OneInFlight::submit(&q, j, run);
+    }
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(*RAN.get().unwrap().lock().unwrap(), vec![1, 5], "intermediate queries dropped");
+    assert_eq!(MAX.load(SeqCst), 1, "never two at once");
+    OneInFlight::submit(&q, 6, run); // idle again: starts at once
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(*RAN.get().unwrap().lock().unwrap(), vec![1, 5, 6]);
+}
+
+#[test]
+fn stale_replies_are_not_stored() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+    let results = Mutex::new(Results::default());
+    let gen = AtomicU64::new(7);
+    let first = super::store_if_current(&results, &gen, 7, vec![(r"C:\a.txt".into(), false)]).unwrap();
+    gen.store(8, Ordering::SeqCst); // a newer query started
+    assert_eq!(super::store_if_current(&results, &gen, 7, vec![(r"C:\b.txt".into(), false)]), None);
+    assert_eq!(results.lock().unwrap().lookup(first), Some((r"C:\a.txt", false)), "stale reply left the stored results alone");
+}
