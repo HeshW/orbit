@@ -1244,3 +1244,31 @@ DevResult { done: number, bytes: number, kept: { path: string, reason: string }[
 - UI: the "Measured" line names the size basis; with `method: "walk"` and `isAdmin: false` a
   line "Faster as administrator" carries a Restart as administrator button
   (`data-cl-admin-folders`). The mock returns `"mft"` when its admin state is on.
+
+**v1.4: File search in the palette (section 16)**
+- Commands (all read only except `file_search_open`, which opens a result as the user):
+  `file_search({ query }) -> FileSearchReply`, `file_search_status() -> SearchStatus`,
+  `file_search_open({ id: number, reveal: boolean }) -> null`, `keyboard_layouts() -> LayoutMap[]`.
+```
+SearchStatus { route: "index" | "windowsSearch",
+  state: "notBuilt" | "indexing" | "ready" | "unavailable",
+  drive: string | null /*"C:" while indexing*/, percent: number | null,
+  files: number, memoryBytes: number /*index only*/ }
+FileSearchReply { query: string, stale: boolean /*a newer query started: ignore*/,
+  status: SearchStatus, results: FileResult[] /*best first, at most 50*/ }
+FileResult { id: number, name: string, folder: string, isDir: boolean }
+LayoutMap { from: string, to: string /*layout ids, 8 hex digits*/,
+  map: { [typedOnFrom: string]: string /*same key on "to"*/ } }
+```
+- `file_search` with fewer than 2 characters returns no results. As administrator the first
+  call starts the index build and returns `state: "indexing"` until it is ready.
+- `file_search_open` accepts only ids from the latest reply ("That result is out of date.
+  Search again." otherwise). Elevated, it opens through the desktop Explorer
+  (`IShellDispatch2::ShellExecute`) and falls back to showing the file in File Explorer the
+  same way; it never starts the file from Orbit's own process.
+- UI: a "Files" group last in the palette (file name, folder in the hint, `i-file` /
+  `i-folder`), `[data-palette-indexing]` progress line, Ctrl+Enter = show in folder, the
+  "File search needs Windows Search, or Restart as administrator" item, and
+  `[data-file-index]` in Settings > About. `ui/js/layouts.js` exports `convertLayout` and
+  `layoutVariants`. Mock: `ui/js/mock/search.js` (test hooks `mock_search_set`,
+  `mock_search_opened`, mock only).

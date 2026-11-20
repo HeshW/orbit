@@ -990,18 +990,19 @@ with `VkKeyScanExW` / `ToUnicodeEx`) **(unverified)**. Applies to the whole pale
 actions, processes), not only files.
 
 **Likely route.**
-- **As administrator:** reuse the 15a reader to build a name index (names and parents only, no
-  sizes) the first time the palette searches files, then follow the NTFS change journal
+- **As administrator:** build a name index (names and parents only, no sizes) the first time
+  the palette searches files, by listing each fixed NTFS drive with `FSCTL_ENUM_USN_DATA`
+  (not the 15a file-table reader), then follow the NTFS change journal
   (`FSCTL_READ_USN_JOURNAL`) while Orbit runs, so new and renamed files show up. A drive of
   about a million files should index in a few seconds **(unverified on this PC)**. Keep the
-  index compact: one slot per file-table record (parent number and a pointer into one shared
-  block of name bytes, about 12 bytes plus the name) instead of a string per file. If the
-  change journal is off on a drive, or has moved past the point Orbit last read (it wraps), Orbit
-  reads the whole file table again. Orbit never turns the journal on itself: that would change
-  the PC.
-- **Not as administrator:** ask the Windows Search index (the `Search.CollatorDSO` OLE DB
-  provider) **(unverified)**. If the Windows Search service is off, the palette says search
-  needs Windows Search or Restart as administrator.
+  index compact: one 12-byte slot per file-table record (parent number and a pointer into one
+  shared block of name bytes) instead of a string per file. If the change journal is off on a
+  drive, was replaced, or has moved past the point Orbit last read (it wraps), Orbit lists the
+  drive again. Orbit never turns the journal on itself: that would change the PC.
+- **Not as administrator:** ask the Windows Search index with one OLE DB query against the
+  `Search.CollatorDSO` provider (the shell's `search-ms:` folder returned nothing when listed
+  from Rust). If the Windows Search service is off, the palette says search needs Windows
+  Search or Restart as administrator.
 
 **Rules.**
 - The index lives in memory only and is dropped when Orbit closes. It is never written to disk:

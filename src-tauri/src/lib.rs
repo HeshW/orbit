@@ -18,6 +18,7 @@ pub mod pdh;
 pub mod rig;
 pub mod rules;
 pub mod sampler;
+pub mod search;
 pub mod security;
 pub mod sensors;
 pub mod services;
@@ -174,6 +175,11 @@ pub fn run() {
             rules::rules_log,
             rules::rules_status,
             rules::rules_pick_exe,
+            // file search in the palette (v1.4)
+            search::file_search,
+            search::file_search_status,
+            search::file_search_open,
+            search::keyboard_layouts,
         ])
         .setup(|app| {
             history::init(app.handle());

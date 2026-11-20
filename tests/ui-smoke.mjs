@@ -1478,6 +1478,95 @@ async function drawer(page) {
 
 // ------------------------------------------------------------------ run
 
+// File search (1.4): file results in the palette, Enter opens and Ctrl+Enter shows in File
+// Explorer (by result id), text typed on the wrong keyboard layout still matches, the
+// Windows Search line when it is off, and the admin index's progress line.
+async function fileSearch(page) {
+  const mock = (cmd, args = {}) => page.evaluate(async ([c, a]) => {
+    const { call } = await import('/js/api.js');
+    return call(c, a);
+  }, [cmd, args]);
+  const fileItem = (name) => page.locator('#palette .palette-item', { has: page.locator('.palette-item__label', { hasText: new RegExp(`^${name.replace(/[.]/g, '\.')}$`) }) }).first();
+  const typeInPalette = async (text) => {
+    await page.keyboard.press('Control+K');
+    await page.waitForSelector('#palette.is-open .palette-input', { timeout: WAIT });
+    await page.fill('#palette .palette-input', '');
+    await page.keyboard.type(text);
+  };
+  const closed = () => page.waitForSelector('#palette:not(.is-open)', { state: 'attached', timeout: WAIT });
+
+  // Pure layout conversion with a mocked map.
+  const conv = await page.evaluate(async () => {
+    const { convertLayout, layoutVariants } = await import('/js/layouts.js');
+    const map = { 'ؤ': 'c', 'ا': 'h', 'ق': 'r', 'خ': 'o', 'ة': 'm', 'ث': 'e' };
+    return {
+      one: convertLayout('ؤاقخةث', map),
+      kept: convertLayout('ؤ1', map),
+      variants: layoutVariants('ؤاقخةث', [{ from: 'a', to: 'b', map }]),
+      partial: layoutVariants('ؤxyz', [{ from: 'a', to: 'b', map }]),
+    };
+  });
+  if (conv.one !== 'chrome' || conv.kept !== 'c1' || conv.variants.join() !== 'chrome' || conv.partial.length) {
+    throw new Error(`layout conversion is wrong: ${JSON.stringify(conv)}`);
+  }
+
+  // Earlier checks may have turned the mock's admin on: start on the Windows Search route.
+  await mock('mock_search_set', { admin: false });
+  const st = await mock('file_search_status');
+  if (st.route !== 'windowsSearch') throw new Error(`expected the Windows Search route before admin, got ${st.route}`);
+
+  // Results show with their folder; Enter opens, Ctrl+Enter shows in File Explorer.
+  await typeInPalette('notes');
+  await fileItem('notes.txt').waitFor({ timeout: WAIT });
+  const hint = await fileItem('notes.txt').locator('.palette-item__hint').textContent();
+  if (!/Desktop/.test(hint || '')) throw new Error(`file result shows no folder: ${hint}`);
+  await fileItem('notes.txt').hover();
+  await page.keyboard.press('Enter');
+  await closed();
+  await typeInPalette('notes');
+  await fileItem('notes.txt').waitFor({ timeout: WAIT });
+  await fileItem('notes.txt').hover();
+  await page.keyboard.press('Control+Enter');
+  await closed();
+  const opened = await mock('mock_search_opened');
+  const last2 = opened.slice(-2);
+  if (last2.length !== 2 || !last2.every((o) => /notes\.txt$/.test(o.path)) || last2[0].reveal || !last2[1].reveal) {
+    throw new Error(`Enter / Ctrl+Enter called the wrong command: ${JSON.stringify(last2)}`);
+  }
+
+  // Typed on the Arabic layout: still finds chrome.
+  await typeInPalette('ؤاقخةث');
+  await fileItem('chrome.exe').waitFor({ timeout: WAIT }).catch(() => {
+    throw new Error('wrong-layout text found no chrome.exe');
+  });
+  await page.keyboard.press('Escape');
+  await closed();
+
+  // Windows Search off: one line offering Restart as administrator.
+  await mock('mock_search_set', { windowsSearch: false });
+  await typeInPalette('report');
+  await page.locator('#palette .palette-item', { hasText: 'File search needs Windows Search, or Restart as administrator' }).waitFor({ timeout: WAIT });
+  await page.keyboard.press('Escape');
+  await closed();
+  await mock('mock_search_set', { windowsSearch: true });
+
+  // As administrator: an "Indexing" line, then results; Settings > About shows the index.
+  await mock('mock_search_set', { admin: true });
+  await typeInPalette('report');
+  await page.waitForSelector('#palette [data-palette-indexing]', { timeout: WAIT });
+  await fileItem('report-2026.docx').waitFor({ timeout: WAIT });
+  if (await page.locator('#palette [data-palette-indexing]').count()) throw new Error('indexing line stays after results');
+  await page.keyboard.press('Escape');
+  await closed();
+  await showView(page, 'processes');
+  await showView(page, 'settings');
+  await page.waitForFunction(() => /MB/.test(document.querySelector('#view-settings [data-file-index]')?.textContent || ''), null, { timeout: WAIT }).catch(async () => {
+    const t = await page.evaluate(() => document.querySelector('#view-settings [data-file-index]')?.textContent);
+    throw new Error(`Settings > About shows no file index size: ${t}`);
+  });
+  await mock('mock_search_set', { admin: null });
+}
+
 const server = await serve();
 const base = `http://127.0.0.1:${server.address().port}/`;
 const channel = process.env.ORBIT_BROWSER || undefined;
@@ -1529,6 +1618,7 @@ try {
   await check('my rig', () => myRig(page));
   await check('motion', () => motion(page));
   await check('logo', () => logo(page));
+  await check('file search', () => fileSearch(page));
   // Let late timers (snapshot ticks, debounced renders) report their errors too.
   step = 'idle';
   await page.waitForTimeout(1500);
@@ -1543,4 +1633,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, no console errors.`);
+console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, file search (open, show in folder, wrong keyboard layout, Windows Search off, indexing), no console errors.`);

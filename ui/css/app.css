@@ -2027,6 +2027,11 @@ a.chip:hover {
   color: var(--danger);
 }
 
+.palette-note {
+  padding: 8px 16px;
+  color: var(--muted);
+}
+
 .palette-empty {
   padding: 28px 16px;
   text-align: center;

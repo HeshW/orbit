@@ -6,10 +6,16 @@ import { store, on, setSettings, setQuery, selectProcess } from './store.js';
 import { fuzzy, escapeHtml, pct, bytes } from './format.js';
 import { navigate, toast, restartAsAdmin, openRunTask, checkForUpdates } from './app.js';
 import { endTask, exportCsv, restartProcess } from './views/processes.js';
+import { layoutVariants } from './layouts.js';
 
 const MAX_ACTIONS = 10;
 const MAX_PROCESS_ITEMS = 24;
 const IDLE_PROCESSES = 5;
+// Fewer matches than this: also try the query as typed on the PC's other keyboard layouts.
+const FEW_MATCHES = 3;
+const FILE_MIN_CHARS = 2;
+const FILE_DEBOUNCE_MS = 120;
+const INDEX_POLL_MS = 500;
 
 let root = null;
 let input = null;
@@ -19,6 +25,16 @@ let results = [];
 let active = 0;
 let returnFocus = null;
 let renderQueued = false;
+
+// File search (v1.4): results arrive from Rust after the rest of the list.
+let layoutMaps = null; // keyboard_layouts reply, fetched once
+let fileQuery = '';   // the palette text the file state below belongs to
+let fileItems = [];
+let fileStatus = null;
+let fileTimer = 0;
+let fileSeq = 0;
+// The query whose results are shown: not searched again (their ids stay the ones Rust holds).
+let fileLoaded = null;
 
 const icon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"/></svg>`;
 
@@ -283,11 +299,9 @@ function score(item, q) {
   return Math.max(a >= 0 ? a + 50 : -1, b);
 }
 
-function compute() {
-  const q = input ? input.value.trim() : '';
-  const rows = (store.snapshot && Array.isArray(store.snapshot.processes)) ? store.snapshot.processes : [];
+// The views, actions and processes matching `q` (all of them for an empty query).
+function matchGroups(q, rows) {
   const groups = [];
-
   if (!q) {
     groups.push(['Go to', gotoItems()]);
     groups.push(['Actions', actionItems().slice(0, MAX_ACTIONS)]);
@@ -342,6 +356,62 @@ function compute() {
     }
     groups.push(['Processes', procs]);
   }
+  return groups;
+}
+
+const countItems = (groups) => groups.reduce((n, [, items]) => n + items.length, 0);
+
+// The query re-typed on another layout, when the text as typed finds little.
+function withLayouts(q, rows, groups) {
+  if (!q || countItems(groups) >= FEW_MATCHES) return { groups, alt: null };
+  let alt = null;
+  for (const v of layoutVariants(q, layoutMaps)) {
+    const extra = matchGroups(v, rows);
+    if (!countItems(extra)) continue;
+    alt = alt || v;
+    for (const [name, items] of extra) {
+      const g = groups.find(([n]) => n === name);
+      if (!g) {
+        groups.push([name, items]);
+        continue;
+      }
+      for (const it of items) {
+        if (!g[1].some((x) => x.label === it.label)) g[1].push(it);
+      }
+    }
+  }
+  return { groups, alt };
+}
+
+function fileGroup(q) {
+  if (q !== fileQuery) return [];
+  const items = [];
+  if (fileStatus && fileStatus.state === 'unavailable') {
+    items.push({
+      group: 'Files',
+      label: 'File search needs Windows Search, or Restart as administrator',
+      icon: 'i-shield',
+      hint: '',
+      note: 'unavailable',
+      run: () => restartAsAdmin(),
+    });
+  }
+  return items.concat(fileItems);
+}
+
+function fileProgress(q) {
+  if (q !== fileQuery || !fileStatus || fileStatus.state !== 'indexing') return '';
+  const pct = typeof fileStatus.percent === 'number' ? ` ${fileStatus.percent}%` : '';
+  return `Indexing ${fileStatus.drive || 'drives'}${pct}`;
+}
+
+function compute(keepActive = false) {
+  const q = input ? input.value.trim() : '';
+  const rows = (store.snapshot && Array.isArray(store.snapshot.processes)) ? store.snapshot.processes : [];
+  const { groups, alt } = withLayouts(q, rows, matchGroups(q, rows));
+  if (q) groups.push(['Files', fileGroup(q)]);
+  if (!keepActive) scheduleFiles(q, alt);
+  const prevActive = active;
 
   results = [];
   const html = [];
@@ -354,16 +424,76 @@ function compute() {
       html.push(
         `<div class="palette-item${it.danger ? ' palette-item--danger' : ''}" role="option" id="palette-opt-${i}" data-index="${i}" aria-selected="false">`
         + `${icon(it.icon)}<span class="palette-item__label">${highlight(it.label, q)}</span>`
+        + (it.folder ? `<span class="palette-item__hint" title="${escapeHtml(it.folder)}">${escapeHtml(it.folder)}</span>` : '')
         + (it.hint ? `<span class="palette-item__hint">${escapeHtml(it.hint)}</span>` : '')
         + '</div>',
       );
     }
   }
-  if (!results.length) {
-    html.push(`<div class="palette-empty">Nothing matches "${escapeHtml(q)}". Try a process name, a PID or a view.</div>`);
+  const progress = fileProgress(q);
+  if (progress) html.push(`<div class="palette-note micro" role="status" data-palette-indexing>${escapeHtml(progress)}</div>`);
+  if (!results.length && !progress) {
+    html.push(`<div class="palette-empty">Nothing matches "${escapeHtml(q)}". Try a process name, a PID, a view or a file name.</div>`);
   }
   list.innerHTML = html.join('');
-  setActive(results.length ? 0 : -1, false);
+  setActive(results.length ? (keepActive && prevActive >= 0 && prevActive < results.length ? prevActive : 0) : -1, false);
+}
+
+function fileItem(r) {
+  return {
+    group: 'Files',
+    label: r.name,
+    folder: r.folder,
+    icon: r.isDir ? 'i-folder' : 'i-file',
+    run: () => call('file_search_open', { id: r.id, reveal: false }),
+    reveal: () => call('file_search_open', { id: r.id, reveal: true }),
+  };
+}
+
+// Ask Rust for files matching `q` (then each layout variant if nothing matched). Only the
+// newest request's reply is used; Rust drops stale searches too.
+function scheduleFiles(q, alt) {
+  if (q === fileLoaded) return;
+  clearTimeout(fileTimer);
+  const seq = ++fileSeq;
+  if (q !== fileQuery) {
+    fileQuery = q;
+    fileItems = [];
+  }
+  if ([...q].length < FILE_MIN_CHARS) {
+    fileItems = [];
+    return;
+  }
+  const tries = [q];
+  if (alt) tries.push(alt);
+  for (const v of layoutVariants(q, layoutMaps)) if (!tries.includes(v)) tries.push(v);
+  fileTimer = setTimeout(async () => {
+    for (const text of tries) {
+      let reply;
+      try {
+        reply = await call('file_search', { query: text });
+      } catch (err) {
+        console.warn('[orbit] file search failed', err);
+        return;
+      }
+      if (seq !== fileSeq || !open) return;
+      if (!reply || reply.stale) return;
+      fileStatus = reply.status || null;
+      const found = Array.isArray(reply.results) ? reply.results : [];
+      if (fileStatus && fileStatus.state === 'indexing') {
+        fileItems = [];
+        compute(true);
+        fileTimer = setTimeout(() => { if (seq === fileSeq && open) scheduleFiles(q, alt); }, INDEX_POLL_MS);
+        return;
+      }
+      if (found.length || text === tries[tries.length - 1]) {
+        fileItems = found.map(fileItem);
+        fileLoaded = q;
+        compute(true);
+        return;
+      }
+    }
+  }, FILE_DEBOUNCE_MS);
 }
 
 function highlight(label, q) {
@@ -392,12 +522,12 @@ function setActive(i, scroll = true) {
   if (scroll) el.scrollIntoView({ block: 'nearest' });
 }
 
-function runActive(i = active) {
+function runActive(i = active, reveal = false) {
   const it = results[i];
   if (!it) return;
   closePalette(false);
   try {
-    const r = it.run();
+    const r = reveal && it.reveal ? it.reveal() : it.run();
     if (r && typeof r.catch === 'function') r.catch((err) => toast(String(err), 'error'));
   } catch (err) {
     toast(String(err && err.message ? err.message : err), 'error');
@@ -428,6 +558,19 @@ export function openPalette(initial) {
   root.setAttribute('aria-hidden', 'false');
   input.setAttribute('aria-expanded', 'true');
   if (typeof initial === 'string') input.value = initial;
+  // Fresh results each time it opens: the file index may have changed meanwhile.
+  fileLoaded = null;
+  fileQuery = '';
+  fileItems = [];
+  if (layoutMaps === null) {
+    layoutMaps = [];
+    call('keyboard_layouts')
+      .then((maps) => {
+        layoutMaps = Array.isArray(maps) ? maps : [];
+        if (open) compute();
+      })
+      .catch(() => { layoutMaps = []; });
+  }
   compute();
   input.focus();
   input.select();
@@ -472,6 +615,7 @@ export function initPalette() {
       <div class="palette-foot micro" aria-hidden="true">
         <span><kbd class="kbd">&uarr;</kbd><kbd class="kbd">&darr;</kbd> Move</span>
         <span><kbd class="kbd">Enter</kbd> Run</span>
+        <span><kbd class="kbd">Ctrl</kbd><kbd class="kbd">Enter</kbd> Show in folder</span>
         <span><kbd class="kbd">Esc</kbd> Close</span>
       </div>
     </div>`;
@@ -513,7 +657,7 @@ export function initPalette() {
       case 'Enter':
         e.preventDefault();
         e.stopImmediatePropagation();
-        runActive();
+        runActive(active, e.ctrlKey || e.metaKey);
         return;
       case 'Tab':
         // Keep focus inside the palette.

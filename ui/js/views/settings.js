@@ -442,12 +442,31 @@ function renderFacts() {
     ['Cores', cores],
     ['RAM', bytes(info.totalMemory)],
   ];
-  els.facts.innerHTML = rows.map(([k, v]) => `<div class="lv-fact"><dt>${k}</dt><dd title="${attr(v)}">${text(v)}</dd></div>`).join('');
+  els.facts.innerHTML = rows.map(([k, v]) => `<div class="lv-fact"><dt>${k}</dt><dd title="${attr(v)}">${text(v)}</dd></div>`).join('')
+    + '<div class="lv-fact"><dt>File index</dt><dd data-file-index>Not built</dd></div>';
+  refreshFileIndex();
+}
+
+// The palette's file index (v1.4): its memory, or why there is none.
+function refreshFileIndex() {
+  if (!els.facts || !els.facts.querySelector('[data-file-index]')) return;
+  call('file_search_status')
+    .then((st) => {
+      const el = els.facts.querySelector('[data-file-index]');
+      if (!el || !st) return;
+      let v = 'Not built';
+      if (st.route === 'windowsSearch') v = 'Not used: file search uses Windows Search';
+      else if (st.state === 'indexing') v = 'Building';
+      else if (st.state === 'ready') v = `${bytes(st.memoryBytes)} for ${Number(st.files || 0).toLocaleString()} files and folders`;
+      el.textContent = v;
+    })
+    .catch(() => {});
 }
 
 function renderAll() {
   dirty = false;
   syncControls();
+  refreshFileIndex();
   renderWatch();
   renderPermissions();
   renderFacts();
