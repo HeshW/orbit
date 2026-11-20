@@ -18,7 +18,7 @@
 | 12 | **1.0 list** | Shipped in 1.0.0: a UI polish pass (no glows, gradient text, uppercase labels or grid background) and Set priority on grouped app rows. See section 12. |
 | 13 | **1.1 list** | Shipped in 1.1.0: watchlist pins that survive a restart. See section 13. |
 | 14 | **1.2 list** | Shipped in 1.2.0: services shown on svchost rows, a Developer leftovers cleanup category, and a 7-day hold before those leftovers are deleted. See section 14, `docs/features/svchost-services.md` and `docs/features/dev-leftovers.md`. |
-| 15 | **1.3 list** | Planned: fast folder sizes from the NTFS file table (admin), and a disk map in Biggest folders. See section 15. |
+| 15 | **1.3 list** | Shipped in 1.3.0: fast folder sizes from the NTFS file table (admin), and a disk map in Biggest folders. See section 15, `docs/features/fast-folder-sizes.md` and `docs/features/disk-map.md`. |
 | 16 | **1.4 list** | Planned: file search in the Ctrl+K palette. See section 16. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
