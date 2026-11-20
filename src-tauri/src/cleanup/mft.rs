@@ -14,7 +14,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::HANDLE;
@@ -31,7 +31,6 @@ const ROOT: usize = 5;
 /// Records below this are metafiles ($MFT, $Bitmap, ...) or reserved; the walk never lists them.
 const FIRST_USER: usize = 24;
 const CHUNK: usize = 8 << 20;
-const MAX_DEPTH: u32 = 4096;
 
 const IN_USE: u8 = 1;
 const DIR: u8 = 2;
@@ -55,7 +54,7 @@ fn u64_at(b: &[u8], o: usize) -> Option<u64> {
 pub(crate) fn fixup(rec: &mut [u8]) -> bool {
     let (Some(off), Some(count)) = (u16_at(rec, 4), u16_at(rec, 6)) else { return false };
     let (off, count) = (off as usize, count as usize);
-    if count < 2 || (count - 1) * 512 > rec.len() {
+    if rec.len() % 512 != 0 || count != rec.len() / 512 + 1 {
         return false;
     }
     let Some(usn) = u16_at(rec, off) else { return false };
@@ -123,7 +122,7 @@ pub(crate) fn parse(rec: &[u8]) -> Option<Rec> {
         return None;
     }
     let hflags = u16_at(rec, 0x16)?;
-    let mut r = Rec { seq: u16_at(rec, 0x10)?, base: u64_at(rec, 0x20)? & 0xFFFF_FFFF_FFFF, ..Default::default() };
+    let mut r = Rec { seq: u16_at(rec, 0x10)?, base: u64_at(rec, 0x20)?, ..Default::default() };
     if hflags & 1 != 0 {
         r.flags |= IN_USE;
     }
@@ -181,7 +180,7 @@ pub(crate) fn parse(rec: &[u8]) -> Option<Rec> {
                     let lowest = u64_at(a, 0x10)?;
                     if lowest == 0 {
                         // Compressed or sparse: the total actually allocated.
-                        let total = aflags & 0x8001 != 0 && u16_at(a, 0x22)? != 0 && len >= 0x48;
+                        let total = aflags & 0x8001 != 0 && len >= 0x48;
                         r.alloc = Some(if total { u64_at(a, 0x40)? } else { u64_at(a, 0x28)? });
                         r.data_size = u64_at(a, 0x30)?;
                     }
@@ -211,9 +210,21 @@ pub(crate) struct Table {
     names: String,
     bytes: Vec<u64>,
     kids: Vec<Vec<u32>>,
+    /// Records in the table (valid data length / record size): nothing is sized past it.
+    limit: usize,
+    /// Extension records, merged in `finish` once every base record's sequence is known.
+    ext: Vec<Ext>,
 }
 
+type Names = Vec<(u64, u8, String)>;
+/// (base record, base sequence, allocated size, names)
+type Ext = (usize, u16, Option<u64>, Names);
+
 impl Table {
+    pub(crate) fn new(limit: usize) -> Self {
+        Table { limit, ..Default::default() }
+    }
+
     fn grow(&mut self, i: usize) {
         if i >= self.seq.len() {
             let n = i + 1;
@@ -228,37 +239,41 @@ impl Table {
 
     /// Adds record `no` (raw bytes, fix-ups not yet applied). Bad records are skipped.
     pub(crate) fn add(&mut self, no: usize, raw: &mut [u8]) {
-        if !fixup(raw) {
+        if no >= self.limit || !fixup(raw) {
             return;
         }
         let Some(r) = parse(raw) else { return };
         if r.flags & IN_USE == 0 {
             return;
         }
-        let target = if r.base != 0 {
-            match usize::try_from(r.base) {
-                Ok(b) if b != no => b,
-                _ => return,
+        if r.base != 0 {
+            let target = (r.base & 0xFFFF_FFFF_FFFF) as usize;
+            if target != no && target < self.limit {
+                self.ext.push((target, (r.base >> 48) as u16, r.alloc, r.names));
             }
-        } else {
-            no
-        };
-        if target > u32::MAX as usize - 1 {
             return;
         }
-        self.grow(target);
-        if r.base == 0 {
-            self.seq[target] = r.seq;
-            self.flags[target] |= r.flags;
+        self.grow(no);
+        self.seq[no] = r.seq;
+        self.flags[no] |= r.flags;
+        self.merge(no, r.alloc, r.names);
+    }
+
+    fn merge(&mut self, target: usize, alloc: Option<u64>, names: Names) {
+        if target >= self.seq.len() {
+            return;
         }
-        if let Some(a) = r.alloc {
+        if let Some(a) = alloc {
             self.bytes[target] = a;
         }
-        for (parent, rank, n) in r.names {
+        for (parent, rank, n) in names {
             if rank > self.rank[target] {
+                let (Ok(s), Ok(l)) = (u32::try_from(self.names.len()), u32::try_from(n.len())) else { continue };
+                if s.checked_add(l).is_none() {
+                    continue;
+                }
                 self.rank[target] = rank;
                 self.parent[target] = parent;
-                let (Ok(s), Ok(l)) = (u32::try_from(self.names.len()), u32::try_from(n.len())) else { continue };
                 self.names.push_str(&n);
                 self.name[target] = (s, l);
             }
@@ -276,6 +291,12 @@ impl Table {
 
     /// Builds parent -> children. Unreachable and orphaned records drop out.
     pub(crate) fn finish(&mut self) {
+        for (target, seq, alloc, names) in std::mem::take(&mut self.ext) {
+            // The base must still be the file this extension was written for.
+            if self.is(target, IN_USE) && self.seq.get(target) == Some(&seq) {
+                self.merge(target, alloc, names);
+            }
+        }
         let n = self.seq.len();
         let mut kids = vec![Vec::new(); n];
         for i in FIRST_USER..n {
@@ -315,69 +336,97 @@ impl Table {
         Some(at)
     }
 
-    fn measure(&self, at: usize, dir: &Path, depth: u32, ctl: &mut Ctl<'_>, cache: &mut Vec<FolderSizes>) -> (u64, u64) {
-        let (mut bytes, mut files) = (0u64, 0u64);
-        let keep = depth <= CACHE_DEPTH;
-        let mut here = FolderSizes { path: dir.to_string_lossy().into_owned(), ..Default::default() };
-        let mut kids: Vec<FolderEntry> = Vec::new();
-        for &k in self.kids.get(at).map(Vec::as_slice).unwrap_or(&[]) {
+    /// The walk's `measure`, with an explicit stack so folder depth can't overflow the thread stack.
+    fn measure(&self, at: usize, dir: &Path, ctl: &mut Ctl<'_>, cache: &mut Vec<FolderSizes>) {
+        struct Frame {
+            at: usize,
+            next: usize,
+            depth: u32,
+            path: PathBuf,
+            name: String,
+            bytes: u64,
+            files: u64,
+            here: FolderSizes,
+            kids: Vec<FolderEntry>,
+        }
+        let frame = |at: usize, path: PathBuf, name: String, depth: u32| Frame {
+            at,
+            next: 0,
+            depth,
+            here: FolderSizes { path: path.to_string_lossy().into_owned(), ..Default::default() },
+            path,
+            name,
+            bytes: 0,
+            files: 0,
+            kids: Vec::new(),
+        };
+        let mut stack = vec![frame(at, dir.to_path_buf(), String::new(), 0)];
+        while let Some(top) = stack.last_mut() {
             if ctl.cancelled() {
-                return (bytes, files);
+                return;
             }
-            let k = k as usize;
-            if self.is(k, DIR) {
-                if self.is(k, REPARSE) || depth >= MAX_DEPTH {
-                    here.links += 1;
-                    continue;
+            let kids = self.kids.get(top.at).map(Vec::as_slice).unwrap_or(&[]);
+            if let Some(&k) = kids.get(top.next) {
+                top.next += 1;
+                let k = k as usize;
+                if self.is(k, DIR) {
+                    if self.is(k, REPARSE) {
+                        top.here.links += 1;
+                        continue;
+                    }
+                    let name = self.name_of(k).to_string();
+                    if top.depth == 0 {
+                        ctl.p.label = name.clone();
+                    }
+                    let (path, depth) = (top.path.join(&name), top.depth.saturating_add(1));
+                    stack.push(frame(k, path, name, depth));
+                } else {
+                    let size = if self.is(k, OFFLINE) { 0 } else { self.bytes.get(k).copied().unwrap_or(0) };
+                    top.bytes = top.bytes.saturating_add(size);
+                    top.files += 1;
+                    top.here.files_here += 1;
+                    top.here.files_here_bytes = top.here.files_here_bytes.saturating_add(size);
+                    ctl.add(1, size);
                 }
-                let name = self.name_of(k);
-                let path = dir.join(name);
-                if depth == 0 {
-                    ctl.p.label = name.to_string();
+                continue;
+            }
+            let Some(mut done) = stack.pop() else { break };
+            if done.depth <= CACHE_DEPTH {
+                let mut kids = std::mem::take(&mut done.kids);
+                kids.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
+                if kids.len() > TOP_FOLDERS {
+                    for k in kids.drain(TOP_FOLDERS..) {
+                        done.here.other_bytes = done.here.other_bytes.saturating_add(k.bytes);
+                        done.here.other_count += 1;
+                    }
                 }
-                let (b, f) = self.measure(k, &path, depth + 1, ctl, cache);
-                bytes += b;
-                files += f;
-                if keep {
-                    kids.push(FolderEntry {
-                        name: name.to_string(),
-                        path: path.to_string_lossy().into_owned(),
-                        bytes: b,
-                        files: f,
+                done.here.folders = kids;
+                done.here.bytes = done.bytes;
+                done.here.files = done.files;
+                done.here.scanned_at = now_unix();
+                cache.push(done.here);
+            }
+            if let Some(parent) = stack.last_mut() {
+                parent.bytes = parent.bytes.saturating_add(done.bytes);
+                parent.files += done.files;
+                if parent.depth <= CACHE_DEPTH {
+                    parent.kids.push(FolderEntry {
+                        name: done.name,
+                        path: done.path.to_string_lossy().into_owned(),
+                        bytes: done.bytes,
+                        files: done.files,
                         unreadable: 0,
                     });
                 }
-            } else {
-                let size = if self.is(k, OFFLINE) { 0 } else { self.bytes[k] };
-                bytes += size;
-                files += 1;
-                here.files_here += 1;
-                here.files_here_bytes += size;
-                ctl.add(1, size);
             }
         }
-        if keep {
-            kids.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
-            if kids.len() > TOP_FOLDERS {
-                for k in kids.drain(TOP_FOLDERS..) {
-                    here.other_bytes += k.bytes;
-                    here.other_count += 1;
-                }
-            }
-            here.folders = kids;
-            here.bytes = bytes;
-            here.files = files;
-            here.scanned_at = now_unix();
-            cache.push(here);
-        }
-        (bytes, files)
     }
 
     /// Same shape as `cleanup::folder_sizes` for `dir`, whose path below the volume root is `parts`.
     pub(crate) fn sizes(&self, dir: &Path, parts: &[String], ctl: &mut Ctl<'_>) -> Result<(FolderSizes, Vec<FolderSizes>), String> {
         let at = self.find(parts).ok_or("Folder not found in the file table.")?;
         let mut cache = Vec::new();
-        self.measure(at, dir, 0, ctl, &mut cache);
+        self.measure(at, dir, ctl, &mut cache);
         let cancelled = ctl.cancelled();
         ctl.finish();
         if cancelled {
@@ -403,8 +452,8 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    pub(crate) fn new(rec_size: usize) -> Self {
-        Feed { rec_size, buf: Vec::new(), next: 0, table: Table::default() }
+    pub(crate) fn new(rec_size: usize, records: usize) -> Self {
+        Feed { rec_size, buf: Vec::new(), next: 0, table: Table::new(records) }
     }
 
     pub(crate) fn push(&mut self, bytes: &[u8]) {
@@ -460,7 +509,47 @@ fn read_at(f: &mut File, off: u64, buf: &mut [u8]) -> Result<(), String> {
     f.read_exact(buf).map_err(|e| e.to_string())
 }
 
-fn read_table(letter: &str, ctl: &mut Ctl<'_>) -> Result<Option<Table>, String> {
+const OVERFLOW: &str = "A value in the file table is out of range.";
+
+/// From the volume data and record 0: the record count and `$MFT`'s pieces as
+/// (byte offset, byte length). Every value from disk is range-checked.
+pub(crate) fn mft_layout(
+    vd: &NTFS_VOLUME_DATA_BUFFER,
+    mut read: impl FnMut(u64, &mut [u8]) -> Result<(), String>,
+) -> Result<(usize, Vec<(u64, u64)>), String> {
+    let rec = vd.BytesPerFileRecordSegment as usize;
+    let cluster = u64::from(vd.BytesPerCluster);
+    let valid = u64::try_from(vd.MftValidDataLength).map_err(|_| OVERFLOW)?;
+    if !(512..=65536).contains(&rec) || rec % 512 != 0 || cluster == 0 || cluster % 512 != 0 || cluster > 1 << 21 {
+        return Err("Unexpected volume geometry.".into());
+    }
+    let records = usize::try_from(valid / rec as u64).map_err(|_| OVERFLOW)?;
+    if records > u32::MAX as usize - 1 {
+        return Err(OVERFLOW.into());
+    }
+    let start = u64::try_from(vd.MftStartLcn).map_err(|_| OVERFLOW)?;
+    let mut first = vec![0u8; rec.max(cluster as usize)];
+    read(start.checked_mul(cluster).ok_or(OVERFLOW)?, &mut first)?;
+    let mut r0 = first.get(..rec).ok_or("Record 0.")?.to_vec();
+    if !fixup(&mut r0) {
+        return Err("Record 0 is torn.".into());
+    }
+    let r0 = parse(&r0).ok_or("Record 0 is unreadable.")?;
+    let mut covered = 0u64;
+    let mut out = Vec::new();
+    for (lcn, len) in &r0.runs {
+        let lcn = lcn.ok_or("Sparse $MFT run.")?;
+        let bytes = len.checked_mul(cluster).ok_or(OVERFLOW)?;
+        out.push((lcn.checked_mul(cluster).ok_or(OVERFLOW)?, bytes));
+        covered = covered.checked_add(bytes).ok_or(OVERFLOW)?;
+    }
+    if covered < valid {
+        return Err("$MFT's pieces don't cover the table.".into());
+    }
+    Ok((records, out))
+}
+
+fn read_table(letter: &str, ctl: &mut Ctl<'_>) -> Result<Option<(Table, u64)>, String> {
     let mut f = OpenOptions::new()
         .read(true)
         .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
@@ -482,42 +571,27 @@ fn read_table(letter: &str, ctl: &mut Ctl<'_>) -> Result<Option<Table>, String> 
         )
     }
     .map_err(|e| e.to_string())?;
+    if (got as usize) < std::mem::size_of::<NTFS_VOLUME_DATA_BUFFER>() {
+        return Err("Short volume data reply.".into());
+    }
+    let (records, runs) = mft_layout(&vd, |off, buf| read_at(&mut f, off, buf))?;
     let rec = vd.BytesPerFileRecordSegment as usize;
-    let cluster = vd.BytesPerCluster as u64;
-    let valid = u64::try_from(vd.MftValidDataLength).map_err(|_| "Bad MFT length.")?;
-    if !(512..=65536).contains(&rec) || rec % 512 != 0 || cluster == 0 || cluster % 512 != 0 {
-        return Err("Unexpected volume geometry.".into());
-    }
-    let start = u64::try_from(vd.MftStartLcn).map_err(|_| "Bad MFT start.")?;
-    let mut first = vec![0u8; rec.max(cluster as usize)];
-    read_at(&mut f, start * cluster, &mut first)?;
-    let mut r0 = first[..rec].to_vec();
-    if !fixup(&mut r0) {
-        return Err("Record 0 is torn.".into());
-    }
-    let r0 = parse(&r0).ok_or("Record 0 is unreadable.")?;
-    let covered: u64 = r0.runs.iter().map(|r| r.1).sum::<u64>() * cluster;
-    if r0.has_list && covered < valid {
-        return Err("$MFT spills into extension records.".into());
-    }
-    let mut feed = Feed::new(rec);
-    let mut left = valid;
+    let mut feed = Feed::new(rec, records);
+    let mut left = (records as u64).checked_mul(rec as u64).ok_or(OVERFLOW)?;
     let mut buf = vec![0u8; CHUNK];
-    for (lcn, len) in r0.runs {
-        let lcn = lcn.ok_or("Sparse $MFT run.")?;
-        let mut off = lcn * cluster;
-        let mut run_left = (len * cluster).min(left);
+    for (mut off, bytes) in runs {
+        let mut run_left = bytes.min(left);
         while run_left > 0 {
             if ctl.cancelled() {
                 return Ok(None);
             }
-            let n = (run_left as usize).min(CHUNK);
+            let n = usize::try_from(run_left).unwrap_or(CHUNK).min(CHUNK);
             // Whole sectors only: raw volume reads must be sector-sized.
             let n_read = n.div_ceil(512) * 512;
             let b = buf.get_mut(..n_read).ok_or("Chunk size.")?;
             read_at(&mut f, off, b)?;
-            feed.push(&b[..n]);
-            off += n as u64;
+            feed.push(b.get(..n).ok_or("Chunk size.")?);
+            off = off.checked_add(n as u64).ok_or(OVERFLOW)?;
             run_left -= n as u64;
             left -= n as u64;
         }
@@ -527,22 +601,30 @@ fn read_table(letter: &str, ctl: &mut Ctl<'_>) -> Result<Option<Table>, String> 
     }
     let mut t = feed.table;
     t.finish();
-    Ok(Some(t))
+    Ok(Some((t, (records as u64).saturating_mul(rec as u64))))
 }
 
 /// Biggest folders from the file table. Err means "use the folder walk".
-pub fn folder_sizes(dir: &Path, ctl: &mut Ctl<'_>) -> Result<(FolderSizes, Vec<FolderSizes>), String> {
+/// Also returns the size of the table itself, for the totals guard.
+pub fn folder_sizes(dir: &Path, ctl: &mut Ctl<'_>) -> Result<(FolderSizes, Vec<FolderSizes>, u64), String> {
     let (letter, parts) = volume_of(dir)?;
     let label = std::mem::take(&mut ctl.p.label);
     ctl.p.label = "Reading the file table".to_string();
     ctl.emit(true);
-    let Some(table) = read_table(&letter, ctl)? else {
+    let Some((table, mft_bytes)) = read_table(&letter, ctl)? else {
         ctl.finish();
         let blank = FolderSizes { path: dir.to_string_lossy().into_owned(), cancelled: true, scanned_at: now_unix(), ..Default::default() };
-        return Ok((blank, Vec::new()));
+        return Ok((blank, Vec::new(), 0));
     };
     ctl.p.label = label;
-    table.sizes(dir, &parts, ctl)
+    let (top, kept) = table.sizes(dir, &parts, ctl)?;
+    Ok((top, kept, mft_bytes))
+}
+
+/// The totals guard: a file-table total more than 10% (plus the table's own
+/// size) away from what the drive reports as used is not trusted.
+pub(crate) fn plausible(total: u64, used: u64, mft_bytes: u64) -> bool {
+    total.abs_diff(used) <= used / 10 + mft_bytes
 }
 
 #[cfg(test)]

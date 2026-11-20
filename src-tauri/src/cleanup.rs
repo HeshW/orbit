@@ -1609,6 +1609,23 @@ pub fn cleanup_drives() -> Vec<DriveInfo> {
     out
 }
 
+/// Bytes in use on the drive holding `root` (total minus free).
+fn used_space(root: &Path) -> Option<u64> {
+    let w = wide(&root.to_string_lossy());
+    let (mut free, mut total) = (0u64, 0u64);
+    // SAFETY: NUL-terminated path; the out pointers are valid u64s.
+    unsafe {
+        windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            PCWSTR(w.as_ptr()),
+            None,
+            Some(&mut total),
+            Some(&mut free),
+        )
+    }
+    .ok()?;
+    total.checked_sub(free)
+}
+
 /// `fresh`: ignore what a parent folder's scan already measured.
 #[tauri::command]
 pub async fn cleanup_folder_sizes(app: AppHandle, path: String, fresh: Option<bool>) -> Result<FolderSizes, String> {
@@ -1632,6 +1649,19 @@ pub async fn cleanup_folder_sizes(app: AppHandle, path: String, fresh: Option<bo
         ctl.step(&dir.to_string_lossy(), 1, 1);
         let admin = is_admin();
         let fast = if admin { mft::folder_sizes(&dir, &mut ctl).ok() } else { None };
+        // Totals guard: a drive root is checked against the drive's used space; a
+        // folder against an earlier walk of the same folder, when one is cached.
+        let fast = fast
+            .filter(|(top, _, mft_bytes)| {
+                let reference = if dir.parent().is_none() {
+                    used_space(&dir)
+                } else {
+                    let cache = folder_cache().lock().unwrap_or_else(|p| p.into_inner());
+                    cache.get(&key).filter(|(_, f)| f.method == "walk").map(|(_, f)| f.bytes)
+                };
+                top.cancelled || reference.is_none_or(|used| mft::plausible(top.bytes, used, *mft_bytes))
+            })
+            .map(|(top, kept, _)| (top, kept));
         let method = if fast.is_some() { "mft" } else { "walk" };
         let (mut top, mut kept) = fast.unwrap_or_else(|| {
             // Any error at all: today's walk, from a clean count.
@@ -1646,7 +1676,8 @@ pub async fn cleanup_folder_sizes(app: AppHandle, path: String, fresh: Option<bo
         }
         if !top.cancelled {
             let mut cache = folder_cache().lock().unwrap_or_else(|p| p.into_inner());
-            cache.retain(|_, (at, _)| at.elapsed() < CACHE_FOR);
+            // Never mix the two size bases in drill-down answers.
+            cache.retain(|_, (at, f)| at.elapsed() < CACHE_FOR && f.method == method);
             let now = Instant::now();
             for f in kept {
                 cache.insert(cache_key(&f.path), (now, f));

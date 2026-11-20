@@ -45,6 +45,16 @@ fixtures), the `cleanup_folder_sizes` command in `cleanup.rs`, two lines in
 - Unlike the walk, nothing is unreadable, so `unreadable` is 0 and folders such as
   `System Volume Information` are included.
 - Cancel works during the read and the measure; a cancelled scan does not fall back.
+- Nothing is sized from an unchecked disk value: record numbers past the MFT's valid length
+  are skipped, and every multiply or add on disk values is checked (overflow means the walk).
+- Extension records are merged only when their base reference's sequence number matches the
+  base record, so a reused record doesn't pick up an old file's pieces.
+- The measure uses an explicit stack, so a very deep folder chain can't overflow the thread.
+- Totals guard: for a drive root, the total must be within 10% (plus the MFT's own size) of the
+  drive's used space (`GetDiskFreeSpaceExW`); for a folder, of a cached walk of the same
+  folder when there is one. Otherwise the walk's result is used.
+- The drill-down cache holds one method at a time: storing a result drops cached answers of
+  the other method.
 
 ## Tests
 

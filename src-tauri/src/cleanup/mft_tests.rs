@@ -115,7 +115,7 @@ fn table(recs: Vec<(usize, Vec<u8>)>) -> Table {
     }
     // Through Feed, split at an odd boundary, like chunked reads.
     let all: Vec<u8> = slots.concat();
-    let mut feed = Feed::new(SZ);
+    let mut feed = Feed::new(SZ, n);
     let cut = all.len() / 2 + 300;
     feed.push(&all[..cut]);
     feed.push(&all[cut..]);
@@ -165,9 +165,9 @@ fn record_details() {
         (32, record(1, FILE, 0, &[std_info(0x200), file_name(30, 1, 1, "sparse.bin"), data_nonres(0, 65536, Some(8192), ONE_RUN)])),
         // Base 33 holds only std info; its name and data live in extension 34.
         (33, record(1, FILE, 0, &[std_info(0x20)])),
-        (34, record(1, FILE, 33, &[file_name(30, 1, 1, "spilled.bin"), data_nonres(0, 12288, None, ONE_RUN)])),
+        (34, record(1, FILE, 33 | 1 << 48, &[file_name(30, 1, 1, "spilled.bin"), data_nonres(0, 12288, None, ONE_RUN)])),
         // A later extension segment (lowest VCN > 0) must not overwrite the size.
-        (35, record(1, FILE, 33, &[data_nonres(3, 999, None, ONE_RUN)])),
+        (35, record(1, FILE, 33 | 1 << 48, &[data_nonres(3, 999, None, ONE_RUN)])),
         // Hard link: two Win32 names, counted once under the first (A).
         (36, record(1, FILE, 0, &[std_info(0x20), file_name(30, 1, 1, "link1"), file_name(5, 1, 1, "link2"), data_nonres(0, 1000, None, ONE_RUN)])),
         // Junction under the root: not followed.
@@ -276,4 +276,108 @@ fn same_result_as_the_walk() {
     assert_eq!(w[0]["otherCount"], 7);
     assert_eq!(w, m);
     let _ = fs::remove_dir_all(&b);
+}
+
+fn ext_rec(base: u64, seq: u16, parent: u64, name: &str, alloc: u64) -> Vec<u8> {
+    record(1, FILE, base | (u64::from(seq) << 48), &[file_name(parent, 1, 1, name), data_nonres(0, alloc, None, ONE_RUN)])
+}
+
+#[test]
+fn huge_base_reference_is_skipped_without_allocating() {
+    let t = table(vec![(5, dir_rec(5, ".")), (30, ext_rec(u32::MAX as u64 - 1, 1, 5, "x", 1)), (31, ext_rec(1 << 47, 1, 5, "y", 1))]);
+    assert!(t.seq.len() <= 32, "nothing sized past the table");
+    assert!(t.ext.is_empty());
+}
+
+#[test]
+fn stale_extension_record_is_not_merged() {
+    let t = table(vec![
+        (5, dir_rec(5, ".")),
+        (30, record(1, FILE, 0, &[std_info(0x20), file_name(5, 1, 1, "new.bin"), data_nonres(0, 4096, None, ONE_RUN)])),
+        // Written for an older file in record 30 (sequence 7).
+        (31, ext_rec(30, 7, 5, "old-name.bin", 1 << 30)),
+    ]);
+    let (top, _) = with_ctl(|ctl| t.sizes(Path::new(r"X:\"), &[], ctl)).unwrap();
+    assert_eq!((top.files, top.bytes), (1, 4096));
+}
+
+#[test]
+fn ten_thousand_deep_chain_does_not_overflow_the_stack() {
+    const DEPTH: usize = 10_000;
+    let mut recs = vec![(5usize, dir_rec(5, "."))];
+    for i in 0..DEPTH {
+        let parent = if i == 0 { 5 } else { 100 + i as u64 - 1 };
+        recs.push((100 + i, dir_rec(parent, "d")));
+    }
+    recs.push((100 + DEPTH, file_rec(100 + DEPTH as u64 - 1, "leaf.bin", 4096)));
+    let t = table(recs);
+    // A small stack, like a worker thread's, must still be enough.
+    let (top, kept) = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || with_ctl(|ctl| t.sizes(Path::new(r"X:\"), &[], ctl)).unwrap())
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!((top.bytes, top.files), (4096, 1));
+    assert_eq!(kept.len(), 2, "two levels kept for drill-down");
+}
+
+#[test]
+fn overflowing_and_negative_runs_are_refused() {
+    // Offset deltas that overflow i64.
+    let over = [0x81, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x81, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x00];
+    assert_eq!(data_runs(&over), None);
+    // A first run that starts before cluster 0.
+    assert_eq!(data_runs(&[0x11, 0x01, 0xF0, 0x00]), None);
+    // Run length times cluster size overflows: the layout check refuses it.
+    let huge = [0x18, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x01, 0x00];
+    let r0 = record(1, FILE, 0, &[file_name(5, 1, 1, "$MFT"), data_nonres(0, 4096, None, &huge)]);
+    let vd = NTFS_VOLUME_DATA_BUFFER {
+        BytesPerFileRecordSegment: SZ as u32,
+        BytesPerCluster: 4096,
+        MftValidDataLength: 4096,
+        MftStartLcn: 2,
+        ..Default::default()
+    };
+    let read = |_: u64, buf: &mut [u8]| {
+        buf[..SZ].copy_from_slice(&r0);
+        Ok(())
+    };
+    assert!(mft_layout(&vd, read).is_err());
+    let far = NTFS_VOLUME_DATA_BUFFER { MftStartLcn: i64::MAX, ..vd };
+    assert!(mft_layout(&far, |_, _| Ok(())).is_err());
+    let neg = NTFS_VOLUME_DATA_BUFFER { MftValidDataLength: -1, ..vd };
+    assert!(mft_layout(&neg, |_, _| Ok(())).is_err());
+}
+
+#[test]
+fn sparse_and_compressed_use_total_allocated() {
+    for (flag, unit) in [(0x8000u16, 0u16), (0x0001, 4), (0x0001, 0)] {
+        let mut d = data_nonres(0, 65536, Some(8192), ONE_RUN);
+        d[0xC..0xE].copy_from_slice(&flag.to_le_bytes());
+        d[0x22..0x24].copy_from_slice(&unit.to_le_bytes());
+        let mut r = record(1, FILE, 0, &[file_name(5, 1, 1, "s"), d]);
+        assert!(fixup(&mut r));
+        assert_eq!(parse(&r).unwrap().alloc, Some(8192), "flag {flag:#x} unit {unit}");
+    }
+}
+
+#[test]
+fn zero_length_attribute_is_refused() {
+    let mut r = record(1, FILE, 0, &[std_info(0x20)]);
+    r[0x38 + 4..0x38 + 8].copy_from_slice(&0u32.to_le_bytes());
+    assert!(fixup(&mut r));
+    assert!(parse(&r).is_none());
+    let mut wrong_count = file_rec(5, "a", 1);
+    wrong_count[6] = 2;
+    assert!(!fixup(&mut wrong_count));
+}
+
+#[test]
+fn totals_guard() {
+    const GB: u64 = 1 << 30;
+    assert!(plausible(95 * GB, 100 * GB, GB));
+    assert!(plausible(100 * GB, 90 * GB, 2 * GB));
+    assert!(!plausible(40 * GB, 100 * GB, GB), "far too small: use the walk");
+    assert!(!plausible(130 * GB, 100 * GB, GB), "far too big: use the walk");
 }
