@@ -114,7 +114,7 @@ function listing(path) {
     path, bytes, files: folders.reduce((a, f) => a + f.files, 0) + 12, folders,
     otherBytes: 0, otherCount: 0, filesHereBytes, filesHere: 12,
     unreadable: folders.reduce((a, f) => a + f.unreadable, 0), links: path === 'C:\\Users\\you' ? 1 : 0,
-    cancelled: false, scannedAt: now(), cached: false,
+    cancelled: false, scannedAt: now(), cached: false, method: 'walk', isAdmin: false,
   };
 }
 
@@ -201,7 +201,8 @@ export default {
       const l = listing(norm);
       await steps('folders', l.folders.slice(0, 6), ctx, (f) => [f.name, f.files, f.bytes]);
       if (cancel.folders) return { ...listing(norm), folders: [], bytes: 0, files: 0, cancelled: true };
-      return l;
+      const admin = ctx.isAdmin();
+      return { ...l, method: admin ? 'mft' : 'walk', isAdmin: admin };
     } finally {
       running.folders = false;
     }

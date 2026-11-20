@@ -313,7 +313,8 @@ function renderBig() {
         ${!d.folders.length && !d.filesHere ? '<li class="cl-row cl-row--empty">This folder is empty.</li>' : ''}
       </ul>
       ${notes.length ? `<p class="lv-help cl-folder-note">${text(notes.join(' '))}</p>` : ''}
-      <p class="micro cl-folder-when">Measured ${text(time(d.scannedAt))}</p>`;
+      <p class="micro cl-folder-when">Measured ${text(time(d.scannedAt))}. ${d.method === 'mft' ? 'Sizes are space used on disk.' : 'Sizes are file sizes.'}</p>
+      ${d.method === 'walk' && !d.isAdmin ? `<p class="micro cl-folder-when">Faster as administrator <button type="button" class="btn btn--ghost btn--sm" data-cl-admin-folders>${icon('i-shield')}Restart as administrator</button></p>` : ''}`;
   }
   els.big.innerHTML = body;
 }
@@ -434,7 +435,7 @@ export function mount(paneEl, context) {
     }
     if (t.closest('[data-cl-rescan]')) scan();
     else if (t.closest('[data-cl-clean]')) clean();
-    else if (t.closest('[data-cl-admin]')) restartAsAdmin();
+    else if (t.closest('[data-cl-admin], [data-cl-admin-folders]')) restartAsAdmin();
     else if (t.closest('[data-cl-refresh-folder]') && big.data) openFolder(big.data.path, { fresh: true });
     else if (t.closest('[data-cl-dismiss]')) {
       junk.result = null;

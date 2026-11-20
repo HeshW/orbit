@@ -1234,3 +1234,13 @@ DevResult { done: number, bytes: number, kept: { path: string, reason: string }[
 ```
 - UI: a "Developer leftovers" panel in Optimize > Cleanup (`views/optimize/devleft.js`,
   `data-dl-*` hooks, `cl-dev-` CSS). Mock: `ui/js/mock/devleft.js`.
+
+**v1.3: Fast folder sizes from the NTFS file table (15a)**
+- `FolderSizes` (from `cleanup_folder_sizes`) gains two fields; nothing else changes shape:
+  `method: "mft" | "walk"` (`"mft"`: read from the drive's master file table, sizes are space
+  used on disk; `"walk"`: folder by folder, sizes are file sizes) and `isAdmin: boolean`.
+  The file table is used only as administrator on a local NTFS drive letter; any error falls
+  back to the walk. Cached drill-down answers keep the method of the scan that made them.
+- UI: the "Measured" line names the size basis; with `method: "walk"` and `isAdmin: false` a
+  line "Faster as administrator" carries a Restart as administrator button
+  (`data-cl-admin-folders`). The mock returns `"mft"` when its admin state is on.

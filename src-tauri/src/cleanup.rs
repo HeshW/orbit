@@ -56,6 +56,7 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
 pub mod devleft;
+mod mft;
 
 use windows::Win32::UI::Shell::{
     FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_LocalAppData,
@@ -192,6 +193,11 @@ pub struct FolderSizes {
     pub scanned_at: u64,
     /// Answered from the last scan of a parent folder.
     pub cached: bool,
+    /// v1.3: "mft" (read from the NTFS file table; sizes are space used on
+    /// disk) or "walk" (folder by folder; sizes are file sizes).
+    pub method: String,
+    /// v1.3: Orbit ran as administrator (the file table needs it).
+    pub is_admin: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -1624,7 +1630,20 @@ pub async fn cleanup_folder_sizes(app: AppHandle, path: String, fresh: Option<bo
         let mut sink = emitter(app);
         let mut ctl = Ctl::new("folders", &FOLDERS_JOB.cancel, &mut sink);
         ctl.step(&dir.to_string_lossy(), 1, 1);
-        let (top, kept) = folder_sizes(&dir, &mut ctl);
+        let admin = is_admin();
+        let fast = if admin { mft::folder_sizes(&dir, &mut ctl).ok() } else { None };
+        let method = if fast.is_some() { "mft" } else { "walk" };
+        let (mut top, mut kept) = fast.unwrap_or_else(|| {
+            // Any error at all: today's walk, from a clean count.
+            ctl.p.files = 0;
+            ctl.p.bytes = 0;
+            ctl.p.done = false;
+            folder_sizes(&dir, &mut ctl)
+        });
+        for f in std::iter::once(&mut top).chain(kept.iter_mut()) {
+            f.method = method.to_string();
+            f.is_admin = admin;
+        }
         if !top.cancelled {
             let mut cache = folder_cache().lock().unwrap_or_else(|p| p.into_inner());
             cache.retain(|_, (at, _)| at.elapsed() < CACHE_FOR);
