@@ -1272,3 +1272,26 @@ LayoutMap { from: string, to: string /*layout ids, 8 hex digits*/,
   `[data-file-index]` in Settings > About. `ui/js/layouts.js` exports `convertLayout` and
   `layoutVariants`. Mock: `ui/js/mock/search.js` (test hooks `mock_search_set`,
   `mock_search_opened`, mock only).
+
+**v1.5: Network usage over time (section 17)**
+- Command (read only): `get_network_usage({ period }) -> NetworkUsage`, `period` one of
+  `"hour" | "day" | "week" | "month"` (last hour, last 24 hours, last 7 and 30 local days);
+  anything else is an error.
+```
+NetworkUsage { period: string, from: number /*start of the period, epoch s*/,
+  rxBytes: number, txBytes: number /*every adapter, while Orbit ran*/,
+  since: number | null /*earliest moment counted; hour/day round to 5-minute buckets*/,
+  recording: boolean /*App history's switch*/, apps: UsageApp[] /*busiest first*/ }
+UsageApp { key: string /*same key as HistoryRow*/, name: string, exe: string | null,
+  rxBytes: number, txBytes: number }
+```
+- Hour and 24 hours come from 5-minute buckets in `<history dir>/network.json` (kept 24 hours,
+  machine totals per day kept 30 days); 7 and 30 days take machine totals from the same file
+  and per-app bytes from App history's day files. Nothing is recorded while App history is
+  off; `clear_history` also deletes `network.json` and `remove_history_app` drops the app
+  from it.
+- UI: Network view tabs `.net-tabs` (`data-tab="connections" | "usage"`, remembered in
+  `localStorage["orbit.networkTab"]`); the Usage pane is `views/netusage.js` (`nu-` CSS,
+  `data-period`, `data-nu`, `data-nu-note`, `data-nu-act`). `views/network.js` exports
+  `selectTab(id)` and `openUsage()`; palette item "Network usage". Mock: `ui/js/mock/netusage.js`
+  (flags `?nonetusage`, `?netusagefail`).

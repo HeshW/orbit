@@ -417,7 +417,7 @@ fn systemtime_secs(t: &windows::Win32::Foundation::SYSTEMTIME) -> i64 {
 }
 
 /// Local time minus UTC, in seconds (follows daylight saving changes).
-fn local_offset_secs() -> i64 {
+pub(crate) fn local_offset_secs() -> i64 {
     use windows::Win32::System::SystemInformation::{GetLocalTime, GetSystemTime};
     // SAFETY: both only fill a SYSTEMTIME.
     let (local, utc) = unsafe { (GetLocalTime(), GetSystemTime()) };
@@ -426,7 +426,7 @@ fn local_offset_secs() -> i64 {
     (diff as f64 / 60.0).round() as i64 * 60
 }
 
-fn local_day(unix_secs: i64) -> i64 {
+pub(crate) fn local_day(unix_secs: i64) -> i64 {
     (unix_secs + local_offset_secs()).div_euclid(86_400)
 }
 
@@ -438,7 +438,7 @@ fn now_secs() -> u64 {
 // Files
 // ---------------------------------------------------------------------------
 
-fn history_dir() -> Option<PathBuf> {
+pub(crate) fn history_dir() -> Option<PathBuf> {
     match std::env::var_os("ORBIT_HISTORY_DIR") {
         Some(v) if !v.is_empty() => Some(PathBuf::from(v)),
         _ => APP_DIR.get().cloned(),
@@ -680,7 +680,7 @@ pub fn flush() {
     write_pending(&dir);
 }
 
-fn history_rows(days: u32) -> Vec<HistoryRow> {
+pub(crate) fn history_rows(days: u32) -> Vec<HistoryRow> {
     let days = days.clamp(1, KEEP_DAYS as u32) as i64;
     let today = local_day(now_secs() as i64);
     let from = today - days + 1;
@@ -718,8 +718,12 @@ fn clear_all() -> Result<(), String> {
             rec.reset(day);
         }
     }
-    match history_dir() {
-        Some(dir) => delete_all(&dir).map_err(|err| format!("Could not delete every history file: {err}.")),
+    let dir = history_dir();
+    let net = crate::netusage::clear(dir.as_deref());
+    match dir {
+        Some(dir) => delete_all(&dir)
+            .and(net)
+            .map_err(|err| format!("Could not delete every history file: {err}.")),
         None => Ok(()),
     }
 }
@@ -734,6 +738,7 @@ fn remove_app(key: &str) -> Result<u32, String> {
     if let Some(rec) = lock(&STATE).as_mut() {
         rec.forget(&key);
     }
+    crate::netusage::forget(&key);
     match history_dir() {
         Some(dir) => remove_from_files(&dir, &key).map_err(|err| format!("Could not change every history file: {err}.")),
         None => Ok(0),
@@ -773,9 +778,18 @@ pub async fn set_history_enabled(enabled: bool) -> Result<(), String> {
     if first && !enabled {
         drop_pending();
     } else if was && !enabled {
-        let _ = tauri::async_runtime::spawn_blocking(flush).await;
+        let _ = tauri::async_runtime::spawn_blocking(|| {
+            flush();
+            crate::netusage::flush();
+        })
+        .await;
     }
     Ok(())
+}
+
+/// Whether App history (and so network usage) is recording.
+pub(crate) fn is_enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
 }
 
 /// Forgets what is pending without writing it.

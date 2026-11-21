@@ -28,8 +28,9 @@ import debloat from './debloat.js';
 import rules from './rules.js';
 import services from './services.js';
 import search from './search.js';
+import netusage from './netusage.js';
 
-const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, devleft, boost, drivers, gpu, rig, defender, debloat, rules, services, search };
+const modules = { data, security, autoruns, network, users, history, tools, shell, health, cleanup, devleft, boost, drivers, gpu, rig, defender, debloat, rules, services, search, netusage };
 
 export const handlers = {};
 for (const [name, mod] of Object.entries(modules)) {

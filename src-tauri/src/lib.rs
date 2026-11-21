@@ -14,6 +14,7 @@ pub mod icons;
 pub mod impact;
 pub mod model;
 pub mod network;
+pub mod netusage;
 pub mod pdh;
 pub mod rig;
 pub mod rules;
@@ -100,6 +101,7 @@ pub fn run() {
             // network (v0.4)
             network::list_connections,
             network::per_app_network_status,
+            netusage::get_network_usage,
             // users (v0.4)
             users::list_sessions,
             users::session_action,
@@ -221,6 +223,7 @@ pub(crate) fn exit_cleanup(app: &AppHandle) {
     network::shutdown();
     sensors::on_exit();
     history::flush();
+    netusage::flush();
 }
 
 /// Minimizing does not tell WebView2 it is hidden, so it would keep drawing

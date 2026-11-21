@@ -12,6 +12,7 @@ import { escapeHtml, fuzzy, rate } from '../format.js';
 import { toast, navigate, restartAsAdmin } from '../app.js';
 import { registerCommands } from '../palette.js';
 import { endTask, copyText } from './processes.js';
+import * as usage from './netusage.js';
 
 const REFRESH_MS = 2000;
 const ICON_RETRY_MS = 4000;
@@ -61,6 +62,18 @@ const icons = new Map(); // exe -> data URL, or '' when Windows has none
 let iconTimer = 0;
 let unregister = null;
 let statusCache = null; // per_app_network_status fallback when the snapshot has no perApp
+const TAB_KEY = 'orbit.networkTab';
+const TABS = [{ id: 'connections', label: 'Connections' }, { id: 'usage', label: 'Usage' }];
+let tab = readTab();
+let usageMounted = false;
+
+function readTab() {
+  try {
+    const v = localStorage.getItem(TAB_KEY);
+    if (TABS.some((t) => t.id === v)) return v;
+  } catch (_) { /* private mode */ }
+  return 'connections';
+}
 
 const icon = (id) => `<svg class="icon" aria-hidden="true"><use href="#${id}"/></svg>`;
 const text = (s) => escapeHtml(s == null ? '' : String(s));
@@ -654,6 +667,7 @@ function setPortText(v, { focus = false } = {}) {
 
 /** Open the Network view with the Find port box focused (and filled, when a port is given). */
 export function findPort(port) {
+  selectTab('connections');
   navigate('network');
   // navigate() runs onShow synchronously; focus after the view is painted.
   requestAnimationFrame(() => setPortText(port == null ? portText : String(port), { focus: true }));
@@ -697,7 +711,14 @@ function paletteItems() {
     search: 'network connections ports sockets tcp udp internet established listening',
     icon: 'i-plug',
     hint: 'Network',
-    run: () => navigate('network'),
+    run: () => { selectTab('connections'); navigate('network'); },
+  });
+  items.push({
+    label: 'Network usage',
+    search: 'network usage data used download upload bandwidth per app hour day week month',
+    icon: 'i-chart',
+    hint: 'Network',
+    run: () => openUsage(),
   });
   return items;
 }
@@ -722,6 +743,11 @@ export function mount(rootEl) {
         <div class="stat lv-stat"><span class="micro stat-label">Apps</span><span class="stat-value lv-stat-value" data-stat="apps">-</span></div>
       </div>
     </header>
+    <div class="ar-tabs net-tabs" role="tablist" aria-label="Network">
+      ${TABS.map((t) => `<button type="button" class="ar-tab" role="tab" id="net-tab-${t.id}" data-tab="${t.id}" aria-selected="false" aria-controls="net-pane-${t.id}" tabindex="-1">${t.label}</button>`).join('')}
+    </div>
+    <div class="net-pane" id="net-pane-usage" role="tabpanel" aria-labelledby="net-tab-usage" data-pane="usage" hidden></div>
+    <div class="net-pane" id="net-pane-connections" role="tabpanel" aria-labelledby="net-tab-connections" data-pane="connections" hidden>
     <div class="net-top">
       <section class="panel net-find" aria-labelledby="net-find-label">
         <label class="micro micro--bright net-find-label" id="net-find-label" for="net-port">Find port</label>
@@ -768,8 +794,27 @@ export function mount(rootEl) {
         <div class="empty lv-empty" hidden></div>
       </div>
     </div>
+    </div>
   </div>`;
 
+  els.tabs = root.querySelector('.net-tabs');
+  els.stats = root.querySelector('.view-head .lv-stats');
+  els.panes = { connections: root.querySelector('[data-pane="connections"]'), usage: root.querySelector('[data-pane="usage"]') };
+  els.tabs.addEventListener('click', (e) => {
+    const btn = e.target instanceof Element ? e.target.closest('[data-tab]') : null;
+    if (btn) selectTab(btn.dataset.tab);
+  });
+  els.tabs.addEventListener('keydown', (e) => {
+    const i = TABS.findIndex((t) => t.id === tab);
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (i + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    selectTab(TABS[next].id, true);
+  });
   els.table = root.querySelector('.net-table');
   els.tbody = els.table.querySelector('tbody');
   els.empty = root.querySelector('.lv-empty');
@@ -868,11 +913,49 @@ export function mount(rootEl) {
     if (isVisible() && !document.hidden) refresh();
   });
   if (!unregister) unregister = registerCommands(paletteItems);
+  renderTabs();
   render();
 }
 
-export function onShow() {
-  visible = true;
+function renderTabs() {
+  for (const btn of els.tabs.querySelectorAll('[data-tab]')) {
+    const on = btn.dataset.tab === tab;
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    btn.tabIndex = on ? 0 : -1;
+  }
+  for (const [id, el] of Object.entries(els.panes)) el.hidden = id !== tab;
+  // The head counts connections; the Usage tab has its own totals.
+  els.stats.hidden = tab !== 'connections';
+}
+
+/** Switch between the Connections and Usage tabs. */
+export function selectTab(id, focus = false) {
+  if (!TABS.some((t) => t.id === id)) return;
+  const prev = tab;
+  tab = id;
+  try { localStorage.setItem(TAB_KEY, id); } catch (_) { /* private mode */ }
+  if (!root) return;
+  renderTabs();
+  if (focus) els.tabs.querySelector(`[data-tab="${id}"]`)?.focus();
+  if (prev === id || !visible) return;
+  if (id === 'usage') {
+    stopTimer();
+    showUsage();
+  } else {
+    usage.onHide();
+    showConnections();
+  }
+}
+
+function showUsage() {
+  if (!usageMounted) {
+    usage.mount(els.panes.usage);
+    usageMounted = true;
+  }
+  usage.onShow();
+}
+
+function showConnections() {
   lastSig = '';
   lastAppsSig = '';
   render();
@@ -880,11 +963,24 @@ export function onShow() {
   startTimer();
 }
 
+/** Open the Network view on its Usage tab. */
+export function openUsage() {
+  selectTab('usage');
+  navigate('network');
+}
+
+export function onShow() {
+  visible = true;
+  if (tab === 'usage') showUsage();
+  else showConnections();
+}
+
 export function onHide() {
   visible = false;
   stopTimer();
+  if (usageMounted) usage.onHide();
 }
 
 export function isVisible() {
-  return visible && !!root;
+  return visible && !!root && tab === 'connections';
 }

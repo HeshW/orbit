@@ -314,6 +314,7 @@ fn run_loop(app: AppHandle, latest: Arc<Mutex<Option<Snapshot>>>, control: Arc<C
                 .min(interval.as_secs_f64() * 2.0)
         });
         crate::history::record(&snapshot, covered);
+        crate::netusage::record(&snapshot, covered);
         // Boost's auto mode reads the same process list (no thread of its own).
         crate::boost::on_snapshot(&app, &snapshot);
         // Per-app rules look at the same list for new processes (v0.9).

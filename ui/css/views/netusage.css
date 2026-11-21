@@ -1,0 +1,91 @@
+/* Orbit / netusage.css: the Usage tab in the Network view.
+   Owner: network usage feature (docs/features/network-usage.md). Used by
+   ui/js/views/netusage.js. Prefix: nu-. */
+
+.nu-toolbar {
+  flex: none;
+  margin-bottom: 0;
+}
+
+.nu-sum {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.nu-note {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-tile);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.nu-note[hidden] {
+  display: none;
+}
+
+.nu-note > .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--blue-soft);
+}
+
+.nu-note p {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.nu-note .btn {
+  flex: none;
+}
+
+.nu-table .c-name { width: auto; }
+.nu-table .c-rx,
+.nu-table .c-tx { width: 120px; }
+.nu-table .c-total { width: 190px; }
+.nu-table .c-share { width: 90px; }
+
+.nu-total {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nu-bar {
+  display: block;
+  flex: 1 1 auto;
+  max-width: 72px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.nu-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--chart-net, var(--cyan));
+}
+
+.nu-total-val {
+  flex: none;
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .nu-table .c-share { display: none; }
+  .nu-table .c-total { width: 150px; }
+  .nu-bar { max-width: 44px; }
+}

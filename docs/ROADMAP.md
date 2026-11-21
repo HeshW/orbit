@@ -20,6 +20,7 @@
 | 14 | **1.2 list** | Shipped in 1.2.0: services shown on svchost rows, a Developer leftovers cleanup category, and a 7-day hold before those leftovers are deleted. See section 14, `docs/features/svchost-services.md` and `docs/features/dev-leftovers.md`. |
 | 15 | **1.3 list** | Shipped in 1.3.0: fast folder sizes from the NTFS file table (admin), and a disk map in Biggest folders. See section 15, `docs/features/fast-folder-sizes.md` and `docs/features/disk-map.md`. |
 | 16 | **1.4 list** | Shipped in 1.4.0: file search in the Ctrl+K palette (fast index as admin, Windows Search otherwise) and wrong-keyboard-layout matching. See section 16 and `docs/features/file-search.md`. 1.4.1 (after a live test on the owner's PC): opening a result from an elevated Orbit works (it failed with E_NOINTERFACE), and index searches skip names without the query's letters in order, about 6x faster (0.16-0.5 s over 3.4M files). |
+| 17 | **1.5 list** | Built for 1.5.0, not released yet: a Usage tab in Network with download and upload for the last hour, 24 hours, 7 or 30 days, and a per-app breakdown (admin). See section 17 and `docs/features/network-usage.md`. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -1014,3 +1015,18 @@ actions, processes), not only files.
 **Risks:** memory (WinRust's README reports about 53 MB for its index; measure it here and show
 it in Settings > About); the first search after Orbit starts waits for the index.
 **Open question for the owner:** a global hotkey that opens Orbit straight into file search.
+
+## 17. Next release (1.5): network usage over time
+
+**What it does.** The Network view gets a Usage tab next to Connections. Pick a period (last
+hour, 24 hours, 7 days, 30 days) to see how much this PC downloaded and uploaded in it, and a
+ranked list of apps with download, upload, total and share.
+
+**How.** The sampler adds each tick's bytes to 5-minute buckets: the whole machine from the
+adapters (no admin needed) and each app from the per-app rates (admin only). Buckets are kept
+24 hours; machine totals per day 30 days, in `network.json` next to App history's files. 7 and
+30 days take per-app bytes from App history. It follows App history's recording switch and its
+Delete history.
+
+**Admin:** the totals, no; the per-app list, yes (it shows what was counted while Orbit ran as
+administrator, and says so).

@@ -4,6 +4,10 @@ A Network view (07) listing every connection and open port with the app behind i
 "Find port" box ("What's using port 3000?"), and per-app download/upload rates when Orbit
 runs as administrator. Commands and shapes as in `docs/V04-CONTRACT.md`; nothing renamed.
 
+Since 1.5 the view has two tabs: **Connections** (everything below) and **Usage** (download
+and upload over the last hour, 24 hours, 7 or 30 days, with a per-app breakdown). Usage is
+described in `docs/features/network-usage.md`.
+
 Files: `src-tauri/src/network.rs`, `ui/js/views/network.js`, `ui/css/views/network.css`,
 `ui/js/mock/network.js`.
 

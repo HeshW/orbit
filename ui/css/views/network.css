@@ -393,6 +393,22 @@
 @media (max-height: 760px) {
   .view--fill.is-active:has(> .net) { overflow-y: auto; }
   .net { flex: 1 0 auto; min-height: auto; }
+  .net .net-pane { flex: 1 0 auto; }
   .net .lv-table-panel { flex: 1 0 300px; min-height: 0; }
 }
 
+
+/* ============================================================ tabs: Connections / Usage */
+
+.net-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.net-pane[hidden] {
+  display: none;
+}

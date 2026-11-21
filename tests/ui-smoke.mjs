@@ -325,6 +325,65 @@ async function sensorsTheme(page) {
 
 // Thresholds and text (temps.js), °F from Settings, no CPU source (hint with both links,
 // which open through open_url), and a hot PC (?hot) in the danger colour.
+// Network > Usage (1.5): totals and the per-app table for a period, then back to Connections.
+async function netUsageTheme(page) {
+  await showView(page, 'network');
+  await page.click('#view-network .net-tabs [data-tab="usage"]');
+  await page.waitForFunction(() => /\d\s?(B|KB|MB|GB|TB)$/.test(document.querySelector('#net-pane-usage [data-nu="down"]')?.textContent || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('Network > Usage shows no download total');
+  });
+  if (await page.locator('#view-network .view-head .lv-stats').isVisible()) throw new Error('connection counts still shown on the Usage tab');
+  await page.click('#net-pane-usage [data-period="month"]');
+  await page.waitForSelector('#net-pane-usage .nu-table tbody tr', { timeout: WAIT }).catch(() => {
+    throw new Error('Network > Usage > 30 days lists no apps');
+  });
+  const share = await page.locator('#net-pane-usage .nu-table tbody tr .c-share').first().innerText();
+  if (!/%$/.test(share.trim())) throw new Error(`share column: ${share}`);
+  if (!/administrator/.test(await page.locator('#net-pane-usage [data-nu-note]').innerText())) throw new Error('no admin note while unelevated');
+  await page.click('#view-network .net-tabs [data-tab="connections"]');
+  await page.waitForSelector('#net-pane-connections .net-table tbody tr', { timeout: WAIT }).catch(() => {
+    throw new Error('Connections table is empty after leaving Usage');
+  });
+}
+
+// Network > Usage as administrator, with nothing recorded, and when the command fails.
+async function netUsage(page, base, watch) {
+  const other = await page.context().newPage();
+  watch(other);
+  const usageTab = async (url) => {
+    await other.goto(url, { waitUntil: 'load' });
+    await showView(other, 'network');
+    await other.click('#view-network .net-tabs [data-tab="usage"]');
+  };
+  try {
+    await usageTab(base);
+    await other.click('#net-pane-usage [data-nu-act="admin"]');
+    await other.click('#net-pane-usage [data-period="hour"]');
+    await other.waitForSelector('#net-pane-usage .nu-table tbody tr', { timeout: WAIT }).catch(() => {
+      throw new Error('as admin, the last hour lists no apps');
+    });
+    await other.waitForFunction(() => /only while it runs/.test(document.querySelector('#net-pane-usage [data-nu-note]')?.innerText || ''), null, { timeout: WAIT }).catch(async () => {
+      throw new Error(`admin note: ${await other.locator('#net-pane-usage [data-nu-note]').innerText()}`);
+    });
+    const totals = await other.locator('#net-pane-usage .nu-table tbody tr .nu-total-val').allInnerTexts();
+    if (totals.length < 2) throw new Error('fewer than two apps in the last hour');
+
+    await usageTab(`${base}?nonetusage`);
+    await other.waitForFunction(() => /No per-app numbers/.test(document.querySelector('#net-pane-usage .lv-empty')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+      throw new Error('?nonetusage: no empty state');
+    });
+    const down = await other.locator('#net-pane-usage [data-nu="down"]').innerText();
+    if (down.trim() !== '0 B') throw new Error(`?nonetusage download: ${down}`);
+
+    await usageTab(`${base}?netusagefail`);
+    await other.locator('#net-pane-usage .lv-empty [data-nu-act="retry"]').waitFor({ timeout: WAIT });
+  } finally {
+    // The tab choice is remembered per origin: leave the next page on Connections.
+    await other.evaluate(() => localStorage.setItem('orbit.networkTab', 'connections')).catch(() => {});
+    await other.close();
+  }
+}
+
 async function sensors(page, base, watch) {
   const bad = await page.evaluate(async () => {
     const { tempLevel, tempText, TEMP_LIMITS } = await import('/js/temps.js');
@@ -1614,7 +1673,9 @@ try {
     await check(`${theme}: palette`, () => palette(page));
     await check(`${theme}: details drawer`, () => drawer(page));
     await check(`${theme}: temperatures`, () => sensorsTheme(page));
+    await check(`${theme}: network usage`, () => netUsageTheme(page));
   }
+  await check('network usage', () => netUsage(page, base, watch));
   await check('gpu adapters', () => gpuAdapters(page));
   await check('temperatures', () => sensors(page, base, watch));
   await check('history menu', () => historyMenu(page));
@@ -1647,4 +1708,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, file search (open, show in folder, wrong keyboard layout, Windows Search off, indexing), no console errors.`);
+console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, Network usage (admin, empty, error), History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, file search (open, show in folder, wrong keyboard layout, Windows Search off, indexing), no console errors.`);

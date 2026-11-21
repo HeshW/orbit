@@ -116,6 +116,11 @@ let days = null;
 let cleared = false;
 const removed = new Set(); // keys removed with remove_history_app
 
+/** Delete history also empties network usage (mock/netusage.js asks). */
+export function historyCleared() {
+  return cleared;
+}
+
 function flag(name) {
   try {
     return new URLSearchParams(location.search).has(name);
