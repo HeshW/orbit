@@ -1,7 +1,8 @@
 // Network > Usage: how much this PC downloaded and uploaded over a period, and which apps
 // used it. Loads `get_network_usage({ period })` on show, on period change and every 30 s
 // while visible. The machine total needs no admin; per-app bytes exist only for time
-// Orbit ran as administrator. Recording follows App history's switch.
+// Orbit ran as administrator. Recording follows App history's switch. 7 and 30 days
+// usually come from Windows' own data usage record (`source: "windows"`), with no admin.
 // Mounted by views/network.js into its Usage tab: mount(paneEl), onShow(), onHide().
 
 import { call } from '../api.js';
@@ -179,7 +180,9 @@ function renderNote() {
   let html = '';
   if (data && !loadError) {
     const none = !data.apps.length;
-    if (data.recording === false) {
+    if (data.source === 'windows') {
+      html = `${icon('i-history')}<p>These numbers come from Windows' own record, so they include time Orbit was closed.</p>`;
+    } else if (data.recording === false) {
       html = `${icon('i-history')}<p>Recording is off, so Orbit is not counting network use.</p>
         <button type="button" class="btn btn--ghost btn--sm" data-nu-act="record">Turn on recording</button>`;
     } else if (!perAppOn() && isAdmin()) {

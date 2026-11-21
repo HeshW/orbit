@@ -1295,3 +1295,18 @@ UsageApp { key: string /*same key as HistoryRow*/, name: string, exe: string | n
   `data-period`, `data-nu`, `data-nu-note`, `data-nu-act`). `views/network.js` exports
   `selectTab(id)` and `openUsage()`; palette item "Network usage". Mock: `ui/js/mock/netusage.js`
   (flags `?nonetusage`, `?netusagefail`).
+
+**v1.6: Windows' own data usage in 7 and 30 days (section 18)**
+- `NetworkUsage` gains `source: "windows" | "orbit"`. For `week` / `month` Orbit first reads
+  Windows' per-app record (`ConnectionProfile.GetAttributedNetworkUsageAsync` over every
+  connection profile; no admin, read only, cached 5 minutes). When it has any bytes,
+  `source` is `"windows"`, `apps` are its rows, `rxBytes` / `txBytes` are the larger of their
+  sum and Orbit's own day totals, and `since` is `from`. Otherwise `source` is `"orbit"` and
+  everything is as in v1.5. `hour` / `day` are always `"orbit"`.
+- Windows' rows: exe paths turned into drive paths (key = lowercased path, App history's
+  name and casing when it knows the app), Store apps keyed by lowercased package family name
+  and named by its part before the last `_`, `"windows:unattributed"` ("Not tied to an app")
+  for traffic Windows tied to no app, anything else by its id. Delete history and Remove from
+  history don't touch Windows' record.
+- UI: with `source: "windows"` the note says the numbers come from Windows' own record. Mock
+  flag `?nowinrecord` gives the `"orbit"` answer for 7 and 30 days.

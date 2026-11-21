@@ -3,6 +3,9 @@
 // the same numbers. Per-app bytes are App history's (mock/history.js): the last hour and
 // 24 hours only once the mock has "restarted as admin", 7 and 30 days from the history
 // days that have network bytes (9 to 11 days ago, plus today as admin), like netusage.rs.
+// 7 and 30 days answer from "Windows' own record" (source "windows": the history apps x3, a
+// Store app and an unattributed row; only those two after Delete history or ?nonetusage) unless
+// ?nowinrecord, which gives Orbit's own counts.
 // URL flags: ?nonetusage (nothing recorded yet), ?netusagefail (get_network_usage throws).
 
 import history, { historyCleared } from './history.js';
@@ -56,8 +59,10 @@ export default {
     const now = Math.floor(Date.now() / 1000);
     const short = period === 'hour' || period === 'day';
     const from = short ? now - PERIODS[period] : Math.floor(midnight() - (PERIODS[period] - 1) * DAY);
-    const empty = { period, from, rxBytes: 0, txBytes: 0, since: null, recording: true, apps: [] };
-    if (flag('nonetusage') || historyCleared()) return empty;
+    const empty = { period, from, rxBytes: 0, txBytes: 0, since: null, recording: true, source: 'orbit', apps: [] };
+    // Windows keeps its own record whatever Orbit recorded or deleted.
+    const winRecord = !short && !flag('nowinrecord');
+    if ((flag('nonetusage') || historyCleared()) && !winRecord) return empty;
     if (!machine) machine = buildMachine();
 
     let rx = 0;
@@ -92,6 +97,19 @@ export default {
       rx = Math.max(rx, appRx * 1.08);
       tx = Math.max(tx, appTx * 1.08);
     }
-    return { period, from, rxBytes: Math.round(rx), txBytes: Math.round(tx), since, recording: true, apps };
+    if (winRecord) {
+      // Windows' own record: every hour of the period, a Store app and traffic tied to no app.
+      const cleared = flag('nonetusage') || historyCleared();
+      const win = (cleared ? [] : apps).map((a) => ({ ...a, rxBytes: a.rxBytes * 3, txBytes: a.txBytes * 3 }));
+      win.push(
+        { key: 'claude_pzs8sxrjxfjjc', name: 'Claude', exe: null, rxBytes: 2100 * MB, txBytes: 140 * MB },
+        { key: 'windows:unattributed', name: 'Not tied to an app', exe: null, rxBytes: 1600 * MB, txBytes: 90 * MB },
+      );
+      win.sort((a, b) => (b.rxBytes + b.txBytes) - (a.rxBytes + a.txBytes) || a.key.localeCompare(b.key));
+      const winRx = win.reduce((s, a) => s + a.rxBytes, 0);
+      const winTx = win.reduce((s, a) => s + a.txBytes, 0);
+      return { period, from, rxBytes: Math.round(cleared ? winRx : Math.max(rx, winRx)), txBytes: Math.round(cleared ? winTx : Math.max(tx, winTx)), since: from, recording: true, source: 'windows', apps: win };
+    }
+    return { period, from, rxBytes: Math.round(rx), txBytes: Math.round(tx), since, recording: true, source: 'orbit', apps };
   },
 };

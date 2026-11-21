@@ -237,6 +237,58 @@ fn long_period_totals_are_never_less_than_the_apps() {
     assert_eq!(with_app_totals(0.0, 0.0, None, &[row(1, 1, T0)]), (1.0, 1.0, Some(T0)));
 }
 
+fn raw(id: &str, rx: u64, tx: u64) -> winrecord::Raw {
+    winrecord::Raw { id: id.into(), rx, tx }
+}
+
+#[test]
+fn windows_record_ids_become_app_rows() {
+    let devices = vec![(r"\Device\HarddiskVolume3".to_string(), "C:".to_string())];
+    let mut known = HashMap::new();
+    known.insert(
+        r"c:\program files\edge\msedge.exe".to_string(),
+        ("msedge.exe".to_string(), Some(r"C:\Program Files\Edge\msedge.exe".to_string())),
+    );
+    let mut apps = winrecord::to_apps(
+        &[
+            // Windows sends lowercase device paths; App history's name and casing win.
+            raw(r"\device\harddiskvolume3\program files\edge\msedge.exe", 900, 10),
+            raw(r"\device\harddiskvolume3\games\game.exe", 500, 5),
+            raw(r"\device\harddiskvolume3\GAMES\Game.exe", 100, 1),
+            raw(r"\device\harddiskvolume9\gone\old.exe", 7, 0),
+            raw("Claude_pzs8sxrjxfjjc", 300, 30),
+            raw("", 40, 4),
+            raw("System", 2, 2),
+            raw("Microsoft.WindowsStore_8wekyb3d8bbwe", 0, 0),
+        ],
+        &devices,
+        &known,
+    );
+    apps.sort_by(|a, b| a.key.cmp(&b.key));
+    let got: Vec<_> = apps.iter().map(|a| (a.key.as_str(), a.name.as_str(), a.exe.as_deref(), a.rx_bytes, a.tx_bytes)).collect();
+    assert_eq!(
+        got,
+        vec![
+            (r"\device\harddiskvolume9\gone\old.exe", "old.exe", None, 7, 0),
+            (r"c:\games\game.exe", "game.exe", Some(r"C:\games\game.exe"), 600, 6),
+            (r"c:\program files\edge\msedge.exe", "msedge.exe", Some(r"C:\Program Files\Edge\msedge.exe"), 900, 10),
+            ("claude_pzs8sxrjxfjjc", "Claude", None, 300, 30),
+            ("system", "System", None, 2, 2),
+            (winrecord::UNATTRIBUTED, "Not tied to an app", None, 40, 4),
+        ]
+    );
+}
+
+#[test]
+fn windows_totals_are_the_apps_unless_orbit_counted_more() {
+    let apps = [
+        UsageApp { key: "a".into(), name: "a".into(), exe: None, rx_bytes: 1_000, tx_bytes: 50 },
+        UsageApp { key: "b".into(), name: "b".into(), exe: None, rx_bytes: 500, tx_bytes: 50 },
+    ];
+    assert_eq!(with_windows_totals(10.0, 400.0, &apps), (1_500.0, 400.0));
+    assert_eq!(with_windows_totals(0.0, 0.0, &[]), (0.0, 0.0));
+}
+
 #[test]
 fn unknown_period_is_an_error() {
     assert!(usage("year", T0).is_err());

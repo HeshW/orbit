@@ -339,7 +339,15 @@ async function netUsageTheme(page) {
   });
   const share = await page.locator('#net-pane-usage .nu-table tbody tr .c-share').first().innerText();
   if (!/%$/.test(share.trim())) throw new Error(`share column: ${share}`);
-  if (!/administrator/.test(await page.locator('#net-pane-usage [data-nu-note]').innerText())) throw new Error('no admin note while unelevated');
+  // 30 days come from Windows' own record (1.6): its note and a row for traffic tied to no app.
+  await page.waitForFunction(() => /Windows' own record/.test(document.querySelector('#net-pane-usage [data-nu-note]')?.innerText || ''), null, { timeout: WAIT }).catch(async () => {
+    throw new Error(`30 days note: ${await page.locator('#net-pane-usage [data-nu-note]').innerText()}`);
+  });
+  if (!(await page.locator('#net-pane-usage .nu-table tbody tr', { hasText: 'Not tied to an app' }).count())) throw new Error('30 days: no "Not tied to an app" row');
+  await page.click('#net-pane-usage [data-period="day"]');
+  await page.waitForFunction(() => /administrator/.test(document.querySelector('#net-pane-usage [data-nu-note]')?.innerText || ''), null, { timeout: WAIT }).catch(() => {
+    throw new Error('no admin note on 24 hours while unelevated');
+  });
   await page.click('#view-network .net-tabs [data-tab="connections"]');
   await page.waitForSelector('#net-pane-connections .net-table tbody tr', { timeout: WAIT }).catch(() => {
     throw new Error('Connections table is empty after leaving Usage');
@@ -377,6 +385,14 @@ async function netUsage(page, base, watch) {
 
     await usageTab(`${base}?netusagefail`);
     await other.locator('#net-pane-usage .lv-empty [data-nu-act="retry"]').waitFor({ timeout: WAIT });
+
+    // Windows' record unreadable: 30 days fall back to Orbit's own counts and say so.
+    await usageTab(`${base}?nowinrecord`);
+    await other.click('#net-pane-usage [data-period="month"]');
+    await other.waitForFunction(() => /administrator/.test(document.querySelector('#net-pane-usage [data-nu-note]')?.innerText || ''), null, { timeout: WAIT }).catch(async () => {
+      throw new Error(`?nowinrecord 30 days note: ${await other.locator('#net-pane-usage [data-nu-note]').innerText()}`);
+    });
+    if (await other.locator('#net-pane-usage .nu-table tbody tr', { hasText: 'Not tied to an app' }).count()) throw new Error('?nowinrecord still shows Windows rows');
   } finally {
     // The tab choice is remembered per origin: leave the next page on Connections.
     await other.evaluate(() => localStorage.setItem('orbit.networkTab', 'connections')).catch(() => {});
@@ -1708,4 +1724,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, Network usage (admin, empty, error), History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, file search (open, show in folder, wrong keyboard layout, Windows Search off, indexing), no console errors.`);
+console.log(`\nPassed ${passed} checks: ${THEMES.length} themes x ${VIEWS.length} views, ${OPTIMIZE_TABS.length} Optimize tabs, palette and details drawer, temperatures, GPU adapters, Network usage (admin, empty, error, Windows record and its fallback), History menu, per-app rules (master switch, in front, reset, Boost link, backup, efficiency mode), Defender scans, group Set priority, watchlist after a restart, services on svchost rows, Debloat, My Rig, motion on and off, sidebar logo, suggestions Hide, Startup sync with Store app rows, file search (open, show in folder, wrong keyboard layout, Windows Search off, indexing), no console errors.`);

@@ -20,7 +20,8 @@
 | 14 | **1.2 list** | Shipped in 1.2.0: services shown on svchost rows, a Developer leftovers cleanup category, and a 7-day hold before those leftovers are deleted. See section 14, `docs/features/svchost-services.md` and `docs/features/dev-leftovers.md`. |
 | 15 | **1.3 list** | Shipped in 1.3.0: fast folder sizes from the NTFS file table (admin), and a disk map in Biggest folders. See section 15, `docs/features/fast-folder-sizes.md` and `docs/features/disk-map.md`. |
 | 16 | **1.4 list** | Shipped in 1.4.0: file search in the Ctrl+K palette (fast index as admin, Windows Search otherwise) and wrong-keyboard-layout matching. See section 16 and `docs/features/file-search.md`. 1.4.1 (after a live test on the owner's PC): opening a result from an elevated Orbit works (it failed with E_NOINTERFACE), and index searches skip names without the query's letters in order, about 6x faster (0.16-0.5 s over 3.4M files). |
-| 17 | **1.5 list** | Shipped in 1.5.0: a Usage tab in Network with download and upload for the last hour, 24 hours, 7 or 30 days, and a per-app breakdown (admin). See section 17 and `docs/features/network-usage.md`. |
+| 17 | **1.5 list** | Shipped in 1.5.0: a Usage tab in Network with download and upload for the last hour, 24 hours, 7 or 30 days, and a per-app breakdown (admin). See section 17 and `docs/features/network-usage.md`. 1.5.1: 7 and 30 day totals match the app list. |
+| 18 | **1.6 list** | In progress: 7 and 30 days read Windows' own per-app data usage (no admin, covers time Orbit was closed). See section 18. |
 
 Also still open: code signing (needs the owner's country, see `RELEASE-PLAN.md`), and the
 real-PC checks 0.4.0 couldn't do here (per-app network as admin, Run as admin end to end,
@@ -1030,3 +1031,22 @@ Delete history.
 
 **Admin:** the totals, no; the per-app list, yes (it shows what was counted while Orbit ran as
 administrator, and says so).
+
+## 18. Next release (1.6): Windows' own data usage in 7 and 30 days
+
+**Why.** Orbit only counts while it runs, and per app only as administrator, so 7 and 30 days
+miss a lot (on the owner's PC: 27 GB downloaded in a week Windows recorded as 93 GB).
+
+**What it does.** 7 days and 30 days in Network > Usage read Windows' own per-app record, the
+one behind Settings > Network > Data usage. It covers every hour the PC was on, Orbit running
+or not, and needs no admin. The last hour and 24 hours keep Orbit's live counting (Windows
+updates its record only about once an hour). When Windows' record can't be read, 7 and 30 days
+fall back to Orbit's own counts as before.
+
+**How.** `ConnectionProfile.GetAttributedNetworkUsageAsync` (Windows.Networking.Connectivity)
+over every connection profile, grouped by app: exe paths (NT device paths turned into drive
+paths), Store apps by package name, and traffic Windows tied to no app. Read-only; nothing on
+the PC changes. Cached for a few minutes since the record moves hourly.
+
+**Admin:** no. Delete history can't clear Windows' record, and the tab says where the numbers
+come from.

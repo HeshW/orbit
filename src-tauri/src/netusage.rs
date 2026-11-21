@@ -5,7 +5,9 @@
 //! (every adapter, from `snapshot.network`, no admin needed) and each app with
 //! per-app rates (only while Orbit runs as administrator). Buckets are kept
 //! for 24 hours; the machine total is also kept per local day for 30 days.
-//! Per-app totals for 7 and 30 days come from App history's day files.
+//! 7 and 30 days read Windows' own data usage record (`winrecord`), which covers
+//! time Orbit was closed; when it can't be read they fall back to the machine day
+//! totals here and per-app totals from App history's day files.
 //!
 //! It follows App history's switch (nothing is recorded while it is off) and
 //! its folder: `<history dir>/network.json`, rewritten whole at most once a
@@ -75,13 +77,16 @@ pub struct NetworkUsage {
     pub period: String,
     /// Start of the period, seconds since the Unix epoch.
     pub from: u64,
-    /// Every adapter, while Orbit ran.
+    /// Every adapter: while Orbit ran, or Windows' whole record when `source` is "windows".
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     /// Earliest moment in the period Orbit counted anything; `None` if nothing.
     pub since: Option<u64>,
     /// App history's switch: nothing is counted while it is off.
     pub recording: bool,
+    /// "windows": 7 / 30 days from Windows' own data usage record (`winrecord`), which
+    /// covers time Orbit was closed. "orbit": Orbit's own counts.
+    pub source: &'static str,
     /// Busiest first. Empty when Orbit never had per-app rates in the period.
     pub apps: Vec<UsageApp>,
 }
@@ -461,8 +466,18 @@ fn with_app_totals(rx: f64, tx: f64, since: Option<u64>, rows: &[history::Histor
     (rx.max(app_rx), tx.max(app_tx), since)
 }
 
+/// Totals from Windows' record: what its apps add up to, or Orbit's own day totals when
+/// those are bigger (Windows writes its record about once an hour, so the last hour may
+/// not be in it yet).
+fn with_windows_totals(rx: f64, tx: f64, apps: &[UsageApp]) -> (f64, f64) {
+    let app_rx: f64 = apps.iter().map(|a| a.rx_bytes as f64).sum();
+    let app_tx: f64 = apps.iter().map(|a| a.tx_bytes as f64).sum();
+    (rx.max(app_rx), tx.max(app_tx))
+}
+
 fn usage(period: &str, now: u64) -> Result<NetworkUsage, String> {
     let recording = history::is_enabled();
+    let mut source = "orbit";
     let mut st = lock();
     st.ensure_loaded();
     let (from, rx, tx, since, mut apps) = match period {
@@ -478,23 +493,31 @@ fn usage(period: &str, now: u64) -> Result<NetworkUsage, String> {
             let (rx, tx, since) = st.store.days_total(first, today);
             drop(st);
             let from = (first * 86_400 - history::local_offset_secs()).max(0) as u64;
-            let rows: Vec<_> = history::history_rows(days as u32)
-                .into_iter()
-                .filter(|r| r.net_rx_bytes + r.net_tx_bytes > 0)
-                .collect();
-            let (rx, tx, since) = with_app_totals(rx, tx, since, &rows);
-            let apps = rows
-                .into_iter()
-                .map(|r| UsageApp { key: r.key, name: r.name, exe: r.exe, rx_bytes: r.net_rx_bytes, tx_bytes: r.net_tx_bytes })
-                .collect();
-            (from, rx, tx, since, apps)
+            let rows = history::history_rows(days as u32);
+            // Windows' own record first: it covers the time Orbit was closed.
+            let windows = winrecord::read_cached(from, now).ok().filter(|raw| raw.iter().any(|r| r.rx + r.tx > 0));
+            if let Some(raw) = windows {
+                let known = rows.iter().map(|r| (r.key.clone(), (r.name.clone(), r.exe.clone()))).collect();
+                let apps = winrecord::to_apps(&raw, &crate::winenum::dos_device_map(), &known);
+                let (rx, tx) = with_windows_totals(rx, tx, &apps);
+                source = "windows";
+                (from, rx, tx, Some(from), apps)
+            } else {
+                let rows: Vec<_> = rows.into_iter().filter(|r| r.net_rx_bytes + r.net_tx_bytes > 0).collect();
+                let (rx, tx, since) = with_app_totals(rx, tx, since, &rows);
+                let apps = rows
+                    .into_iter()
+                    .map(|r| UsageApp { key: r.key, name: r.name, exe: r.exe, rx_bytes: r.net_rx_bytes, tx_bytes: r.net_tx_bytes })
+                    .collect();
+                (from, rx, tx, since, apps)
+            }
         }
         _ => return Err("Pick a period: last hour, 24 hours, 7 days or 30 days.".to_string()),
     };
     apps.sort_by(|a, b| {
         (b.rx_bytes + b.tx_bytes).cmp(&(a.rx_bytes + a.tx_bytes)).then_with(|| a.key.cmp(&b.key))
     });
-    Ok(NetworkUsage { period: period.to_string(), from, rx_bytes: whole(rx), tx_bytes: whole(tx), since, recording, apps })
+    Ok(NetworkUsage { period: period.to_string(), from, rx_bytes: whole(rx), tx_bytes: whole(tx), since, recording, source, apps })
 }
 
 /// Network > Usage. `period` is "hour", "day", "week" or "month".
@@ -504,6 +527,8 @@ pub async fn get_network_usage(period: String) -> Result<NetworkUsage, String> {
         .await
         .map_err(|_| "Could not read network usage.".to_string())?
 }
+
+mod winrecord;
 
 #[cfg(test)]
 mod tests;

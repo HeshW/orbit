@@ -1,4 +1,4 @@
-# Feature: network usage over time (v1.5)
+# Feature: network usage over time (v1.5, Windows' record in v1.6)
 
 The Network view's Usage tab: how much this PC downloaded and uploaded in the last hour, 24
 hours, 7 days or 30 days, and which apps used it. Command and shapes in `docs/CONTRACT.md`
@@ -14,6 +14,7 @@ Files: `src-tauri/src/netusage.rs` (tests in `netusage/tests.rs`), `ui/js/views/
 | `record(snapshot, interval)` | Sampler thread, every tick, right after App history. Skipped while App history's switch is off (`history::is_enabled`). Adds `rate x interval` to the 5-minute bucket the tick falls in: the machine from `snapshot.network.rxBps/txBps` (the adapters, virtual ones filtered as in the sampler; no admin needed) and each app from its rows' `netRxBps/netTxBps` (only filled while per-app network runs, so admin only). Apps use App history's key (lowercased exe path, else lowercased name); the System Idle Process is skipped. The machine total is also added to its local day. |
 | storage | `<history dir>/network.json` (`ORBIT_HISTORY_DIR`, else `%LOCALAPPDATA%\me.legacytech.orbit\history`): `{ version, names, buckets, days }`. Buckets are kept while they overlap the last 24 hours, days for 30 local days (today counts as one), names only while a bucket uses them. Read once when the folder is known (ticks recorded before that are added to it), rewritten whole at most once a minute, when recording is turned off and on exit (temp file + rename). A broken file is skipped with a log line. |
 | `get_network_usage(period)` | `spawn_blocking`. `hour` / `day`: the buckets that overlap the last 3600 / 86400 s, so the edge is rounded to 5 minutes. `week` / `month`: machine totals of the last 7 / 30 local days, and per-app bytes from `history::history_rows(7 / 30)` (App history's day files plus what is still in memory). App history can reach further back than the day totals (they began with 1.5.0), so `with_app_totals` raises each total to at least what the apps add up to and moves `since` to the earliest app's `firstSeen` when that is earlier. `since` is otherwise the earliest tick counted in the period. Apps sorted by down + up. Any other period is "Pick a period: ...". |
+| Windows' record (1.6, `netusage/winrecord.rs`) | `week` / `month` first call `winrecord::read_cached(from, now)`: `ConnectionProfile.GetAttributedNetworkUsageAsync` for every connection profile (a profile that fails is skipped), summed by attribution id, kept 5 minutes per period start since Windows updates its record about hourly. A read that fails or takes over 10 s is logged and not tried again for a minute. No admin, read only. `to_apps` turns ids into rows: `\device\...` paths through `winenum::nt_to_dos` (name and exe from App history when it knows the key), Store package family names shown up to the last `_`, an empty id as "Not tied to an app" (`windows:unattributed`). If any bytes come back, `source` is `"windows"`, the totals are the larger of the apps' sum and Orbit's day totals (`with_windows_totals`), and `since` is the period start. Otherwise the 1.5 path below runs with `source: "orbit"`. |
 | Delete history / Remove from history | `clear_history` also empties memory and deletes `network.json`; `remove_history_app` drops that key from the buckets and rewrites the file. |
 | locking | One mutex. `usage()` lets go of it before reading App history, and App history never holds its own locks while asking for this one except in Delete/Remove (history `IO` first, then this), so there is no lock-order cycle. |
 
@@ -25,7 +26,8 @@ Files: `src-tauri/src/netusage.rs` (tests in `netusage/tests.rs`), `ui/js/views/
 - Toolbar: Last hour / 24 hours / 7 days / 30 days (remembered as `orbit.netUsagePeriod`,
   default 24 hours), "N apps", refresh.
 - Totals: Download, Upload, Apps, Since ("Today 14:03", "Yesterday 09:10", "8 Nov").
-- One note: recording off (Turn on recording, which sets `historyEnabled`); no per-app numbers
+- One note: Windows' record in use (7 / 30 days, "These numbers come from Windows' own record,
+  so they include time Orbit was closed."); recording off (Turn on recording, which sets `historyEnabled`); no per-app numbers
   and not admin (Run as admin); some per-app numbers but not admin now ("cover only the time
   Orbit ran as administrator"); otherwise that it counts only while Orbit runs and stays on
   this PC. It updates when a snapshot's per-app status changes.
@@ -40,7 +42,10 @@ Files: `src-tauri/src/netusage.rs` (tests in `netusage/tests.rs`), `ui/js/views/
 
 Machine totals per day from a fixed seed; per-app bytes from the History mock (so they match
 it): hour and 24 hours only after the mock's Run as admin, 7 and 30 days from the history days
-with network bytes. Delete history empties it. Flags: `?nonetusage`, `?netusagefail`.
+with network bytes. 7 and 30 days answer as Windows' record (`source: "windows"`: the
+history apps x3, a Store app and "Not tied to an app") unless `?nowinrecord`. Delete history
+and `?nonetusage` empty Orbit's own counts; Windows' record keeps its Store app and
+unattributed rows, as the real one keeps everything. Flags: `?nonetusage`, `?netusagefail`, `?nowinrecord`.
 
 ## How to test
 
@@ -48,9 +53,11 @@ with network bytes. Delete history empties it. Flags: `?nonetusage`, `?netusagef
   for an hour and 24 hours, day totals, pruning (24 h, 30 days, unused names), merging the
   file into ticks recorded before it, forgetting an app, the file round trip and a broken
   file, grouping rows by app (case-insensitive paths, idle process and NaN skipped), 7 / 30
-  day totals never below the apps' sum, and an unknown period.
+  day totals never below the apps' sum, Windows' ids to rows (paths, casing from App
+  history, Store apps, unattributed, unknown volume) and its totals, and an unknown period.
 - `npm run test:ui`: the Usage tab in every theme (totals, 30 days lists apps with a share,
-  the admin note, back to Connections), then as admin (last hour lists apps, the note
+  the Windows note and its "Not tied to an app" row, the admin note on 24 hours, back to
+  Connections), `?nowinrecord` falling back on 30 days, then as admin (last hour lists apps, the note
   changes), `?nonetusage` and `?netusagefail`.
 - Live: start the exe with `ORBIT_HISTORY_DIR` on a scratch folder and CDP on,
   `await __TAURI__.core.invoke('get_network_usage', { period: 'hour' })`, wait a minute for
