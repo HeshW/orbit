@@ -1146,9 +1146,15 @@ async function logo(page) {
     const { logoTick, pulseRate } = await import('/js/logo.js');
     setSettings({ paused: true });
     const anim = document.querySelector('#sidebar-logo .lt-sig').getAnimations()[0];
+    // A mock tick already in flight can land between setting a load and reading the rate,
+    // so set it again until the rate settles (at most about a second).
     const at = async (usage) => {
-      logoTick({ cpu: { usage } });
-      await anim.ready;
+      for (let i = 0; i < 20; i += 1) {
+        logoTick({ cpu: { usage } });
+        await anim.ready;
+        if (anim.playbackRate === pulseRate(usage)) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       return anim.playbackRate;
     };
     const out = [await at(100), await at(0), await at(50), pulseRate(0), pulseRate(100)];
