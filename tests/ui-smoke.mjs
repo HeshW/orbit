@@ -626,6 +626,8 @@ async function rulesMore(page, base, watch) {
   await menuLabels(page);
   await page.locator('#context-menu .menu-item', { hasText: 'Always use this priority' }).click();
   await page.waitForSelector('#dialog [data-ru-prio]', { timeout: WAIT });
+  // The title can fill in a moment after the controls on a slow runner.
+  await page.waitForFunction(() => /Discord/.test(document.querySelector('#dialog')?.innerText || ''), null, { timeout: WAIT }).catch(() => {});
   const editTitle = (await page.locator('#dialog').innerText()).split('\n').find((l) => /Discord/.test(l)) || '';
   if (!/^Rule for Discord\.exe/.test(editTitle.trim())) throw new Error(`the menu on a switched-off rule opens "${editTitle}"`);
   await page.click('#dialog [data-act="cancel"]');
