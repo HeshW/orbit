@@ -13,7 +13,7 @@ Files: `src-tauri/src/netusage.rs` (tests in `netusage/tests.rs`), `ui/js/views/
 |---|---|
 | `record(snapshot, interval)` | Sampler thread, every tick, right after App history. Skipped while App history's switch is off (`history::is_enabled`). Adds `rate x interval` to the 5-minute bucket the tick falls in: the machine from `snapshot.network.rxBps/txBps` (the adapters, virtual ones filtered as in the sampler; no admin needed) and each app from its rows' `netRxBps/netTxBps` (only filled while per-app network runs, so admin only). Apps use App history's key (lowercased exe path, else lowercased name); the System Idle Process is skipped. The machine total is also added to its local day. |
 | storage | `<history dir>/network.json` (`ORBIT_HISTORY_DIR`, else `%LOCALAPPDATA%\me.legacytech.orbit\history`): `{ version, names, buckets, days }`. Buckets are kept while they overlap the last 24 hours, days for 30 local days (today counts as one), names only while a bucket uses them. Read once when the folder is known (ticks recorded before that are added to it), rewritten whole at most once a minute, when recording is turned off and on exit (temp file + rename). A broken file is skipped with a log line. |
-| `get_network_usage(period)` | `spawn_blocking`. `hour` / `day`: the buckets that overlap the last 3600 / 86400 s, so the edge is rounded to 5 minutes. `week` / `month`: machine totals of the last 7 / 30 local days, and per-app bytes from `history::history_rows(7 / 30)` (App history's day files plus what is still in memory). `since` is the earliest tick counted in the period. Apps sorted by down + up. Any other period is "Pick a period: ...". |
+| `get_network_usage(period)` | `spawn_blocking`. `hour` / `day`: the buckets that overlap the last 3600 / 86400 s, so the edge is rounded to 5 minutes. `week` / `month`: machine totals of the last 7 / 30 local days, and per-app bytes from `history::history_rows(7 / 30)` (App history's day files plus what is still in memory). App history can reach further back than the day totals (they began with 1.5.0), so `with_app_totals` raises each total to at least what the apps add up to and moves `since` to the earliest app's `firstSeen` when that is earlier. `since` is otherwise the earliest tick counted in the period. Apps sorted by down + up. Any other period is "Pick a period: ...". |
 | Delete history / Remove from history | `clear_history` also empties memory and deletes `network.json`; `remove_history_app` drops that key from the buckets and rewrites the file. |
 | locking | One mutex. `usage()` lets go of it before reading App history, and App history never holds its own locks while asking for this one except in Delete/Remove (history `IO` first, then this), so there is no lock-order cycle. |
 
@@ -47,8 +47,8 @@ with network bytes. Delete history empties it. Flags: `?nonetusage`, `?netusagef
 - `cargo test --lib netusage`: bucket and day placement, a clock set back, the window overlap
   for an hour and 24 hours, day totals, pruning (24 h, 30 days, unused names), merging the
   file into ticks recorded before it, forgetting an app, the file round trip and a broken
-  file, grouping rows by app (case-insensitive paths, idle process and NaN skipped), and an
-  unknown period.
+  file, grouping rows by app (case-insensitive paths, idle process and NaN skipped), 7 / 30
+  day totals never below the apps' sum, and an unknown period.
 - `npm run test:ui`: the Usage tab in every theme (totals, 30 days lists apps with a share,
   the admin note, back to Connections), then as admin (last hour lists apps, the note
   changes), `?nonetusage` and `?netusagefail`.

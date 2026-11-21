@@ -447,6 +447,20 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
+/// The machine totals for 7 / 30 days may start later than App history's per-app bytes
+/// (the day totals only began with 1.5.0), so the totals are never less than the apps add up
+/// to, and `since` is the earlier of the two.
+fn with_app_totals(rx: f64, tx: f64, since: Option<u64>, rows: &[history::HistoryRow]) -> (f64, f64, Option<u64>) {
+    let app_rx: f64 = rows.iter().map(|r| r.net_rx_bytes as f64).sum();
+    let app_tx: f64 = rows.iter().map(|r| r.net_tx_bytes as f64).sum();
+    let first = rows.iter().map(|r| r.first_seen).filter(|&s| s > 0).min();
+    let since = match (since, first) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
+    (rx.max(app_rx), tx.max(app_tx), since)
+}
+
 fn usage(period: &str, now: u64) -> Result<NetworkUsage, String> {
     let recording = history::is_enabled();
     let mut st = lock();
@@ -464,9 +478,13 @@ fn usage(period: &str, now: u64) -> Result<NetworkUsage, String> {
             let (rx, tx, since) = st.store.days_total(first, today);
             drop(st);
             let from = (first * 86_400 - history::local_offset_secs()).max(0) as u64;
-            let apps = history::history_rows(days as u32)
+            let rows: Vec<_> = history::history_rows(days as u32)
                 .into_iter()
                 .filter(|r| r.net_rx_bytes + r.net_tx_bytes > 0)
+                .collect();
+            let (rx, tx, since) = with_app_totals(rx, tx, since, &rows);
+            let apps = rows
+                .into_iter()
                 .map(|r| UsageApp { key: r.key, name: r.name, exe: r.exe, rx_bytes: r.net_rx_bytes, tx_bytes: r.net_tx_bytes })
                 .collect();
             (from, rx, tx, since, apps)

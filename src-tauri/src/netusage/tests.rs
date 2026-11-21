@@ -207,6 +207,36 @@ fn tick_apps_groups_by_app_and_skips_rows_without_traffic() {
     assert_eq!((apps[1].rx, apps[1].tx), (0.0, 8.0));
 }
 
+fn row(rx: u64, tx: u64, first_seen: u64) -> history::HistoryRow {
+    history::HistoryRow {
+        key: "a.exe".into(),
+        name: "a.exe".into(),
+        exe: None,
+        cpu_seconds: 0.0,
+        max_memory: 0,
+        avg_memory: 0,
+        disk_read_bytes: 0,
+        disk_write_bytes: 0,
+        net_rx_bytes: rx,
+        net_tx_bytes: tx,
+        active_seconds: 0.0,
+        first_seen,
+        last_seen: first_seen,
+    }
+}
+
+#[test]
+fn long_period_totals_are_never_less_than_the_apps() {
+    // Day totals started later than App history: the apps' sum and start win.
+    let rows = [row(6_000, 100, T0 - 5 * 86_400), row(2_000, 50, 0)];
+    assert_eq!(with_app_totals(300.0, 40.0, Some(T0), &rows), (8_000.0, 150.0, Some(T0 - 5 * 86_400)));
+    // Day totals bigger (traffic no app was counted for): they stay.
+    assert_eq!(with_app_totals(9_000.0, 400.0, Some(T0 - 86_400), &rows), (9_000.0, 400.0, Some(T0 - 5 * 86_400)));
+    // No apps.
+    assert_eq!(with_app_totals(10.0, 5.0, Some(T0), &[]), (10.0, 5.0, Some(T0)));
+    assert_eq!(with_app_totals(0.0, 0.0, None, &[row(1, 1, T0)]), (1.0, 1.0, Some(T0)));
+}
+
 #[test]
 fn unknown_period_is_an_error() {
     assert!(usage("year", T0).is_err());
