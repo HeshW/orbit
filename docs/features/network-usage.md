@@ -72,7 +72,17 @@ window; a relaunch read it back and kept counting; Delete history zeroed the tot
 removed the file; the Usage tab, its admin note and the switch back to Connections (309
 live rows) worked.
 
+1.6.0 live (release exe on the owner's PC, unelevated, scratch copy of the real history dir,
+CDP): 7 days answered from Windows' record in 0.23 s (0.007 s cached): 91.1 GB down, 157 apps,
+Since 15 Nov (Orbit alone had counted 27 GB); 30 days 382 GB, 291 apps, Since 23 Oct. Exe paths
+got icons and App history's names; Store apps ("Claude") and "Not tied to an app" rows showed;
+the Windows note showed; 24 hours and the last hour stayed on Orbit's counts with the admin
+note. The real `%LOCALAPPDATA%\me.legacytech.orbit` was not touched.
+
 ## Not verified
+
+- Windows' record on a PC with a VPN or several saved networks (whether a VPN profile's bytes
+  are also in the real adapter's, which would count them twice).
 
 - Per-app bytes from real ETW rates (needs elevation; the 0.4 per-app path itself is still
   untested elevated).
