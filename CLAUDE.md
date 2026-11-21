@@ -68,3 +68,5 @@ Close the test copy by its PID, never by name.
 - Write Image File Execution Options keys, install a driver, or set Realtime priority.
 - Change `plugins.updater.pubkey` in `tauri.conf.json`: installed copies would stop updating.
 - Tag a release or update `main` without the owner's "Yes, release X".
+- Edit files with `sed` or regex replace: use the edit tool (they mangle Windows paths and backslashes).
+- Print a key or secret, or ask the owner for one in chat: he sets them in `.env` himself.
