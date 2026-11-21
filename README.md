@@ -1,7 +1,7 @@
 # Orbit
 
 A Windows task manager by LegacyTech. Rust (Tauri 2) backend, plain HTML/CSS/JS UI.
-See `PROPOSAL.md` for features and `docs/CONTRACT.md` for the internals.
+See `docs/archive/PROPOSAL.md` for the original plan and `docs/CONTRACT.md` for the internals.
 
 ## Download
 
@@ -22,14 +22,16 @@ The release notes are the commit subjects since the previous tag, so write them 
 
 ## Releasing
 
-1. Bump the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (and the
-   version text in `site/index.html`).
-2. Commit, push, then tag and push the tag: `git tag v0.3.1 && git push origin v0.3.1`.
-3. GitHub Actions (`.github/workflows/release.yml`) builds the installer in the cloud, signs
+1. Build the release on a `vX.Y` branch. Bump the version in `src-tauri/tauri.conf.json`,
+   `src-tauri/Cargo.toml` (and `Cargo.lock`) and the three spots in `site/index.html`.
+2. Live-test the built exe on the maintainer's PC (see `CLAUDE.md`, "Live testing the real exe").
+3. Only after the maintainer's "Yes, release X": fast-forward `main` to the branch, then tag and
+   push the tag: `git tag v1.4.2 && git push origin v1.4.2`.
+4. GitHub Actions (`.github/workflows/release.yml`) builds the installer in the cloud, signs
    the update and publishes the release with `latest.json` and `Orbit-Setup.exe`. Installed
    copies pick it up on their next start. Pushing to `main` also redeploys the landing page.
 
-Update signing works like RiftLens: the public key goes in `plugins.updater.pubkey` in
+Update signing: the public key goes in `plugins.updater.pubkey` in
 `tauri.conf.json`, and the private key and its password live only in the repo secrets
 `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Losing the private key
 means existing installs can't verify future updates (users would reinstall by hand once).
@@ -56,12 +58,9 @@ cargo build --release
 ```
 
 If cargo fails with "file in use" errors (os error 32 / LNK1104), build to a target
-folder outside the project and copy the exe back:
-
-```
-$env:CARGO_TARGET_DIR = "$env:TEMP\orbit-target"
-cargo build --release
-```
+folder outside the project and copy the exe back. Use a folder of your own, for example
+`$env:CARGO_TARGET_DIR = "C:\orbit-target"`, then `cargo build --release`. On the
+maintainer's PC use only the shared folder named in `CLAUDE.md` (Commands), never `%TEMP%`.
 
 `cargo test` runs the unit tests.
 

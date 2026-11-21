@@ -1,6 +1,6 @@
 # Orbit build contract (for implementers)
 
-Read `../PROPOSAL.md` first for the product. This file fixes the file layout, the
+Read `archive/PROPOSAL.md` first for the product. This file fixes the file layout, the
 Rust <-> UI API and the frontend module APIs so parallel work fits together.
 Do NOT change a name or shape here without saying so in your final report.
 
@@ -8,7 +8,7 @@ Do NOT change a name or shape here without saying so in your final report.
 
 ```
 orbit/
-  PROPOSAL.md
+  docs/archive/PROPOSAL.md
   docs/CONTRACT.md
   ui/                         # frontendDist (static, no build step)
     index.html

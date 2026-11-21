@@ -1,6 +1,6 @@
 # Orbit roadmap — future features
 
-## Status (after 1.1.0)
+## Status (through 1.4.1)
 
 | # | Item | Status |
 |---|------|--------|
@@ -294,7 +294,7 @@ with feature #4 (if both on, the takeover should launch the already-elevated ins
 
 ---
 
-## 6. Known gaps left from v1 (from PROPOSAL.md "Limits")
+## 6. Known gaps left from v1 (from archive/PROPOSAL.md "Limits")
 
 The owner already flagged these; listing so the roadmap is complete. None is a bug — they
 are honest limits of what v1 measures:
