@@ -81,7 +81,10 @@ fn desktop_shell_execute(file: &str, args: &str, op: &str) -> windows::core::Res
             let sp: IServiceProvider = disp.cast()?;
             let browser: IShellBrowser = sp.QueryService(&SID_STopLevelBrowser)?;
             let view: IShellView = browser.QueryActiveShellView()?;
-            let folder_view: IShellFolderViewDual = view.GetItemObject(SVGIO_BACKGROUND)?;
+            // The view hands out its background object as IDispatch only; asking for
+            // IShellFolderViewDual directly fails with E_NOINTERFACE.
+            let background: IDispatch = view.GetItemObject(SVGIO_BACKGROUND)?;
+            let folder_view: IShellFolderViewDual = background.cast()?;
             let app: IShellDispatch2 = folder_view.Application()?.cast()?;
             app.ShellExecute(
                 &BSTR::from(file),

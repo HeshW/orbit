@@ -313,6 +313,25 @@ impl VolumeIndex {
 /// A lowercased query, ready to score names.
 pub struct Query {
     q: String,
+    /// The query's letters without spaces, when it is plain ASCII: every match
+    /// tier needs them in order in the name, so names without them are skipped
+    /// before any lowercasing or allocation.
+    letters: Option<Vec<u8>>,
+}
+
+/// True when every byte of `letters` appears in `name` in order, ignoring ASCII case.
+fn has_in_order(name: &[u8], letters: &[u8]) -> bool {
+    let mut want = letters.iter();
+    let Some(mut next) = want.next() else { return true };
+    for b in name {
+        if b.to_ascii_lowercase() == *next {
+            match want.next() {
+                Some(n) => next = n,
+                None => return true,
+            }
+        }
+    }
+    false
 }
 
 fn is_boundary(c: char) -> bool {
@@ -321,7 +340,9 @@ fn is_boundary(c: char) -> bool {
 
 impl Query {
     pub fn new(q: &str) -> Self {
-        Self { q: q.trim().to_lowercase() }
+        let q = q.trim().to_lowercase();
+        let letters = q.is_ascii().then(|| q.bytes().filter(|b| *b != b' ').collect());
+        Self { q, letters }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -340,8 +361,17 @@ impl Query {
             return -1;
         }
         lower.clear();
-        for c in name.chars() {
-            lower.extend(c.to_lowercase());
+        if name.is_ascii() {
+            if let Some(letters) = &self.letters {
+                if !has_in_order(name.as_bytes(), letters) {
+                    return -1;
+                }
+            }
+            lower.extend(name.chars().map(|c| c.to_ascii_lowercase()));
+        } else {
+            for c in name.chars() {
+                lower.extend(c.to_lowercase());
+            }
         }
         let h = lower.as_str();
         let penalty = (h.len().saturating_sub(q.len()) as i32 / 2).min(400);

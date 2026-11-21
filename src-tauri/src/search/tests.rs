@@ -224,6 +224,23 @@ fn ranking_tiers() {
 }
 
 #[test]
+fn quick_skip_keeps_every_tier() {
+    // The in-order letter check skips names early; every kind of match must still pass it.
+    let q = Query::new("Visual Studio");
+    assert_eq!(q.score("visual studio"), 10_000, "exact, with a space");
+    assert!(q.score("Visual Studio Code") >= 7_000, "prefix");
+    assert!(q.score("My Visual Studio.lnk") > 5_000, "word start");
+    assert!(q.score("visualstudio.exe") > 0, "in order, query spaces ignored");
+    assert!(Query::new("VSC").score("Visual Studio Code") >= 2_000, "initials, upper-case query");
+    assert!(Query::new("left-pad").score("chevron-left-no-padding.png") > 0, "letters in order");
+    assert_eq!(Query::new("left-pad").score("padleft.js"), -1, "letters out of order");
+    assert_eq!(Query::new("notepad++").score("notepad.exe"), -1, "missing letters");
+    assert!(Query::new("cafe").score("CAFE.TXT") > 7_000, "ASCII case");
+    assert!(Query::new("résumé").score("Résumé 2026.docx") > 7_000, "non-ASCII query still matches");
+    assert!(Query::new("resume").score("RESUME-é.pdf") > 7_000, "non-ASCII name still matches");
+}
+
+#[test]
 fn top_k_keeps_the_best_and_searches_the_index() {
     let mut t = TopK::new(2);
     for (s, r) in [(5, 1), (9, 2), (1, 3), (7, 4)] {
