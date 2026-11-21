@@ -57,13 +57,16 @@ with network bytes. Delete history empties it. Flags: `?nonetusage`, `?netusagef
   `network.json`.
 
 Checked: `cargo test` (321 passed, 14 ignored), `npm run test:ui` (92 checks), the mock in the
-browser at 1320x840 and 960x620 unelevated and as admin, no console errors.
+browser at 1320x840 and 960x620 unelevated and as admin, no console errors. Live (release
+exe on the owner's PC, unelevated, scratch `ORBIT_HISTORY_DIR`, CDP): all four periods
+answer and "year" is refused; totals grow with the adapters' rates; `network.json` (one
+bucket and today's total, 218 bytes) was written after a minute and again on closing the
+window; a relaunch read it back and kept counting; Delete history zeroed the totals and
+removed the file; the Usage tab, its admin note and the switch back to Connections (309
+live rows) worked.
 
 ## Not verified
 
-- The real exe: the owner's installed Orbit was running, so no test copy could start.
-  `record` on real snapshots, `network.json` being written, read back after a restart and
-  deleted by Delete history were not run live.
 - Per-app bytes from real ETW rates (needs elevation; the 0.4 per-app path itself is still
   untested elevated).
 - A real midnight, the 24-hour prune over a long session, and a clock change.
