@@ -1,5 +1,7 @@
 # Orbit release plan: auto-update and code signing
 
+**Status (23 Nov 2026, Orbit 1.6.0):** the LICENSE (MIT) and the auto-updater have shipped. Code signing is still open: releases are unsigned and SmartScreen may warn. The rest of this plan is the 8 Nov research, kept as written.
+
 Research only, written 2026-11-08. Nothing in the project was changed. Prices and eligibility rules change often,
 so every claim cites the page it came from and the date it was read (all read 2026-11-08 unless noted).
 Anything marked **(unverified)** could not be confirmed on an official page.
