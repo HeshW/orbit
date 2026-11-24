@@ -343,7 +343,7 @@ pattern rather than demanding elevation up front.
 
 ---
 
-## 7. Optimize (planned for 0.5)
+## 7. Optimize (shipped in 0.5)
 
 The owner asked for something that helps optimize and speed up PCs, in the spirit of IObit
 Driver Booster. The plan keeps the useful part and skips the risky part. Orbit stays local
@@ -449,7 +449,7 @@ These are common in "optimizer" apps but don't help, so Orbit won't ship them:
 
 ---
 
-## 8. Next release (planned for 0.6)
+## 8. Shipped in 0.6
 
 The owner's list after 0.5.0. Planning only; API names are **(unverified)** until built.
 
@@ -555,7 +555,7 @@ tasks are offered only when on the reviewed list. See `docs/features/debloat.md`
 
 ---
 
-## 9. Next release (planned for 0.7)
+## 9. Shipped in 0.7
 
 The owner's list after 0.6.0. Planning only; API names are **(unverified)** until built.
 
@@ -620,7 +620,7 @@ has °C / °F. Details in `docs/features/sensors.md`.
 
 ---
 
-## 10. Next release (planned for 0.8)
+## 10. Shipped in 0.8
 
 The owner's notes after 0.7.0.
 
@@ -706,7 +706,7 @@ measurement do not see them. Details in `docs/features/startup.md`.
 
 ---
 
-## 11. Next release (planned for 0.9): per-app rules
+## 11. Shipped in 0.9: per-app rules
 
 The owner's spec: set an app's CPU priority (and related settings) once, and Orbit applies it
 every time the app starts. Example: "League of Legends.exe" sometimes starts at low priority
@@ -802,7 +802,7 @@ time. If it's built later: opt-in per rule, admin only, writes only `PerfOptions
 3. "Only while in front", Boost link, backup, reset, master switch (11b).
 4. Efficiency mode (Windows 11 only).
 
-## 12. Next release (planned for 1.0)
+## 12. Shipped in 1.0
 
 Started 2026-11-19 on branch `v1.0`. The scope is the two items below.
 
@@ -833,7 +833,7 @@ process running; a pid pin whose process already ended is dropped, so pin that a
   and `pinGroup` (name pin) in `ui/js/views/processes.js`, `settings.watchlist` and
   `settings.watchNames` in `ui/js/store.js`.
 
-## Ideas from WinRust (planned for 1.2 to 1.4)
+## Ideas from WinRust (shipped in 1.2 to 1.4)
 
 Written 2026-11-20 after reading WinRust (github.com/Lemxy/WinRust), a set of small Rust
 programs that replace parts of the Windows shell. Most of its task manager is already in Orbit
@@ -859,7 +859,7 @@ route and are **(unverified)** until each feature is built.
   auto-start): Orbit installs to a folder users can write to, so anything that starts its code
   elevated without asking is a privilege-escalation hole. Search (16) works without one.
 
-## 14. Next release (planned for 1.2)
+## 14. Shipped in 1.2
 
 ### 14a. Services on svchost rows — S
 
@@ -930,7 +930,7 @@ something already sits at the original path it says so and leaves both alone.
 2. Developer leftovers (14b) and the hold (14c) together: the category ships with the hold, never
    without it.
 
-## 15. Next release (planned for 1.3)
+## 15. Shipped in 1.3
 
 ### 15a. Fast folder sizes from the NTFS file table — M–L
 
@@ -976,7 +976,7 @@ already returns. Works with both scan methods (15a and the folder walk). Colours
 1. File table reader (15a) behind Biggest folders, with the folder walk as the fallback.
 2. Disk map (15b) on top of either scan.
 
-## 16. Next release (planned for 1.4): file search
+## 16. Shipped in 1.4: file search
 
 **What it does.** File and folder names become searchable from the Ctrl+K palette: type part of
 a name and matching files show under the views and actions. Enter opens the file, Ctrl+Enter
